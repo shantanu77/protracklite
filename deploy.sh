@@ -18,6 +18,10 @@ require_clean_worktree() {
 }
 
 push_code() {
+  if [[ "${SKIP_PUSH:-0}" == "1" ]]; then
+    echo "Skipping git push because SKIP_PUSH=1."
+    return
+  fi
   echo "Pushing main to origin..."
   git push origin main
 }
