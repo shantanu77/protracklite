@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ org.name }}</p>
+    <h1>{{ user.full_name }}</h1>
+    <p>Default view: this week plus all pending work.</p>
+  </div>
+  <a class="button" href="/{{ org.slug }}/tasks/new">Create Task</a>
+</section>
+
+<div class="grid">
+  <section class="panel">
+    <h2>Today's Focus</h2>
+    {% for task in groups.today %}
+    <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
+      <span class="chip">{{ task.task_id }}</span>
+      <strong>{{ task.name }}</strong>
+      <small>{{ task.status.value }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
+    </a>
+    {% else %}<p class="empty">No tasks landing today.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>This Week</h2>
+    {% for task in groups.week %}
+    <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
+      <span class="chip">{{ task.task_id }}</span>
+      <strong>{{ task.name }}</strong>
+      <small>{{ task.start_date }}{% if task.end_date %} to {{ task.end_date }}{% endif %}</small>
+    </a>
+    {% else %}<p class="empty">Nothing planned yet.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>Overdue</h2>
+    {% for task in groups.overdue %}
+    <a class="task-card danger" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
+      <span class="chip">{{ task.task_id }}</span>
+      <strong>{{ task.name }}</strong>
+      <small>End date {{ task.end_date }}</small>
+    </a>
+    {% else %}<p class="empty">No overdue work.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>Pending</h2>
+    {% for task in groups.pending %}
+    <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
+      <span class="chip">{{ task.task_id }}</span>
+      <strong>{{ task.name }}</strong>
+      <small>{{ task.status.value }}</small>
+    </a>
+    {% else %}<p class="empty">No backlog items.</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

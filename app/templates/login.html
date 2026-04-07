@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ org.name }} Login</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="landing">
+  <section class="auth-card">
+    <h1>{{ org.name }}</h1>
+    <p>Sign in to <strong>Protrack<em>Lite</em></strong> under <code>/{{ org.slug }}/</code></p>
+    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+    <form method="post" class="stack">
+      <label>Email<input name="email" type="email" required></label>
+      <label>Password<input name="password" type="password" required></label>
+      <button type="submit">Login</button>
+    </form>
+    <p class="hint">Seed admin: <code>admin@solulever.com</code> / <code>ChangeMe123</code></p>
+  </section>
+</body>
+</html>

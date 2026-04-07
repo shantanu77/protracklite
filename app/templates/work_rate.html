@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">My Reports</p>
+    <h1>Work Rate</h1>
+  </div>
+</section>
+
+<form class="panel compact-form" method="get">
+  <label>From<input type="date" name="from_date" value="{{ from_date }}"></label>
+  <label>To<input type="date" name="to_date" value="{{ to_date }}"></label>
+  <button type="submit">Refresh</button>
+</form>
+
+<div class="stats">
+  <div class="stat"><span>Available</span><strong>{{ report.available_hours }}h</strong></div>
+  <div class="stat"><span>Logged</span><strong>{{ report.total_logged_hours }}h</strong></div>
+  <div class="stat"><span>Total Rate</span><strong>{{ report.total_rate }}%</strong></div>
+  <div class="stat"><span>Chargeable</span><strong>{{ report.chargeable_hours }}h</strong></div>
+  <div class="stat"><span>Effective</span><strong>{{ report.effective_rate }}%</strong></div>
+</div>
+
+<div class="grid two">
+  <section class="panel">
+    <h2>By Activity Type</h2>
+    {% for row in report.by_activity %}
+    <div class="list-row"><strong>{{ row.label }}</strong><span>{{ row.hours }}h</span></div>
+    {% else %}<p class="empty">No time logs in this range.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>By Project</h2>
+    {% for row in report.by_project %}
+    <div class="list-row"><strong>Project #{{ row.project_id }}</strong><span>{{ row.hours }}h</span></div>
+    {% else %}<p class="empty">No project data yet.</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

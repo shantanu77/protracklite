@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Admin</p>
+    <h1>Users</h1>
+  </div>
+</section>
+<div class="grid two">
+  <form method="post" class="panel form-grid">
+    <h2 class="full">Add User</h2>
+    <label>Full Name<input name="full_name" required></label>
+    <label>Email<input name="email" type="email" required></label>
+    <label>Role
+      <select name="role">
+        {% for role in roles %}
+        <option value="{{ role.value }}">{{ role.value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Create User</button>
+  </form>
+  <section class="panel">
+    <h2>Existing Users</h2>
+    {% for person in people %}
+    <form method="post" action="/{{ org.slug }}/admin/users/{{ person.id }}" class="admin-item">
+      <label>Full Name<input name="full_name" value="{{ person.full_name }}" required></label>
+      <label>Role
+        <select name="role">
+          {% for role in roles %}
+          <option value="{{ role.value }}" {% if role == person.role %}selected{% endif %}>{{ role.value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="admin-actions">
+        <label class="checkbox"><input type="checkbox" name="is_active" {% if person.is_active %}checked{% endif %}>Active</label>
+        <label class="checkbox"><input type="checkbox" name="reset_password">Reset Password</label>
+        <button type="submit">Save</button>
+      </div>
+      <small>{{ person.email }}</small>
+    </form>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

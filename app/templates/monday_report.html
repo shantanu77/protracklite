@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Weekly Planning</p>
+    <h1>Monday Report</h1>
+  </div>
+</section>
+<div class="grid">
+  <section class="panel">
+    <h2>Carry-forwards</h2>
+    {% for task in report.pending %}
+    <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
+    {% else %}<p class="empty">No carry-forwards.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>Completed Last Week</h2>
+    {% for task in report.completed %}
+    <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
+    {% else %}<p class="empty">Nothing closed in the prior window.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>This Week's Plan</h2>
+    {% for task in report.planned %}
+    <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
+    {% else %}<p class="empty">No planned tasks yet.</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

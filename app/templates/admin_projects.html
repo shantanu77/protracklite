@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Admin</p>
+    <h1>Projects</h1>
+  </div>
+</section>
+<div class="grid two">
+  <form method="post" class="panel form-grid">
+    <h2 class="full">Add Project</h2>
+    <label>Name<input name="name" required></label>
+    <label>Code<input name="code" maxlength="10" required></label>
+    <label class="full">Description<textarea name="description" rows="5"></textarea></label>
+    <button type="submit">Create Project</button>
+  </form>
+  <section class="panel">
+    <h2>Existing Projects</h2>
+    {% for project in projects %}
+    <form method="post" action="/{{ org.slug }}/admin/projects/{{ project.id }}" class="admin-item">
+      <label>Name<input name="name" value="{{ project.name }}" required></label>
+      <label>Code<input name="code" value="{{ project.code }}" required></label>
+      <label class="full">Description<textarea name="description" rows="4">{{ project.description }}</textarea></label>
+      <div class="admin-actions">
+        <label class="checkbox"><input type="checkbox" name="is_active" {% if project.is_active %}checked{% endif %}>Active</label>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

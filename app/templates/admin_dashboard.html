@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Admin</p>
+    <h1>Dashboard</h1>
+  </div>
+</section>
+<div class="admin-links">
+  <a class="card quick-link" href="/{{ org.slug }}/admin/users">Manage Users</a>
+  <a class="card quick-link" href="/{{ org.slug }}/admin/projects">Manage Projects</a>
+  <a class="card quick-link" href="/{{ org.slug }}/admin/tasks">Manage Tasks</a>
+  <a class="card quick-link" href="/{{ org.slug }}/admin/holidays">Manage Holidays</a>
+  <a class="card quick-link" href="/{{ org.slug }}/admin/settings">Weekend Settings</a>
+</div>
+<div class="stats">
+  <div class="stat"><span>Active Employees</span><strong>{{ summary.employees }}</strong></div>
+  <div class="stat"><span>Created This Month</span><strong>{{ summary.tasks_created_month }}</strong></div>
+  <div class="stat"><span>Closed This Month</span><strong>{{ summary.tasks_closed_month }}</strong></div>
+  <div class="stat"><span>Weekend Days</span><strong>{{ settings.weekend_days|join(', ') }}</strong></div>
+</div>
+<section class="panel">
+  <h2>Team Performance</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Available</th>
+          <th>Logged</th>
+          <th>Total %</th>
+          <th>Chargeable</th>
+          <th>Effective %</th>
+          <th>Open</th>
+          <th>Closed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><a href="/{{ org.slug }}/team/{{ row.member.id }}/tasks">{{ row.member.full_name }}</a></td>
+          <td>{{ row.rates.available_hours }}</td>
+          <td>{{ row.rates.total_logged_hours }}</td>
+          <td>{{ row.rates.total_rate }}</td>
+          <td>{{ row.rates.chargeable_hours }}</td>
+          <td>{{ row.rates.effective_rate }}</td>
+          <td>{{ row.open_tasks }}</td>
+          <td>{{ row.closed_tasks }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

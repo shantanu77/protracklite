@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "ProtrackLite" }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebar-inner">
+        <a class="brand" href="/{{ org.slug if org else '' }}/dashboard">
+          <span class="brand-mark">P</span>
+          <span>Protrack<span class="lite">Lite</span></span>
+        </a>
+        {% if user %}
+        <button class="nav-toggle" aria-label="Toggle menu" onclick="this.nextElementSibling.classList.toggle('open')">&#9776;</button>
+        <nav class="nav-drawer">
+          <a href="/{{ org.slug }}/dashboard">Home</a>
+          <a href="/{{ org.slug }}/tasks/new">My Tasks</a>
+          <a href="/{{ org.slug }}/reports/work-rate">Work Rate</a>
+          <a href="/{{ org.slug }}/reports/monday">Monday Report</a>
+          {% if user.role.value == "admin" %}
+          <a href="/{{ org.slug }}/admin/dashboard">Admin</a>
+          <a href="/{{ org.slug }}/admin/users">Users</a>
+          <a href="/{{ org.slug }}/admin/projects">Projects</a>
+          <a href="/{{ org.slug }}/admin/tasks">Tasks</a>
+          <a href="/{{ org.slug }}/admin/holidays">Holidays</a>
+          <a href="/{{ org.slug }}/admin/settings">Settings</a>
+          {% endif %}
+          <form method="post" action="/{{ org.slug }}/logout">
+            <button type="submit" class="logout-btn">Logout</button>
+          </form>
+        </nav>
+        {% endif %}
+      </div>
+    </aside>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

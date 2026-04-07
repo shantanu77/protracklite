@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Team Visibility</p>
+    <h1>{{ teammate.full_name }}</h1>
+    <p>Public tasks only.</p>
+  </div>
+</section>
+<section class="panel">
+  {% for task in tasks %}
+  <div class="list-row">
+    <strong>{{ task.task_id }}</strong>
+    <span>{{ task.name }}</span>
+    <small>{{ task.status.value }} · {{ "%.2f"|format(task.logged_hours or 0) }}h</small>
+  </div>
+  {% else %}<p class="empty">No public tasks available.</p>{% endfor %}
+</section>
+{% endblock %}

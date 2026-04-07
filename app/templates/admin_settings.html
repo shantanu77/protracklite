@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Admin</p>
+    <h1>Org Settings</h1>
+  </div>
+</section>
+<form method="post" class="panel stack">
+  <h2>Weekend Configuration</h2>
+  <div class="weekday-grid">
+    {% for day in weekdays %}
+    <label class="checkbox">
+      <input type="checkbox" name="weekend_days" value="{{ day }}" {% if day in settings.weekend_days %}checked{% endif %}>
+      {% if day == 0 %}Monday{% elif day == 1 %}Tuesday{% elif day == 2 %}Wednesday{% elif day == 3 %}Thursday{% elif day == 4 %}Friday{% elif day == 5 %}Saturday{% else %}Sunday{% endif %}
+    </label>
+    {% endfor %}
+  </div>
+  <label>Work Hours Per Day<input type="number" step="0.25" min="1" name="work_hours_per_day" value="{{ settings.work_hours_per_day }}" required></label>
+  <button type="submit">Save Settings</button>
+</form>
+{% endblock %}

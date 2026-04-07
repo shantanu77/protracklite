@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Organizations</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="landing">
+  <section class="hero">
+    <h1>Choose an organization</h1>
+    <p>Organization context is scoped by URL slug, matching the product spec.</p>
+    <div class="grid cards">
+      {% for org in orgs %}
+      <a class="card" href="/{{ org.slug }}/login">
+        <h2>{{ org.name }}</h2>
+        <p>/{{ org.slug }}/login</p>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+</body>
+</html>
