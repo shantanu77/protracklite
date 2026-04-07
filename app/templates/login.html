@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ org.name }} Login</title>
   <link rel="stylesheet" href="/static/styles.css">
-  {% if hcaptcha_site_key %}
-  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
-  {% endif %}
 </head>
 <body class="landing">
   <section class="login-shell">
@@ -42,11 +39,13 @@
       <div class="login-divider"><span>Forgot your password?</span></div>
       <form method="post" action="/{{ org.slug }}/forgot-password" class="stack login-form forgot-form">
         <label>Email<input name="email" type="email" placeholder="you@company.com" required></label>
-        {% if hcaptcha_site_key %}
-        <div class="h-captcha" data-sitekey="{{ hcaptcha_site_key }}"></div>
-        {% else %}
-        <div class="alert">Forgot password is unavailable until hCaptcha is configured.</div>
-        {% endif %}
+        <input type="hidden" name="captcha_left" value="{{ captcha_left }}">
+        <input type="hidden" name="captcha_right" value="{{ captcha_right }}">
+        <input type="hidden" name="captcha_issued_at" value="{{ captcha_issued_at }}">
+        <input type="hidden" name="captcha_signature" value="{{ captcha_signature }}">
+        <label>Captcha
+          <input name="captcha_answer" inputmode="numeric" placeholder="What is {{ captcha_left }} + {{ captcha_right }}?" required>
+        </label>
         <button type="submit">Reset Password</button>
       </form>
       {% if forgot_error %}<div class="alert">{{ forgot_error }}</div>{% endif %}

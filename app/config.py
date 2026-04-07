@@ -17,8 +17,6 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = "no-reply@task.omnihire.in"
     base_domain: str = "task.omnihire.in"
-    hcaptcha_site_key: str = ""
-    hcaptcha_secret: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

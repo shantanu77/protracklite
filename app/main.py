@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 import smtplib
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from email.message import EmailMessage
 from typing import Any
 
 import bleach
-import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -74,27 +76,48 @@ def send_email(recipient: str, subject: str, body: str) -> None:
         server.send_message(message)
 
 
-def verify_hcaptcha_token(token: str, remote_ip: str | None = None) -> tuple[bool, list[str]]:
-    if not settings.hcaptcha_secret:
-        return False, ["missing-input-secret"]
-
-    payload = {
-        "secret": settings.hcaptcha_secret,
-        "response": token,
+def build_forgot_password_captcha(org_slug: str) -> dict[str, str | int]:
+    left = secrets.randbelow(8) + 2
+    right = secrets.randbelow(8) + 1
+    issued_at = int(datetime.now(UTC).timestamp())
+    payload = f"{org_slug}:{left}:{right}:{issued_at}"
+    signature = hmac.new(settings.secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return {
+        "captcha_left": left,
+        "captcha_right": right,
+        "captcha_issued_at": issued_at,
+        "captcha_signature": signature,
     }
-    if remote_ip:
-        payload["remoteip"] = remote_ip
-    if settings.hcaptcha_site_key:
-        payload["sitekey"] = settings.hcaptcha_site_key
 
+
+def verify_forgot_password_captcha(
+    org_slug: str,
+    answer: str,
+    left: str,
+    right: str,
+    issued_at: str,
+    signature: str,
+) -> bool:
+    if not all([answer, left, right, issued_at, signature]):
+        return False
     try:
-        response = httpx.post("https://api.hcaptcha.com/siteverify", data=payload, timeout=10.0)
-        response.raise_for_status()
-        data = response.json()
-    except httpx.HTTPError:
-        return False, ["captcha-verification-failed"]
+        left_value = int(left)
+        right_value = int(right)
+        issued_at_value = int(issued_at)
+        answer_value = int(answer)
+    except ValueError:
+        return False
 
-    return bool(data.get("success")), data.get("error-codes", [])
+    age = int(datetime.now(UTC).timestamp()) - issued_at_value
+    if age < 0 or age > 600:
+        return False
+
+    payload = f"{org_slug}:{left_value}:{right_value}:{issued_at_value}"
+    expected_signature = hmac.new(settings.secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return False
+
+    return answer_value == left_value + right_value
 
 
 def issue_temporary_password(user: User) -> str:
@@ -103,6 +126,26 @@ def issue_temporary_password(user: User) -> str:
     user.force_password_change = True
     user.temp_password_expires = datetime.utcnow() + timedelta(hours=24)
     return temp_password
+
+
+def render_login(
+    request: Request,
+    org: Organization,
+    *,
+    status_code: int = 200,
+    error: str | None = None,
+    forgot_error: str | None = None,
+    forgot_success: str | None = None,
+):
+    context = {
+        "request": request,
+        "org": org,
+        "error": error,
+        "forgot_error": forgot_error,
+        "forgot_success": forgot_success,
+        **build_forgot_password_captcha(org.slug),
+    }
+    return templates.TemplateResponse("login.html", context, status_code=status_code)
 
 
 def get_org_or_404(db: Session, org_slug: str) -> Organization:
@@ -250,17 +293,7 @@ def root(request: Request, db: Session = Depends(get_db)):
 @app.get("/{org_slug}/login", response_class=HTMLResponse)
 def login_page(request: Request, org_slug: str, db: Session = Depends(get_db)):
     org = get_org_or_404(db, org_slug)
-    return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
-            "org": org,
-            "error": None,
-            "forgot_error": None,
-            "forgot_success": None,
-            "hcaptcha_site_key": settings.hcaptcha_site_key,
-        },
-    )
+    return render_login(request, org)
 
 
 @app.post("/{org_slug}/login")
@@ -274,18 +307,7 @@ def login_action(
     org = get_org_or_404(db, org_slug)
     user = db.scalar(select(User).where(User.email == email.strip().lower(), User.org_id == org.id))
     if not user or not verify_password(password, user.password_hash):
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "org": org,
-                "error": "Invalid email or password",
-                "forgot_error": None,
-                "forgot_success": None,
-                "hcaptcha_site_key": settings.hcaptcha_site_key,
-            },
-            status_code=400,
-        )
+        return render_login(request, org, status_code=400, error="Invalid email or password")
 
     response = RedirectResponse(url=f"/{org_slug}/dashboard", status_code=303)
     issue_auth_cookies(response, user, org_slug)
@@ -351,54 +373,24 @@ def forgot_password_action(
     request: Request,
     org_slug: str,
     email: str = Form(...),
-    h_captcha_response: str = Form("", alias="h-captcha-response"),
+    captcha_answer: str = Form(""),
+    captcha_left: str = Form(""),
+    captcha_right: str = Form(""),
+    captcha_issued_at: str = Form(""),
+    captcha_signature: str = Form(""),
     db: Session = Depends(get_db),
 ):
     org = get_org_or_404(db, org_slug)
 
-    if not settings.hcaptcha_site_key or not settings.hcaptcha_secret:
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "org": org,
-                "error": None,
-                "forgot_error": "Forgot password is not configured yet.",
-                "forgot_success": None,
-                "hcaptcha_site_key": settings.hcaptcha_site_key,
-            },
-            status_code=400,
-        )
-
-    if not h_captcha_response:
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "org": org,
-                "error": None,
-                "forgot_error": "Please complete the captcha challenge.",
-                "forgot_success": None,
-                "hcaptcha_site_key": settings.hcaptcha_site_key,
-            },
-            status_code=400,
-        )
-
-    verified, error_codes = verify_hcaptcha_token(h_captcha_response, request.client.host if request.client else None)
-    if not verified:
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "org": org,
-                "error": None,
-                "forgot_error": "Captcha verification failed. Please try again.",
-                "forgot_success": None,
-                "hcaptcha_site_key": settings.hcaptcha_site_key,
-                "captcha_errors": error_codes,
-            },
-            status_code=400,
-        )
+    if not verify_forgot_password_captcha(
+        org.slug,
+        captcha_answer,
+        captcha_left,
+        captcha_right,
+        captcha_issued_at,
+        captcha_signature,
+    ):
+        return render_login(request, org, status_code=400, forgot_error="Captcha answer was incorrect. Please try again.")
 
     user = db.scalar(select(User).where(User.email == email.strip().lower(), User.org_id == org.id))
     if user:
@@ -409,17 +401,7 @@ def forgot_password_action(
         except Exception:
             print(f"[forgot-password] {user.email}: {temp_password}")
 
-    return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
-            "org": org,
-            "error": None,
-            "forgot_error": None,
-            "forgot_success": "If the account exists, a new temporary password has been sent.",
-            "hcaptcha_site_key": settings.hcaptcha_site_key,
-        },
-    )
+    return render_login(request, org, forgot_success="If the account exists, a new temporary password has been sent.")
 
 
 @app.get("/{org_slug}/dashboard", response_class=HTMLResponse)
