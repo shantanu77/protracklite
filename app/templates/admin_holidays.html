@@ -4,6 +4,7 @@
   <div>
     <p class="eyebrow">Admin</p>
     <h1>Holidays</h1>
+    <p>Keep the org calendar current so work-rate calculations stay accurate.</p>
   </div>
 </section>
 <div class="grid two">
@@ -14,7 +15,10 @@
     <button type="submit">Add Holiday</button>
   </form>
   <section class="panel">
-    <h2>Holiday Calendar</h2>
+    <div class="panel-head">
+      <h2>Holiday Calendar</h2>
+      <p>Configured org-wide non-working days.</p>
+    </div>
     {% for holiday in holidays %}
     <form method="post" action="/{{ org.slug }}/admin/holidays/{{ holiday.id }}/delete" class="list-row holiday-row">
       <strong>{{ holiday.holiday_date }}</strong>

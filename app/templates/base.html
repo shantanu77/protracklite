@@ -10,29 +10,46 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebar-inner">
-        <a class="brand" href="/{{ org.slug if org else '' }}/dashboard">
-          <span class="brand-mark">P</span>
-          <span>Protrack<span class="lite">Lite</span></span>
-        </a>
+        <div class="sidebar-top">
+          <a class="brand" href="/{{ org.slug if org else '' }}/dashboard">
+            <span class="brand-mark">P</span>
+            <span class="brand-text">
+              <span class="brand-name">Protrack<span class="lite">Lite</span></span>
+              <span class="brand-subtitle">Task clarity for the week</span>
+            </span>
+          </a>
         {% if user %}
-        <button class="nav-toggle" aria-label="Toggle menu" onclick="this.nextElementSibling.classList.toggle('open')">&#9776;</button>
+          <button class="nav-toggle" aria-label="Toggle menu" onclick="document.querySelector('.nav-drawer').classList.toggle('open')">&#9776;</button>
+        </div>
+        <div class="sidebar-user">
+          <strong>{{ user.full_name }}</strong>
+          <span>{{ org.name }}</span>
+        </div>
         <nav class="nav-drawer">
-          <a href="/{{ org.slug }}/dashboard">Home</a>
-          <a href="/{{ org.slug }}/tasks/new">My Tasks</a>
-          <a href="/{{ org.slug }}/reports/work-rate">Work Rate</a>
-          <a href="/{{ org.slug }}/reports/monday">Monday Report</a>
+          <div class="nav-group">
+            <div class="nav-section">Workspace</div>
+            <a class="nav-link primary" href="/{{ org.slug }}/dashboard">Dashboard</a>
+            <a class="nav-link" href="/{{ org.slug }}/tasks/new">Create Task</a>
+            <a class="nav-link" href="/{{ org.slug }}/reports/work-rate">Work Rate</a>
+            <a class="nav-link" href="/{{ org.slug }}/reports/monday">Monday Report</a>
+          </div>
           {% if user.role.value == "admin" %}
-          <a href="/{{ org.slug }}/admin/dashboard">Admin</a>
-          <a href="/{{ org.slug }}/admin/users">Users</a>
-          <a href="/{{ org.slug }}/admin/projects">Projects</a>
-          <a href="/{{ org.slug }}/admin/tasks">Tasks</a>
-          <a href="/{{ org.slug }}/admin/holidays">Holidays</a>
-          <a href="/{{ org.slug }}/admin/settings">Settings</a>
+          <div class="nav-group">
+            <div class="nav-section">Admin</div>
+            <a class="nav-link" href="/{{ org.slug }}/admin/dashboard">Overview</a>
+            <a class="nav-link" href="/{{ org.slug }}/admin/users">Users</a>
+            <a class="nav-link" href="/{{ org.slug }}/admin/projects">Projects</a>
+            <a class="nav-link" href="/{{ org.slug }}/admin/tasks">Tasks</a>
+            <a class="nav-link" href="/{{ org.slug }}/admin/holidays">Holidays</a>
+            <a class="nav-link" href="/{{ org.slug }}/admin/settings">Settings</a>
+          </div>
           {% endif %}
-          <form method="post" action="/{{ org.slug }}/logout">
+          <form class="logout-form" method="post" action="/{{ org.slug }}/logout">
             <button type="submit" class="logout-btn">Logout</button>
           </form>
         </nav>
+        {% else %}
+        </div>
         {% endif %}
       </div>
     </aside>

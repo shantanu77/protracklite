@@ -7,16 +7,41 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="landing">
-  <section class="auth-card">
-    <h1>{{ org.name }}</h1>
-    <p>Sign in to <strong>Protrack<em>Lite</em></strong> under <code>/{{ org.slug }}/</code></p>
-    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-    <form method="post" class="stack">
-      <label>Email<input name="email" type="email" required></label>
-      <label>Password<input name="password" type="password" required></label>
-      <button type="submit">Login</button>
-    </form>
-    <p class="hint">Seed admin: <code>admin@solulever.com</code> / <code>ChangeMe123</code></p>
+  <section class="login-shell">
+    <div class="login-hero">
+      <div class="login-badge">Protrack<em>Lite</em></div>
+      <h1>{{ org.name }}</h1>
+      <p class="login-copy">A cleaner weekly task view for focused work, reporting, and admin control.</p>
+      <div class="login-points">
+        <div class="login-point">
+          <strong>Scoped Access</strong>
+          <span>Signed in under <code>/{{ org.slug }}/</code> so the org context is always explicit.</span>
+        </div>
+        <div class="login-point">
+          <strong>Fast Daily Use</strong>
+          <span>Tasks, time logging, and reports from the same mobile-friendly workspace.</span>
+        </div>
+      </div>
+    </div>
+
+    <section class="auth-card login-card">
+      <div class="login-card-head">
+        <p class="eyebrow">Welcome Back</p>
+        <h2>Sign in</h2>
+        <p>Use your org email and password to continue.</p>
+      </div>
+      {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+      <form method="post" class="stack login-form">
+        <label>Email<input name="email" type="email" placeholder="you@company.com" required></label>
+        <label>Password<input name="password" type="password" placeholder="Enter your password" required></label>
+        <button type="submit">Login</button>
+      </form>
+      <div class="login-help">
+        <span>Org slug</span>
+        <code>/{{ org.slug }}/</code>
+      </div>
+      <p class="hint">Seed admin: <code>admin@solulever.com</code> / <code>ChangeMe123</code></p>
+    </section>
   </section>
 </body>
 </html>

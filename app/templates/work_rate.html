@@ -4,6 +4,7 @@
   <div>
     <p class="eyebrow">My Reports</p>
     <h1>Work Rate</h1>
+    <p>Review available hours, logged effort, and chargeable work over a custom date range.</p>
   </div>
 </section>
 
@@ -23,13 +24,19 @@
 
 <div class="grid two">
   <section class="panel">
-    <h2>By Activity Type</h2>
+    <div class="panel-head">
+      <h2>By Activity Type</h2>
+      <p>Where your time is going.</p>
+    </div>
     {% for row in report.by_activity %}
     <div class="list-row"><strong>{{ row.label }}</strong><span>{{ row.hours }}h</span></div>
     {% else %}<p class="empty">No time logs in this range.</p>{% endfor %}
   </section>
   <section class="panel">
-    <h2>By Project</h2>
+    <div class="panel-head">
+      <h2>By Project</h2>
+      <p>Project-level hour distribution.</p>
+    </div>
     {% for row in report.by_project %}
     <div class="list-row"><strong>Project #{{ row.project_id }}</strong><span>{{ row.hours }}h</span></div>
     {% else %}<p class="empty">No project data yet.</p>{% endfor %}

@@ -6,12 +6,17 @@
     <h1>{{ user.full_name }}</h1>
     <p>Default view: this week plus all pending work.</p>
   </div>
-  <a class="button" href="/{{ org.slug }}/tasks/new">Create Task</a>
+  <div class="page-head-actions">
+    <a class="button" href="/{{ org.slug }}/tasks/new">Create Task</a>
+  </div>
 </section>
 
 <div class="grid">
   <section class="panel">
-    <h2>Today's Focus</h2>
+    <div class="panel-head">
+      <h2>Today's Focus</h2>
+      <p>Immediate work and in-flight priorities.</p>
+    </div>
     {% for task in groups.today %}
     <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
       <span class="chip">{{ task.task_id }}</span>
@@ -21,7 +26,10 @@
     {% else %}<p class="empty">No tasks landing today.</p>{% endfor %}
   </section>
   <section class="panel">
-    <h2>This Week</h2>
+    <div class="panel-head">
+      <h2>This Week</h2>
+      <p>Planned work in the current window.</p>
+    </div>
     {% for task in groups.week %}
     <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
       <span class="chip">{{ task.task_id }}</span>
@@ -31,7 +39,10 @@
     {% else %}<p class="empty">Nothing planned yet.</p>{% endfor %}
   </section>
   <section class="panel">
-    <h2>Overdue</h2>
+    <div class="panel-head">
+      <h2>Overdue</h2>
+      <p>Tasks that need attention first.</p>
+    </div>
     {% for task in groups.overdue %}
     <a class="task-card danger" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
       <span class="chip">{{ task.task_id }}</span>
@@ -41,7 +52,10 @@
     {% else %}<p class="empty">No overdue work.</p>{% endfor %}
   </section>
   <section class="panel">
-    <h2>Pending</h2>
+    <div class="panel-head">
+      <h2>Pending</h2>
+      <p>Backlog items without immediate deadlines.</p>
+    </div>
     {% for task in groups.pending %}
     <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
       <span class="chip">{{ task.task_id }}</span>

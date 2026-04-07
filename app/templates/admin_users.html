@@ -4,6 +4,7 @@
   <div>
     <p class="eyebrow">Admin</p>
     <h1>Users</h1>
+    <p>Add team members, update roles, and manage access without leaving the page.</p>
   </div>
 </section>
 <div class="grid two">
@@ -21,7 +22,10 @@
     <button type="submit">Create User</button>
   </form>
   <section class="panel">
-    <h2>Existing Users</h2>
+    <div class="panel-head">
+      <h2>Existing Users</h2>
+      <p>Update roles, active status, or reset passwords.</p>
+    </div>
     {% for person in people %}
     <form method="post" action="/{{ org.slug }}/admin/users/{{ person.id }}" class="admin-item">
       <label>Full Name<input name="full_name" value="{{ person.full_name }}" required></label>

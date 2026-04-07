@@ -4,23 +4,33 @@
   <div>
     <p class="eyebrow">Weekly Planning</p>
     <h1>Monday Report</h1>
+    <p>Carry-forwards, last week closures, and this week’s planned tasks in one view.</p>
   </div>
 </section>
 <div class="grid">
   <section class="panel">
-    <h2>Carry-forwards</h2>
+    <div class="panel-head">
+      <h2>Carry-forwards</h2>
+      <p>Open work from before this week.</p>
+    </div>
     {% for task in report.pending %}
     <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
     {% else %}<p class="empty">No carry-forwards.</p>{% endfor %}
   </section>
   <section class="panel">
-    <h2>Completed Last Week</h2>
+    <div class="panel-head">
+      <h2>Completed Last Week</h2>
+      <p>Tasks closed in the previous weekly window.</p>
+    </div>
     {% for task in report.completed %}
     <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
     {% else %}<p class="empty">Nothing closed in the prior window.</p>{% endfor %}
   </section>
   <section class="panel">
-    <h2>This Week's Plan</h2>
+    <div class="panel-head">
+      <h2>This Week's Plan</h2>
+      <p>Tasks starting in the current week.</p>
+    </div>
     {% for task in report.planned %}
     <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
     {% else %}<p class="empty">No planned tasks yet.</p>{% endfor %}

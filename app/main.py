@@ -186,6 +186,14 @@ def org_activity_types(db: Session, org_id: int) -> list[ActivityType]:
     ).all()
 
 
+def user_tasks(db: Session, org_id: int, user_id: int) -> list[Task]:
+    return db.scalars(
+        select(Task)
+        .where(Task.org_id == org_id, Task.assigned_to == user_id)
+        .order_by(Task.status.asc(), Task.start_date.desc(), Task.created_at.desc())
+    ).all()
+
+
 def get_org_settings(db: Session, org_id: int) -> OrgSettings:
     settings_obj = db.scalar(select(OrgSettings).where(OrgSettings.org_id == org_id))
     if settings_obj:
@@ -319,7 +327,8 @@ def new_task_page(request: Request, org_user: tuple[Organization, User] = Depend
             "projects": org_projects(db, org.id),
             "activity_types": org_activity_types(db, org.id),
             "statuses": list(TaskStatus),
-            "people": org_people(db, org.id),
+            "today": date.today(),
+            "tasks": user_tasks(db, org.id, user.id),
         },
     )
 
@@ -336,7 +345,6 @@ def create_task_page(
     estimated_hours: Decimal | None = Form(None),
     status_value: TaskStatus = Form(TaskStatus.NOT_STARTED, alias="status"),
     is_private: bool = Form(False),
-    assigned_to: int | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -345,17 +353,11 @@ def create_task_page(
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    assignee_id = user.id
-    if user.role == Role.ADMIN and assigned_to:
-        assignee = db.get(User, assigned_to)
-        if assignee and assignee.org_id == org.id and assignee.is_active:
-            assignee_id = assignee.id
-
     task = Task(
         task_id=next_task_id(project),
         org_id=org.id,
         project_id=project.id,
-        assigned_to=assignee_id,
+        assigned_to=user.id,
         created_by=user.id,
         name=name,
         description=sanitize_html(description),

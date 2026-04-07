@@ -4,6 +4,7 @@
   <div>
     <p class="eyebrow">Admin</p>
     <h1>Dashboard</h1>
+    <p>High-level team activity, rates, and shortcuts to the main admin areas.</p>
   </div>
 </section>
 <div class="admin-links">
@@ -20,7 +21,10 @@
   <div class="stat"><span>Weekend Days</span><strong>{{ settings.weekend_days|join(', ') }}</strong></div>
 </div>
 <section class="panel">
-  <h2>Team Performance</h2>
+  <div class="panel-head">
+    <h2>Team Performance</h2>
+    <p>Current month availability, effort, and task counts.</p>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>

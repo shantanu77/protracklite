@@ -4,6 +4,7 @@
   <div>
     <p class="eyebrow">Admin</p>
     <h1>Projects</h1>
+    <p>Manage active project codes and keep descriptions consistent across the team.</p>
   </div>
 </section>
 <div class="grid two">
@@ -15,7 +16,10 @@
     <button type="submit">Create Project</button>
   </form>
   <section class="panel">
-    <h2>Existing Projects</h2>
+    <div class="panel-head">
+      <h2>Existing Projects</h2>
+      <p>Edit names, codes, and availability.</p>
+    </div>
     {% for project in projects %}
     <form method="post" action="/{{ org.slug }}/admin/projects/{{ project.id }}" class="admin-item">
       <label>Name<input name="name" value="{{ project.name }}" required></label>
