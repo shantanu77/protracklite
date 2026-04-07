@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from typing import Any
 
 import bleach
+import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,6 +72,37 @@ def send_email(recipient: str, subject: str, body: str) -> None:
             server.starttls()
             server.login(settings.smtp_username, settings.smtp_password)
         server.send_message(message)
+
+
+def verify_hcaptcha_token(token: str, remote_ip: str | None = None) -> tuple[bool, list[str]]:
+    if not settings.hcaptcha_secret:
+        return False, ["missing-input-secret"]
+
+    payload = {
+        "secret": settings.hcaptcha_secret,
+        "response": token,
+    }
+    if remote_ip:
+        payload["remoteip"] = remote_ip
+    if settings.hcaptcha_site_key:
+        payload["sitekey"] = settings.hcaptcha_site_key
+
+    try:
+        response = httpx.post("https://api.hcaptcha.com/siteverify", data=payload, timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPError:
+        return False, ["captcha-verification-failed"]
+
+    return bool(data.get("success")), data.get("error-codes", [])
+
+
+def issue_temporary_password(user: User) -> str:
+    temp_password = generate_temp_password()
+    user.password_hash = hash_password(temp_password)
+    user.force_password_change = True
+    user.temp_password_expires = datetime.utcnow() + timedelta(hours=24)
+    return temp_password
 
 
 def get_org_or_404(db: Session, org_slug: str) -> Organization:
@@ -218,7 +250,17 @@ def root(request: Request, db: Session = Depends(get_db)):
 @app.get("/{org_slug}/login", response_class=HTMLResponse)
 def login_page(request: Request, org_slug: str, db: Session = Depends(get_db)):
     org = get_org_or_404(db, org_slug)
-    return templates.TemplateResponse("login.html", {"request": request, "org": org, "error": None})
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "org": org,
+            "error": None,
+            "forgot_error": None,
+            "forgot_success": None,
+            "hcaptcha_site_key": settings.hcaptcha_site_key,
+        },
+    )
 
 
 @app.post("/{org_slug}/login")
@@ -234,7 +276,14 @@ def login_action(
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "org": org, "error": "Invalid email or password"},
+            {
+                "request": request,
+                "org": org,
+                "error": "Invalid email or password",
+                "forgot_error": None,
+                "forgot_success": None,
+                "hcaptcha_site_key": settings.hcaptcha_site_key,
+            },
             status_code=400,
         )
 
@@ -287,10 +336,7 @@ def api_forgot_password(payload: dict, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == payload["email"].strip().lower(), User.org_id == org.id))
     if not user:
         return {"ok": True}
-    temp_password = generate_temp_password()
-    user.password_hash = hash_password(temp_password)
-    user.force_password_change = True
-    user.temp_password_expires = datetime.utcnow() + timedelta(hours=24)
+    temp_password = issue_temporary_password(user)
     db.commit()
     try:
         send_email(user.email, "ProtrackLite temporary password", f"Your temporary password is: {temp_password}")
@@ -298,6 +344,82 @@ def api_forgot_password(payload: dict, db: Session = Depends(get_db)):
         # Keep local development usable even without SMTP.
         print(f"[forgot-password] {user.email}: {temp_password}")
     return {"ok": True}
+
+
+@app.post("/{org_slug}/forgot-password")
+def forgot_password_action(
+    request: Request,
+    org_slug: str,
+    email: str = Form(...),
+    h_captcha_response: str = Form("", alias="h-captcha-response"),
+    db: Session = Depends(get_db),
+):
+    org = get_org_or_404(db, org_slug)
+
+    if not settings.hcaptcha_site_key or not settings.hcaptcha_secret:
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "org": org,
+                "error": None,
+                "forgot_error": "Forgot password is not configured yet.",
+                "forgot_success": None,
+                "hcaptcha_site_key": settings.hcaptcha_site_key,
+            },
+            status_code=400,
+        )
+
+    if not h_captcha_response:
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "org": org,
+                "error": None,
+                "forgot_error": "Please complete the captcha challenge.",
+                "forgot_success": None,
+                "hcaptcha_site_key": settings.hcaptcha_site_key,
+            },
+            status_code=400,
+        )
+
+    verified, error_codes = verify_hcaptcha_token(h_captcha_response, request.client.host if request.client else None)
+    if not verified:
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "org": org,
+                "error": None,
+                "forgot_error": "Captcha verification failed. Please try again.",
+                "forgot_success": None,
+                "hcaptcha_site_key": settings.hcaptcha_site_key,
+                "captcha_errors": error_codes,
+            },
+            status_code=400,
+        )
+
+    user = db.scalar(select(User).where(User.email == email.strip().lower(), User.org_id == org.id))
+    if user:
+        temp_password = issue_temporary_password(user)
+        db.commit()
+        try:
+            send_email(user.email, "ProtrackLite temporary password", f"Your temporary password is: {temp_password}")
+        except Exception:
+            print(f"[forgot-password] {user.email}: {temp_password}")
+
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "org": org,
+            "error": None,
+            "forgot_error": None,
+            "forgot_success": "If the account exists, a new temporary password has been sent.",
+            "hcaptcha_site_key": settings.hcaptcha_site_key,
+        },
+    )
 
 
 @app.get("/{org_slug}/dashboard", response_class=HTMLResponse)
@@ -951,7 +1073,23 @@ def admin_holidays_page(request: Request, org_user: tuple[Organization, User] = 
     org, user = org_user
     must_be_admin(user)
     holidays = db.scalars(select(Holiday).where(Holiday.org_id == org.id).order_by(Holiday.holiday_date.desc())).all()
-    return templates.TemplateResponse("admin_holidays.html", {"request": request, "org": org, "user": user, "holidays": holidays})
+    today = date.today()
+    upcoming_holidays = [holiday for holiday in holidays if holiday.holiday_date >= today]
+    next_holiday = min(upcoming_holidays, key=lambda holiday: holiday.holiday_date, default=None)
+    current_year_count = sum(1 for holiday in holidays if holiday.holiday_date.year == today.year)
+    return templates.TemplateResponse(
+        "admin_holidays.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "holidays": holidays,
+            "today": today,
+            "next_holiday": next_holiday,
+            "upcoming_count": len(upcoming_holidays),
+            "current_year_count": current_year_count,
+        },
+    )
 
 
 @app.post("/{org_slug}/admin/holidays")

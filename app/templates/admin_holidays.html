@@ -7,27 +7,56 @@
     <p>Keep the org calendar current so work-rate calculations stay accurate.</p>
   </div>
 </section>
-<div class="grid two">
-  <form method="post" class="panel form-grid">
-    <h2 class="full">Add Holiday</h2>
-    <label>Date<input type="date" name="holiday_date" required></label>
-    <label>Name<input name="name" required></label>
-    <button type="submit">Add Holiday</button>
+<div class="stats holiday-stats">
+  <div class="stat">
+    <span>This Year</span>
+    <strong>{{ current_year_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Upcoming</span>
+    <strong>{{ upcoming_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Next Holiday</span>
+    <strong>{% if next_holiday %}{{ next_holiday.holiday_date.strftime('%d %b') }}{% else %}None{% endif %}</strong>
+  </div>
+</div>
+
+<div class="grid holiday-layout">
+  <form method="post" class="panel holiday-form">
+    <div class="panel-head">
+      <h2>Add Holiday</h2>
+      <p>Create one org-wide non-working day.</p>
+    </div>
+    <div class="form-grid">
+      <label>Date<input type="date" name="holiday_date" value="{{ today }}" required></label>
+      <label>Name<input name="name" placeholder="Diwali, Independence Day..." required></label>
+      <button type="submit">Add Holiday</button>
+    </div>
   </form>
-  <section class="panel">
+
+  <section class="panel holiday-panel">
     <div class="panel-head">
       <h2>Holiday Calendar</h2>
       <p>Configured org-wide non-working days.</p>
     </div>
-    {% for holiday in holidays %}
-    <form method="post" action="/{{ org.slug }}/admin/holidays/{{ holiday.id }}/delete" class="list-row holiday-row">
-      <strong>{{ holiday.holiday_date }}</strong>
-      <span>{{ holiday.name }}</span>
-      <button type="submit" class="danger-button">Delete</button>
-    </form>
-    {% else %}
-    <p class="empty">No holidays configured.</p>
-    {% endfor %}
+    <div class="holiday-list">
+      {% for holiday in holidays %}
+      <form method="post" action="/{{ org.slug }}/admin/holidays/{{ holiday.id }}/delete" class="holiday-item">
+        <div class="holiday-date">
+          <strong>{{ holiday.holiday_date.strftime('%d') }}</strong>
+          <span>{{ holiday.holiday_date.strftime('%b %Y') }}</span>
+        </div>
+        <div class="holiday-copy">
+          <strong>{{ holiday.name }}</strong>
+          <span>{% if holiday.holiday_date >= today %}Upcoming{% else %}Past holiday{% endif %}</span>
+        </div>
+        <button type="submit" class="danger-button holiday-delete">Delete</button>
+      </form>
+      {% else %}
+      <p class="empty">No holidays configured.</p>
+      {% endfor %}
+    </div>
   </section>
 </div>
 {% endblock %}
