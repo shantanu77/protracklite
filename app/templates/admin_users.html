@@ -7,43 +7,136 @@
     <p>Add team members, update roles, and manage access without leaving the page.</p>
   </div>
 </section>
-<div class="grid two">
-  <form method="post" class="panel form-grid">
-    <h2 class="full">Add User</h2>
-    <label>Full Name<input name="full_name" required></label>
-    <label>Email<input name="email" type="email" required></label>
-    <label>Role
-      <select name="role">
-        {% for role in roles %}
-        <option value="{{ role.value }}">{{ role.value }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button type="submit">Create User</button>
-  </form>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Existing Users</h2>
-      <p>Update roles, active status, or reset passwords.</p>
+<section class="panel data-grid" data-grid>
+  <div class="grid-toolbar">
+    <div class="grid-toolbar-main">
+      <div>
+        <h2>User Directory</h2>
+        <p>Use the same searchable grid pattern as projects for admin team management.</p>
+      </div>
+      <div class="grid-toolbar-actions">
+        <span class="grid-toolbar-meta" data-grid-count></span>
+        <button type="button" class="button" data-modal-open="user-create-modal">Add User</button>
+      </div>
     </div>
-    {% for person in people %}
-    <form method="post" action="/{{ org.slug }}/admin/users/{{ person.id }}" class="admin-item">
-      <label>Full Name<input name="full_name" value="{{ person.full_name }}" required></label>
+    <div class="grid-controls">
+      <label class="grid-search">Search
+        <input type="search" placeholder="Search by name or email" data-grid-search>
+      </label>
+      <div class="grid-filters">
+        <label>Role
+          <select data-grid-filter="role">
+            <option value="">All</option>
+            {% for role in roles %}
+            <option value="{{ role.value }}">{{ role.value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Status
+          <select data-grid-filter="status">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for person in people %}
+        <tr
+          data-grid-row
+          data-grid-search="{{ person.full_name }} {{ person.email }}"
+          data-role="{{ person.role.value }}"
+          data-status="{% if person.is_active %}active{% else %}inactive{% endif %}"
+        >
+          <td><strong>{{ person.full_name }}</strong></td>
+          <td>{{ person.email }}</td>
+          <td><span class="badge">{{ person.role.value }}</span></td>
+          <td>
+            <span class="badge {% if person.is_active %}success{% else %}danger{% endif %}">
+              {% if person.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </td>
+          <td>{{ person.created_at.strftime('%d %b %Y') }}</td>
+          <td>
+            <div class="table-actions">
+              <button
+                type="button"
+                class="button secondary small"
+                data-modal-open="user-edit-modal"
+                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "role": person.role.value, "is_active": person.is_active, "reset_password": false}|tojson|e }}'
+              >
+                Edit
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="grid-empty empty" data-grid-empty hidden>No users match the current search and filters.</p>
+</section>
+
+<div class="modal-backdrop" id="user-create-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="user-create-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="user-create-title">Add User</h2>
+        <p>Create a new team member from the shared admin modal flow.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close add user modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Full Name<input name="full_name" required></label>
+      <label>Email<input name="email" type="email" required></label>
       <label>Role
         <select name="role">
           {% for role in roles %}
-          <option value="{{ role.value }}" {% if role == person.role %}selected{% endif %}>{{ role.value }}</option>
+          <option value="{{ role.value }}">{{ role.value }}</option>
           {% endfor %}
         </select>
       </label>
-      <div class="admin-actions">
-        <label class="checkbox"><input type="checkbox" name="is_active" {% if person.is_active %}checked{% endif %}>Active</label>
-        <label class="checkbox"><input type="checkbox" name="reset_password">Reset Password</label>
-        <button type="submit">Save</button>
-      </div>
-      <small>{{ person.email }}</small>
+      <button type="submit">Create User</button>
     </form>
-    {% endfor %}
-  </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="user-edit-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="user-edit-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="user-edit-title">Edit User</h2>
+        <p>Update role, account status, or trigger a password reset.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close edit user modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label class="full">Full Name<input name="full_name" required></label>
+      <label>Role
+        <select name="role">
+          {% for role in roles %}
+          <option value="{{ role.value }}">{{ role.value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="checkbox"><input type="checkbox" name="is_active">Active</label>
+      <label class="checkbox"><input type="checkbox" name="reset_password">Reset Password</label>
+      <button type="submit">Save Changes</button>
+    </form>
+  </div>
 </div>
 {% endblock %}

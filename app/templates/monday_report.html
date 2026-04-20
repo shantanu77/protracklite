@@ -4,36 +4,216 @@
   <div>
     <p class="eyebrow">Weekly Planning</p>
     <h1>Monday Report</h1>
-    <p>Carry-forwards, last week closures, and this week’s planned tasks in one view.</p>
+    <p>Last week summary, this week starts, active pending work, completed tasks, and stalled items.</p>
   </div>
 </section>
+<div class="stats">
+  <div class="stat">
+    <span>Last Week Closed</span>
+    <strong>{{ report.previous_week_closed_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Last Week Effort</span>
+    <strong>{{ report.previous_week_effort_hours }}h</strong>
+  </div>
+  <div class="stat">
+    <span>Booked %</span>
+    <strong>{{ report.previous_week_effort_rate }}%</strong>
+  </div>
+  <div class="stat">
+    <span>Last Week Window</span>
+    <strong>{{ report.previous_week_start }} to {{ report.previous_week_end }}</strong>
+  </div>
+</div>
 <div class="grid">
   <section class="panel">
     <div class="panel-head">
-      <h2>Carry-forwards</h2>
-      <p>Open work from before this week.</p>
+      <div>
+        <h2>This Week Tasks</h2>
+        <p>Tasks assigned to you that start in the current week.</p>
+      </div>
+      <div class="page-head-actions">
+        <button type="button" class="button" data-modal-open="backlog-to-week-modal">Add From Backlog</button>
+      </div>
     </div>
-    {% for task in report.pending %}
-    <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
-    {% else %}<p class="empty">No carry-forwards.</p>{% endfor %}
+    {% for task in report.this_week_tasks %}
+    <div class="list-row deadline-card {{ task.deadline_tone }}">
+      <div>
+        <div class="report-row-head">
+          <strong>{{ task.task_id }}</strong>
+          <div class="report-row-badges">
+            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
+            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+          </div>
+        </div>
+        <span>{{ task.name }}</span>
+        <small>
+          Starts {{ task.start_date }}
+          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+        </small>
+      </div>
+    </div>
+    {% else %}<p class="empty">No open tasks in this week.</p>{% endfor %}
   </section>
   <section class="panel">
     <div class="panel-head">
-      <h2>Completed Last Week</h2>
-      <p>Tasks closed in the previous weekly window.</p>
+      <h2>Pending Tasks</h2>
+      <p>All open tasks assigned to you that are not stalled and started before this week.</p>
     </div>
-    {% for task in report.completed %}
-    <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
-    {% else %}<p class="empty">Nothing closed in the prior window.</p>{% endfor %}
+    {% for task in report.pending_tasks %}
+    <div class="list-row deadline-card {{ task.deadline_tone }}">
+      <div>
+        <div class="report-row-head">
+          <strong>{{ task.task_id }}</strong>
+          <div class="report-row-badges">
+            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
+            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+          </div>
+        </div>
+        <span>{{ task.name }}</span>
+        <small>
+          Starts {{ task.start_date }}
+          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+          {% if task.overdue_days %} · overdue by {{ task.overdue_days }} day{% if task.overdue_days != 1 %}s{% endif %}{% endif %}
+        </small>
+      </div>
+    </div>
+    {% else %}<p class="empty">No pending non-stalled tasks.</p>{% endfor %}
   </section>
   <section class="panel">
     <div class="panel-head">
-      <h2>This Week's Plan</h2>
-      <p>Tasks starting in the current week.</p>
+      <h2>Completed Tasks</h2>
+      <p>Tasks closed in the previous week, with estimated versus actual effort.</p>
     </div>
-    {% for task in report.planned %}
-    <div class="list-row"><strong>{{ task.task_id }}</strong><span>{{ task.name }}</span></div>
-    {% else %}<p class="empty">No planned tasks yet.</p>{% endfor %}
+    {% for task in report.completed_tasks %}
+    <div class="list-row deadline-card upcoming">
+      <div>
+        <div class="report-row-head">
+          <strong>{{ task.task_id }}</strong>
+          <div class="report-row-badges">
+            <span class="report-hours-pill emphasis">{{ "%.2f"|format(task.logged_hours or 0) }}h actual</span>
+            <span class="badge success">closed</span>
+            <span class="deadline-pill {{ task.effort_tone }}">{{ task.effort_label }}</span>
+          </div>
+        </div>
+        <span>{{ task.name }}</span>
+        <small>
+          Started {{ task.start_date }}
+          {% if task.end_date %} · end date {{ task.end_date }}{% endif %}
+          {% if task.closed_at %} · closed {{ task.closed_at }}{% endif %}
+          · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h
+        </small>
+      </div>
+    </div>
+    {% else %}<p class="empty">No tasks were closed last week.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Stalled Tasks</h2>
+      <p>Tasks marked stalled, along with the reason recorded on the task.</p>
+    </div>
+    {% for task in report.stalled_tasks %}
+    <div class="list-row deadline-card {{ task.deadline_tone }}">
+      <div>
+        <div class="report-row-head">
+          <strong>{{ task.task_id }}</strong>
+          <div class="report-row-badges">
+            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="badge danger">stalled</span>
+            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+          </div>
+        </div>
+        <span>{{ task.name }}</span>
+        <small>
+          Starts {{ task.start_date }}
+          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+        </small>
+        <p>{{ task.stalled_reason or "No stalled reason recorded." }}</p>
+      </div>
+    </div>
+    {% else %}<p class="empty">No stalled tasks.</p>{% endfor %}
   </section>
 </div>
+
+<div class="modal-backdrop" id="backlog-to-week-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide backlog-planner-modal" role="dialog" aria-modal="true" aria-labelledby="backlog-to-week-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="backlog-to-week-title">Add Backlog To This Week</h2>
+        <p>Select backlog tasks to schedule for {{ report.week_start }} to {{ report.week_end }}.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close backlog planner">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/reports/monday/add-from-backlog" class="stack backlog-planner-form" data-backlog-form>
+      {% if report.backlog_tasks %}
+      <div class="table-wrap backlog-planner-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Select</th>
+              <th>Task</th>
+              <th>Current Dates</th>
+              <th>This Week End Date</th>
+              <th>Planned Effort</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in report.backlog_tasks %}
+            <tr>
+              <td>
+                <input type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" data-backlog-toggle="{{ task.task_id }}">
+              </td>
+              <td class="backlog-task-cell">
+                <strong>{{ task.task_id }}</strong><br>
+                <small>{{ task.name }}</small>
+              </td>
+              <td class="backlog-date-cell">
+                <small>
+                  {% if task.start_date %}Starts {{ task.start_date }}{% else %}No start date{% endif %}
+                  {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+                </small>
+              </td>
+              <td class="backlog-input-cell">
+                <input type="date" name="end_date_{{ task.task_id }}" value="{{ report.week_end }}" data-backlog-input="{{ task.task_id }}" disabled>
+              </td>
+              <td class="backlog-input-cell">
+                <input type="number" name="estimated_hours_{{ task.task_id }}" step="0.25" min="0.25" value="8" data-backlog-input="{{ task.task_id }}" disabled>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="empty">Selected tasks will be moved into this week with start date set to {{ report.week_start }}.</p>
+      {% else %}
+      <p class="empty">No backlog items are available right now. A backlog task is any open, non-stalled task without start date, end date, or planned effort.</p>
+      {% endif %}
+      <button type="submit">Add To This Week</button>
+    </form>
+  </div>
+</div>
+<script>
+  (() => {
+    const form = document.querySelector("[data-backlog-form]");
+    if (!form) {
+      return;
+    }
+
+    form.querySelectorAll("[data-backlog-toggle]").forEach((toggle) => {
+      const taskCode = toggle.dataset.backlogToggle;
+      const inputs = form.querySelectorAll(`[data-backlog-input="${taskCode}"]`);
+
+      function syncRow() {
+        inputs.forEach((input) => {
+          input.disabled = !toggle.checked;
+        });
+      }
+
+      toggle.addEventListener("change", syncRow);
+      syncRow();
+    });
+  })();
+</script>
 {% endblock %}

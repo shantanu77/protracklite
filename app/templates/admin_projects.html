@@ -1,36 +1,140 @@
 {% extends "base.html" %}
 {% block content %}
+{% set project_stats = namespace(active=0, inactive=0) %}
+{% for project in projects %}
+  {% if project.is_active %}
+    {% set project_stats.active = project_stats.active + 1 %}
+  {% else %}
+    {% set project_stats.inactive = project_stats.inactive + 1 %}
+  {% endif %}
+{% endfor %}
 <section class="page-head">
   <div>
     <p class="eyebrow">Admin</p>
     <h1>Projects</h1>
-    <p>Manage active project codes and keep descriptions consistent across the team.</p>
+    <p>Manage delivery streams from one cleaner directory with better scanability, editing, and filtering.</p>
   </div>
 </section>
-<div class="grid two">
-  <form method="post" class="panel form-grid">
-    <h2 class="full">Add Project</h2>
-    <label>Name<input name="name" required></label>
-    <label>Code<input name="code" maxlength="10" required></label>
-    <label class="full">Description<textarea name="description" rows="5"></textarea></label>
-    <button type="submit">Create Project</button>
-  </form>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Existing Projects</h2>
-      <p>Edit names, codes, and availability.</p>
+<section class="project-overview">
+  <div class="project-overview-copy">
+    <span class="project-kicker">Project Control</span>
+    <h2>All projects in one workspace</h2>
+    <p>Scan status quickly, search by code or description, and open focused edit forms without dealing with stacked inline fields.</p>
+  </div>
+  <div class="project-overview-stats">
+    <div class="project-stat">
+      <span>Total Projects</span>
+      <strong>{{ projects|length }}</strong>
     </div>
-    {% for project in projects %}
-    <form method="post" action="/{{ org.slug }}/admin/projects/{{ project.id }}" class="admin-item">
-      <label>Name<input name="name" value="{{ project.name }}" required></label>
-      <label>Code<input name="code" value="{{ project.code }}" required></label>
-      <label class="full">Description<textarea name="description" rows="4">{{ project.description }}</textarea></label>
-      <div class="admin-actions">
-        <label class="checkbox"><input type="checkbox" name="is_active" {% if project.is_active %}checked{% endif %}>Active</label>
-        <button type="submit">Save</button>
+    <div class="project-stat">
+      <span>Active</span>
+      <strong>{{ project_stats.active }}</strong>
+    </div>
+    <div class="project-stat">
+      <span>Inactive</span>
+      <strong>{{ project_stats.inactive }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel data-grid project-directory" data-grid>
+  <div class="grid-toolbar project-toolbar">
+    <div class="grid-toolbar-main">
+      <div>
+        <h2>Project Directory</h2>
+        <p>Use quick search and status filters, then edit from a dedicated window.</p>
       </div>
-    </form>
+      <div class="grid-toolbar-actions">
+        <span class="grid-toolbar-meta" data-grid-count></span>
+        <button type="button" class="button project-primary-action" data-modal-open="project-create-modal">Add Project</button>
+      </div>
+    </div>
+    <div class="grid-controls">
+      <label class="grid-search">Search
+        <input type="search" placeholder="Search by name, code, or description" data-grid-search>
+      </label>
+      <div class="grid-filters">
+        <label>Status
+          <select data-grid-filter="status">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+  <div class="project-card-grid">
+    {% for project in projects %}
+    <article
+      class="project-card"
+      data-grid-row
+      data-grid-search="{{ project.name }} {{ project.code }} {{ project.description }}"
+      data-status="{% if project.is_active %}active{% else %}inactive{% endif %}"
+    >
+      <div class="project-card-top">
+        <div>
+          <span class="project-code">{{ project.code }}</span>
+          <h3>{{ project.name }}</h3>
+        </div>
+        <span class="badge {% if project.is_active %}success{% else %}danger{% endif %}">
+          {% if project.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </div>
+      <p class="project-description">{{ project.description or "No description added yet." }}</p>
+      <div class="project-meta">
+        <span>Created {{ project.created_at.strftime('%d %b %Y') }}</span>
+      </div>
+      <div class="project-card-actions">
+        <button
+          type="button"
+          class="button secondary small"
+          data-modal-open="project-edit-modal"
+          data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/projects/" ~ project.id, "name": project.name, "code": project.code, "description": project.description, "is_active": project.is_active}|tojson|e }}'
+        >
+          Edit Project
+        </button>
+      </div>
+    </article>
     {% endfor %}
-  </section>
+  </div>
+  <p class="grid-empty empty" data-grid-empty hidden>No projects match the current search and filters.</p>
+</section>
+
+<div class="modal-backdrop" id="project-create-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide project-modal" role="dialog" aria-modal="true" aria-labelledby="project-create-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="project-create-title">Add Project</h2>
+        <p>Create a new project without leaving the directory view.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close add project modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Name<input name="name" required></label>
+      <label>Code<input name="code" maxlength="10" required></label>
+      <label class="full">Description<textarea name="description" rows="5"></textarea></label>
+      <button type="submit">Create Project</button>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="project-edit-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide project-modal" role="dialog" aria-modal="true" aria-labelledby="project-edit-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="project-edit-title">Edit Project</h2>
+        <p>Update project details in a dedicated modal form.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close edit project modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Name<input name="name" required></label>
+      <label>Code<input name="code" maxlength="10" required></label>
+      <label class="full">Description<textarea name="description" rows="5"></textarea></label>
+      <label class="checkbox full"><input type="checkbox" name="is_active">Active</label>
+      <button type="submit">Save Changes</button>
+    </form>
+  </div>
 </div>
 {% endblock %}

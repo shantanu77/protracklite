@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or "ProtrackLite" }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -25,23 +28,30 @@
           <strong>{{ user.full_name }}</strong>
           <span>{{ org.name }}</span>
         </div>
+        {% set current_path = request.url.path if request else "" %}
         <nav class="nav-drawer">
           <div class="nav-group">
             <div class="nav-section">Workspace</div>
-            <a class="nav-link primary" href="/{{ org.slug }}/dashboard">Dashboard</a>
-            <a class="nav-link" href="/{{ org.slug }}/tasks/new">Create Task</a>
-            <a class="nav-link" href="/{{ org.slug }}/reports/work-rate">Work Rate</a>
-            <a class="nav-link" href="/{{ org.slug }}/reports/monday">Monday Report</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Create Task</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-section">Reports</div>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}>Work Rate</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/monday' %} primary{% endif %}" href="/{{ org.slug }}/reports/monday" {% if current_path == '/' ~ org.slug ~ '/reports/monday' %}aria-current="page"{% endif %}>Monday Report</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}>My Reports</a>
           </div>
           {% if user.role.value == "admin" %}
           <div class="nav-group">
             <div class="nav-section">Admin</div>
-            <a class="nav-link" href="/{{ org.slug }}/admin/dashboard">Overview</a>
-            <a class="nav-link" href="/{{ org.slug }}/admin/users">Users</a>
-            <a class="nav-link" href="/{{ org.slug }}/admin/projects">Projects</a>
-            <a class="nav-link" href="/{{ org.slug }}/admin/tasks">Tasks</a>
-            <a class="nav-link" href="/{{ org.slug }}/admin/holidays">Holidays</a>
-            <a class="nav-link" href="/{{ org.slug }}/admin/settings">Settings</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/admin/dashboard" {% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %}aria-current="page"{% endif %}>Overview</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/users' %} primary{% endif %}" href="/{{ org.slug }}/admin/users" {% if current_path == '/' ~ org.slug ~ '/admin/users' %}aria-current="page"{% endif %}>Users</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/projects' %} primary{% endif %}" href="/{{ org.slug }}/admin/projects" {% if current_path == '/' ~ org.slug ~ '/admin/projects' %}aria-current="page"{% endif %}>Projects</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %} primary{% endif %}" href="/{{ org.slug }}/admin/activity-types" {% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %}aria-current="page"{% endif %}>Activity Types</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/tasks' %} primary{% endif %}" href="/{{ org.slug }}/admin/tasks" {% if current_path == '/' ~ org.slug ~ '/admin/tasks' %}aria-current="page"{% endif %}>Tasks</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/holidays' %} primary{% endif %}" href="/{{ org.slug }}/admin/holidays" {% if current_path == '/' ~ org.slug ~ '/admin/holidays' %}aria-current="page"{% endif %}>Holidays</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/settings' %} primary{% endif %}" href="/{{ org.slug }}/admin/settings" {% if current_path == '/' ~ org.slug ~ '/admin/settings' %}aria-current="page"{% endif %}>Settings</a>
           </div>
           {% endif %}
           <form class="logout-form" method="post" action="/{{ org.slug }}/logout">
@@ -57,5 +67,239 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script>
+  (() => {
+    const modals = document.querySelectorAll("[data-modal]");
+
+    function setModalState(modal, open) {
+      modal.classList.toggle("is-open", open);
+      modal.setAttribute("aria-hidden", open ? "false" : "true");
+      document.body.classList.toggle("modal-open", open);
+    }
+
+    function fillModal(modal, opener) {
+      const form = modal.querySelector("form");
+      if (form) {
+        form.reset();
+      }
+      const payloadRaw = opener.dataset.modalPayload;
+      if (!payloadRaw) {
+        return;
+      }
+      let payload = {};
+      try {
+        payload = JSON.parse(payloadRaw);
+      } catch (error) {
+        console.error("Invalid modal payload", error);
+        return;
+      }
+      if (form && payload._action) {
+        form.action = payload._action;
+      }
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key === "_action") {
+          return;
+        }
+        const field = modal.querySelector(`[name="${key}"]`);
+        if (!field) {
+          return;
+        }
+        if (field.type === "checkbox") {
+          field.checked = Boolean(value);
+        } else {
+          field.value = value ?? "";
+        }
+        return;
+      });
+      Object.entries(payload).forEach(([key, value]) => {
+        const textNode = modal.querySelector(`[data-modal-text="${key}"]`);
+        if (textNode) {
+          textNode.textContent = value ?? "";
+        }
+      });
+    }
+
+    document.querySelectorAll("[data-modal-open]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const modal = document.getElementById(button.dataset.modalOpen);
+        if (!modal) {
+          return;
+        }
+        fillModal(modal, button);
+        setModalState(modal, true);
+      });
+    });
+
+    document.querySelectorAll("[data-modal-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const modal = button.closest("[data-modal]");
+        if (modal) {
+          setModalState(modal, false);
+        }
+      });
+    });
+
+    modals.forEach((modal) => {
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          setModalState(modal, false);
+        }
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      modals.forEach((modal) => {
+        if (modal.classList.contains("is-open")) {
+          setModalState(modal, false);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-grid]").forEach((grid) => {
+      const rows = Array.from(grid.querySelectorAll("[data-grid-row]"));
+      const search = grid.querySelector("[data-grid-search]");
+      const filters = Array.from(grid.querySelectorAll("[data-grid-filter]"));
+      const count = grid.querySelector("[data-grid-count]");
+      const empty = grid.querySelector("[data-grid-empty]");
+
+      function normalize(value) {
+        return String(value || "").trim().toLowerCase();
+      }
+
+      function applyGridState() {
+        const term = normalize(search?.value);
+        let visibleCount = 0;
+        rows.forEach((row) => {
+          const haystack = normalize(row.dataset.gridSearch);
+          const matchesSearch = !term || haystack.includes(term);
+          const matchesFilters = filters.every((filter) => {
+            const key = filter.dataset.gridFilter;
+            const selected = normalize(filter.value);
+            return !selected || normalize(row.dataset[key]) === selected;
+          });
+          const visible = matchesSearch && matchesFilters;
+          row.hidden = !visible;
+          if (visible) {
+            visibleCount += 1;
+          }
+        });
+        if (count) {
+          count.textContent = `${visibleCount} result${visibleCount === 1 ? "" : "s"}`;
+        }
+        if (empty) {
+          empty.hidden = visibleCount !== 0;
+        }
+      }
+
+      search?.addEventListener("input", applyGridState);
+      filters.forEach((filter) => filter.addEventListener("change", applyGridState));
+      applyGridState();
+    });
+
+    document.querySelectorAll("[data-dashboard-sort-list]").forEach((list) => {
+      const items = () => Array.from(list.querySelectorAll("[data-dashboard-sort-item]"));
+      let dragged = null;
+
+      function getAfterElement(container, clientY) {
+        return items()
+          .filter((item) => item !== dragged)
+          .reduce((closest, item) => {
+            const box = item.getBoundingClientRect();
+            const offset = clientY - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+              return { offset, element: item };
+            }
+            return closest;
+          }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+      }
+
+      async function persistOrder() {
+        const taskIds = items().map((item) => item.dataset.taskCode).filter(Boolean);
+        if (!taskIds.length) {
+          return;
+        }
+        try {
+          const response = await fetch(list.dataset.sortUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ task_ids: taskIds }),
+          });
+          if (!response.ok) {
+            throw new Error(`Order save failed: ${response.status}`);
+          }
+          list.dataset.sortState = "saved";
+        } catch (error) {
+          console.error(error);
+          list.dataset.sortState = "error";
+        }
+      }
+
+      items().forEach((item) => {
+        item.addEventListener("dragstart", () => {
+          dragged = item;
+          item.classList.add("is-dragging");
+        });
+
+        item.addEventListener("dragend", () => {
+          item.classList.remove("is-dragging");
+          dragged = null;
+          persistOrder();
+        });
+      });
+
+      list.addEventListener("dragover", (event) => {
+        if (!dragged) {
+          return;
+        }
+        event.preventDefault();
+        const afterElement = getAfterElement(list, event.clientY);
+        if (!afterElement) {
+          list.appendChild(dragged);
+          return;
+        }
+        list.insertBefore(dragged, afterElement);
+      });
+    });
+
+    document.querySelectorAll("form").forEach((form) => {
+      const categorySelect = form.querySelector("[data-activity-category]");
+      const typeSelect = form.querySelector("[data-activity-type-select]");
+      if (!categorySelect || !typeSelect) {
+        return;
+      }
+      const options = Array.from(typeSelect.querySelectorAll("option"));
+
+      function syncActivityTypes() {
+        const selectedCategory = categorySelect.value;
+        let firstVisible = null;
+        options.forEach((option) => {
+          const matches = !selectedCategory || option.dataset.category === selectedCategory;
+          option.hidden = !matches;
+          option.disabled = !matches;
+          if (matches && !firstVisible) {
+            firstVisible = option;
+          }
+        });
+        const current = typeSelect.selectedOptions[0];
+        if (!current || current.hidden || current.disabled) {
+          if (firstVisible) {
+            typeSelect.value = firstVisible.value;
+          }
+        }
+      }
+
+      const selectedOption = typeSelect.selectedOptions[0];
+      if (selectedOption?.dataset.category) {
+        categorySelect.value = selectedOption.dataset.category;
+      }
+      categorySelect.addEventListener("change", syncActivityTypes);
+      syncActivityTypes();
+    });
+  })();
+  </script>
 </body>
 </html>

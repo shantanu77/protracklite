@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ org.name }}</p>
+    <h1>Today</h1>
+    <p>{{ today.strftime("%A, %d %b %Y") }} at a glance: effort logged, tasks touched, items still waiting on you, and delayed work.</p>
+  </div>
+</section>
+
+<section class="stats">
+  <article class="stat">
+    <span>Booked Today</span>
+    <strong>{{ "%.2f"|format(summary.today_total_hours) }}h</strong>
+  </article>
+  <article class="stat">
+    <span>Tasks Worked On</span>
+    <strong>{{ summary.worked_task_count }}</strong>
+  </article>
+  <article class="stat">
+    <span>Booked This Month</span>
+    <strong>{{ "%.2f"|format(summary.month_logged_hours) }}h</strong>
+  </article>
+  <article class="stat">
+    <span>Monthly Rank</span>
+    <strong>{% if summary.month_rank %}#{{ summary.month_rank }} / {{ summary.team_size }}{% else %}Not ranked{% endif %}</strong>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Worked Today</h2>
+      <p>Tasks where you logged time on {{ today.strftime("%d %b %Y") }}.</p>
+    </div>
+  </div>
+  {% for task in worked_today %}
+  <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card today-task-card{% if task.status == 'closed' %} today-task-card-completed{% endif %}">
+    <div class="today-task-head">
+      <div class="dashboard-task-main">
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+      </div>
+      <div class="dashboard-task-actions today-task-actions">
+        {% if task.status == 'closed' %}
+        <span class="today-task-complete-icon" aria-hidden="true">✓</span>
+        {% endif %}
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        {% if task.status != 'closed' %}
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="today-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "%.2f"|format(default_log_hours), "notes": "", "redirect_to": "/" ~ org.slug ~ "/today", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+        {% endif %}
+      </div>
+    </div>
+    <div class="today-task-hours">
+      <span class="report-hours-pill emphasis">Today {{ "%.2f"|format(task.today_hours) }}h</span>
+      <span class="report-hours-pill">Total {{ "%.2f"|format(task.logged_hours or 0) }}h</span>
+    </div>
+    <small>{{ task.status_label }}{% if task.status == 'closed' %} · completed{% endif %}</small>
+    <div class="dashboard-task-badges">
+      {% if task.status == 'closed' %}
+      <span class="badge muted">✓ Completed</span>
+      {% else %}
+      <span class="badge {{ task.status_tone }}">{{ task.status_icon }} {{ task.status_label }}</span>
+      {% endif %}
+      <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">No effort logged today yet.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Still Needs Action</h2>
+      <p>Open tasks due today where you have not logged any time today yet.</p>
+    </div>
+  </div>
+  {% for task in tasks_needing_action %}
+  <div class="task-card deadline-card due dashboard-task-card today-task-card">
+    <div class="today-task-head">
+      <div class="dashboard-task-main">
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+      </div>
+      <div class="dashboard-task-actions today-task-actions">
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="today-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "%.2f"|format(default_log_hours), "notes": "", "redirect_to": "/" ~ org.slug ~ "/today", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+      </div>
+    </div>
+    <div class="today-task-hours">
+      <span class="report-hours-pill emphasis">Today 0.00h</span>
+      <span class="report-hours-pill">Total {{ "%.2f"|format(task.logged_hours or 0) }}h</span>
+    </div>
+    <small>Deadline today</small>
+    <div class="dashboard-task-badges">
+      <span class="badge {{ task.status_tone }}">{{ task.status_icon }} {{ task.status_label }}</span>
+      <span class="deadline-pill due">{{ task.deadline_label }}</span>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">Nothing due today is missing effort from you.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Delayed Tasks</h2>
+      <p>Open tasks whose deadline has already passed.</p>
+    </div>
+  </div>
+  {% for task in delayed_tasks %}
+  <div class="task-card deadline-card late danger dashboard-task-card today-task-card">
+    <div class="today-task-head">
+      <div class="dashboard-task-main">
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+      </div>
+      <div class="dashboard-task-actions today-task-actions">
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="today-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "%.2f"|format(default_log_hours), "notes": "", "redirect_to": "/" ~ org.slug ~ "/today", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+      </div>
+    </div>
+    <div class="today-task-hours">
+      <span class="report-hours-pill">Total {{ "%.2f"|format(task.logged_hours or 0) }}h</span>
+    </div>
+    <small>{{ task.end_date }}</small>
+    <div class="dashboard-task-badges">
+      <span class="badge {{ task.status_tone }}">{{ task.status_icon }} {{ task.status_label }}</span>
+      <span class="deadline-pill late">{{ task.deadline_label }}</span>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">No delayed tasks right now.</p>
+  {% endfor %}
+</section>
+
+<div class="modal-backdrop" id="today-log-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="today-log-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="today-log-title">Add Hours</h2>
+        <p data-modal-text="task_name_text">Log effort for today.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close log time modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Date<input name="log_date" type="date" required></label>
+      <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
+      <label class="full">Notes<textarea name="notes" rows="4"></textarea></label>
+      <input name="redirect_to" type="hidden" value="/{{ org.slug }}/today">
+      <button type="submit">Add Hours</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

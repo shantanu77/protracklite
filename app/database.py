@@ -6,6 +6,9 @@ from app.config import get_settings
 
 settings = get_settings()
 
+if not settings.database_url.strip():
+    raise RuntimeError("DATABASE_URL is required. Refusing to start without an explicit database configuration.")
+
 
 class Base(DeclarativeBase):
     pass

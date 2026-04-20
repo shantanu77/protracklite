@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block content %}
+{% set activity_stats = namespace(billable=0, non_billable=0, inactive=0) %}
+{% for item in activity_types %}
+  {% if item.is_chargeable %}
+    {% set activity_stats.billable = activity_stats.billable + 1 %}
+  {% else %}
+    {% set activity_stats.non_billable = activity_stats.non_billable + 1 %}
+  {% endif %}
+  {% if not item.is_active %}
+    {% set activity_stats.inactive = activity_stats.inactive + 1 %}
+  {% endif %}
+{% endfor %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Admin</p>
+    <h1>Activity Types</h1>
+    <p>Control billing behavior and task-form availability with a cleaner activity catalog.</p>
+  </div>
+</section>
+<section class="activity-overview">
+  <div class="activity-overview-copy">
+    <span class="activity-kicker">Billing Control</span>
+    <h2>Classify work clearly</h2>
+    <p>Keep billable and non-billable effort explicit, searchable, and easy to maintain without stacked inline forms.</p>
+  </div>
+  <div class="activity-overview-stats">
+    <div class="activity-stat">
+      <span>Total Types</span>
+      <strong>{{ activity_types|length }}</strong>
+    </div>
+    <div class="activity-stat">
+      <span>Billable</span>
+      <strong>{{ activity_stats.billable }}</strong>
+    </div>
+    <div class="activity-stat">
+      <span>Non-billable</span>
+      <strong>{{ activity_stats.non_billable }}</strong>
+    </div>
+    <div class="activity-stat">
+      <span>Inactive</span>
+      <strong>{{ activity_stats.inactive }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel data-grid activity-directory" data-grid>
+  <div class="grid-toolbar activity-toolbar">
+    <div class="grid-toolbar-main">
+      <div>
+        <h2>Activity Type Directory</h2>
+        <p>Search by code or name, then open a focused editor for billing and availability changes.</p>
+      </div>
+      <div class="grid-toolbar-actions">
+        <span class="grid-toolbar-meta" data-grid-count></span>
+        <button type="button" class="button activity-primary-action" data-modal-open="activity-type-create-modal">Add Activity Type</button>
+      </div>
+    </div>
+    <div class="grid-controls">
+      <label class="grid-search">Search
+        <input type="search" placeholder="Search by name or code" data-grid-search>
+      </label>
+      <div class="grid-filters">
+        <label>Billing
+          <select data-grid-filter="billing">
+            <option value="">All</option>
+            <option value="billable">Billable</option>
+            <option value="non-billable">Non-billable</option>
+          </select>
+        </label>
+        <label>Status
+          <select data-grid-filter="status">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+        <label>Category
+          <select data-grid-filter="category">
+            <option value="">All</option>
+            {% for category_key, category_label in activity_categories %}
+            <option value="{{ category_key }}">{{ category_label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+  <div class="activity-card-grid">
+    {% for item in activity_types %}
+    <article
+      class="activity-card"
+      data-grid-row
+      data-grid-search="{{ item.name }} {{ item.code }} {{ activity_category_labels.get(item.category, item.category) }}"
+      data-billing="{% if item.is_chargeable %}billable{% else %}non-billable{% endif %}"
+      data-status="{% if item.is_active %}active{% else %}inactive{% endif %}"
+      data-category="{{ item.category }}"
+    >
+      <div class="activity-card-top">
+        <div>
+          <span class="activity-code">{{ item.code }}</span>
+          <h3>{{ item.name }}</h3>
+        </div>
+        <span class="badge {% if item.is_active %}success{% else %}danger{% endif %}">
+          {% if item.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </div>
+      <div class="activity-card-badges">
+        <span class="badge {% if item.is_chargeable %}success{% else %}warning{% endif %}">
+          {% if item.is_chargeable %}Billable{% else %}Non-billable{% endif %}
+        </span>
+        <span class="badge">{{ activity_category_labels.get(item.category, item.category) }}</span>
+        <span class="badge">{{ "Default" if item.is_default else "Custom" }}</span>
+      </div>
+      <p class="activity-description">
+        {% if item.is_chargeable %}
+        Hours under this type count toward billable utilization.
+        {% else %}
+        Hours under this type stay visible but are excluded from billable utilization.
+        {% endif %}
+      </p>
+      <div class="activity-card-actions">
+        <button
+          type="button"
+          class="button secondary small"
+          data-modal-open="activity-type-edit-modal"
+          data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/activity-types/" ~ item.id, "name": item.name, "code": item.code, "category": item.category, "is_chargeable": item.is_chargeable, "is_active": item.is_active}|tojson|e }}'
+        >
+          Edit Activity Type
+        </button>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <p class="grid-empty empty" data-grid-empty hidden>No activity types match the current search and filters.</p>
+</section>
+
+<div class="modal-backdrop" id="activity-type-create-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide activity-modal" role="dialog" aria-modal="true" aria-labelledby="activity-type-create-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="activity-type-create-title">Add Activity Type</h2>
+        <p>Create a new billable or non-billable activity type.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close add activity type modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Name<input name="name" required></label>
+      <label>Code<input name="code" maxlength="20" required></label>
+      <label>Category
+        <select name="category">
+          {% for category_key, category_label in activity_categories %}
+          <option value="{{ category_key }}">{{ category_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="checkbox"><input type="checkbox" name="is_chargeable" checked>Billable</label>
+      <label class="checkbox"><input type="checkbox" name="is_active" checked>Active</label>
+      <button type="submit">Create Activity Type</button>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="activity-type-edit-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide activity-modal" role="dialog" aria-modal="true" aria-labelledby="activity-type-edit-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="activity-type-edit-title">Edit Activity Type</h2>
+        <p>Update activity type billing and availability from a focused modal.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close edit activity type modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Name<input name="name" required></label>
+      <label>Code<input name="code" maxlength="20" required></label>
+      <label>Category
+        <select name="category">
+          {% for category_key, category_label in activity_categories %}
+          <option value="{{ category_key }}">{{ category_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="checkbox"><input type="checkbox" name="is_chargeable">Billable</label>
+      <label class="checkbox"><input type="checkbox" name="is_active">Active</label>
+      <button type="submit">Save Changes</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

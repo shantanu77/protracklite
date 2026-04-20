@@ -3,6 +3,7 @@ set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-root@37.27.6.17}"
 REMOTE_APP_DIR="${REMOTE_APP_DIR:-/opt/protracklite}"
+REMOTE_ENV_FILE="${REMOTE_ENV_FILE:-/etc/protracklite.env}"
 SSH_KEY="${SSH_KEY:-/home/shantanu/mykey.key}"
 SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=no)
 TIMESTAMP="$(date +%Y%m%d%H%M%S)"
@@ -43,6 +44,10 @@ deploy_remote() {
     mkdir -p '${REMOTE_APP_DIR}'
     tar -xzf '${REMOTE_TMP}' -C '${REMOTE_APP_DIR}'
     rm -f '${REMOTE_TMP}'
+    if [ ! -f '${REMOTE_ENV_FILE}' ] && [ -f '${REMOTE_APP_DIR}/.env' ]; then
+      cp '${REMOTE_APP_DIR}/.env' '${REMOTE_ENV_FILE}'
+      chmod 600 '${REMOTE_ENV_FILE}'
+    fi
     cd '${REMOTE_APP_DIR}'
     python3 -m venv .venv
     .venv/bin/pip install --upgrade pip

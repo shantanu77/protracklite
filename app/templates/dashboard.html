@@ -7,62 +7,584 @@
     <p>Default view: this week plus all pending work.</p>
   </div>
   <div class="page-head-actions">
-    <a class="button" href="/{{ org.slug }}/tasks/new">Create Task</a>
+    <button type="button" class="button" data-modal-open="dashboard-ai-task-modal">✦ Add Task Using AI</button>
   </div>
 </section>
 
-<div class="grid">
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Today's Focus</h2>
-      <p>Immediate work and in-flight priorities.</p>
+{% if created_count %}
+<section class="panel">
+  <p><strong>{{ created_count }}</strong> tasks were created.
+    {% if created_task_ids %}
+    Open:
+    {% for task_id in created_task_ids %}
+    <a href="/{{ org.slug }}/tasks/{{ task_id }}">{{ task_id }}</a>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+    {% endif %}
+  </p>
+</section>
+{% elif created_task_id %}
+<section class="panel">
+  <p><a href="/{{ org.slug }}/tasks/{{ created_task_id }}"><strong>{{ created_task_id }}</strong></a> was created.</p>
+</section>
+{% endif %}
+
+<section class="panel dashboard-visibility-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Visible Blocks</h2>
+      <p>Toggle optional sections to open up more space for the blocks you want to focus on.</p>
     </div>
-    {% for task in groups.today %}
-    <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
-      <span class="chip">{{ task.task_id }}</span>
-      <strong>{{ task.name }}</strong>
-      <small>{{ task.status.value }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
-    </a>
-    {% else %}<p class="empty">No tasks landing today.</p>{% endfor %}
-  </section>
-  <section class="panel">
+  </div>
+  <div class="dashboard-visibility-toggles">
+    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="today">Today's Focus</label>
+    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="overdue" checked>Overdue</label>
+    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="pending" checked>Pending</label>
+    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="completed">Task Completed</label>
+  </div>
+</section>
+
+<section class="panel dashboard-search-panel" data-dashboard-search-panel>
+  <div class="panel-head">
+    <div>
+      <h2>Search Tasks</h2>
+      <p>Type at least 3 characters to filter visible dashboard sections and highlight matches in yellow.</p>
+    </div>
+  </div>
+  <div class="dashboard-search-row">
+    <label class="dashboard-search-field">
+      <input type="search" placeholder="Search by keyword in task id, name, description, status, or dates" data-dashboard-search-input>
+    </label>
+    <p class="dashboard-search-hint" data-dashboard-search-hint>Enter 3 or more characters.</p>
+  </div>
+</section>
+
+<div class="dashboard-grid" data-dashboard-grid>
+  <section class="panel dashboard-focus-section" data-dashboard-section="week">
     <div class="panel-head">
-      <h2>This Week</h2>
-      <p>Planned work in the current window.</p>
+      <div>
+        <h2>This Week</h2>
+        <p>All tasks targeted for this week, including completed work.</p>
+      </div>
+      <label class="checkbox"><input type="checkbox" data-dashboard-week-toggle="completed" checked>Show Completed</label>
     </div>
     {% for task in groups.week %}
-    <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
-      <span class="chip">{{ task.task_id }}</span>
-      <strong>{{ task.name }}</strong>
-      <small>{{ task.start_date }}{% if task.end_date %} to {{ task.end_date }}{% endif %}</small>
-    </a>
-    {% else %}<p class="empty">Nothing planned yet.</p>{% endfor %}
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-status="{{ task.status }}" data-task-completed="{{ 'true' if task.status == 'closed' else 'false' }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}">
+      <div class="dashboard-task-main" data-dashboard-highlight>
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+        <small data-dashboard-highlight>
+          {% if task.start_date or task.end_date %}{{ task.start_date or "Not set" }}{% if task.end_date %} to {{ task.end_date }}{% endif %}{% else %}Backlog item{% endif %}
+          {% if task.status == 'closed' %}
+          · {% if task.estimated_hours is not none %}plan {{ "%.2f"|format(task.estimated_hours) }}h{% else %}plan not set{% endif %}
+          · booked {{ "%.2f"|format(task.logged_hours or 0) }}h
+          {% if task.completion_delay_label %}· {{ task.completion_delay_label }}{% endif %}
+          {% endif %}
+        </small>
+        <div class="dashboard-task-badges" data-dashboard-highlight>
+          <span class="badge {{ task.status_tone }}">{{ task.status_icon }} {{ task.status_label }}</span>
+          {% if task.is_backlog %}<span class="badge muted">◌ backlog</span>{% endif %}
+          {% if task.deadline_tone == 'late' %}<span class="badge danger">! delayed</span>{% endif %}
+          <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+        </div>
+      </div>
+      <div class="dashboard-task-actions">
+        <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
+        {% if task.status != 'closed' %}
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="dashboard-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "", "notes": "", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/complete" onsubmit="return confirm('Mark this task as completed?');">
+          <button type="submit" class="icon-action success-icon" title="Mark completed">✓</button>
+        </form>
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
+          <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
+        </form>
+        {% endif %}
+        {% if (task.logged_hours or 0) > 0 %}
+        <button type="button" class="dashboard-expand-toggle" data-dashboard-log-toggle aria-expanded="false">Expand Logs</button>
+        {% endif %}
+      </div>
+      {% if (task.logged_hours or 0) > 0 %}
+      <div class="dashboard-log-drawer" data-dashboard-log-drawer hidden>
+        <div class="dashboard-log-list" data-dashboard-log-content></div>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}<p class="empty">Nothing targeted this week.</p>{% endfor %}
+    <p class="empty" data-dashboard-week-empty hidden>No visible tasks for this week.</p>
   </section>
-  <section class="panel">
+  <section class="panel dashboard-optional-section" data-dashboard-section="today">
+    <div class="panel-head">
+      <h2>Today's Focus</h2>
+      <p>Immediate work and in-flight priorities. Drag tasks to set your own order.</p>
+    </div>
+    <div data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order">
+    {% for task in groups.today %}
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}" data-dashboard-sort-item>
+      <div class="dashboard-task-main" data-dashboard-highlight>
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+        <small data-dashboard-highlight>{{ task.status }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
+        <span class="deadline-pill {{ task.deadline_tone }}" data-dashboard-highlight>{{ task.deadline_label }}</span>
+      </div>
+      <div class="dashboard-task-actions">
+        <button type="button" class="icon-action drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+        <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="dashboard-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "", "notes": "", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/complete" onsubmit="return confirm('Mark this task as completed?');">
+          <button type="submit" class="icon-action success-icon" title="Mark completed">✓</button>
+        </form>
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
+          <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
+        </form>
+        {% if (task.logged_hours or 0) > 0 %}
+        <button type="button" class="dashboard-expand-toggle" data-dashboard-log-toggle aria-expanded="false">Expand Logs</button>
+        {% endif %}
+      </div>
+      {% if (task.logged_hours or 0) > 0 %}
+      <div class="dashboard-log-drawer" data-dashboard-log-drawer hidden>
+        <div class="dashboard-log-list" data-dashboard-log-content></div>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}<p class="empty">No tasks landing today.</p>{% endfor %}
+    </div>
+  </section>
+  <section class="panel dashboard-optional-section" data-dashboard-section="overdue">
     <div class="panel-head">
       <h2>Overdue</h2>
       <p>Tasks that need attention first.</p>
     </div>
     {% for task in groups.overdue %}
-    <a class="task-card danger" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
-      <span class="chip">{{ task.task_id }}</span>
-      <strong>{{ task.name }}</strong>
-      <small>End date {{ task.end_date }}</small>
-    </a>
+    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}">
+      <div class="dashboard-task-main" data-dashboard-highlight>
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+        <small data-dashboard-highlight>End date {{ task.end_date }}</small>
+        <span class="deadline-pill late" data-dashboard-highlight>{{ task.deadline_label }}</span>
+      </div>
+      <div class="dashboard-task-actions">
+        <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="dashboard-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "", "notes": "", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/complete" onsubmit="return confirm('Mark this task as completed?');">
+          <button type="submit" class="icon-action success-icon" title="Mark completed">✓</button>
+        </form>
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
+          <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
+        </form>
+        {% if (task.logged_hours or 0) > 0 %}
+        <button type="button" class="dashboard-expand-toggle" data-dashboard-log-toggle aria-expanded="false">Expand Logs</button>
+        {% endif %}
+      </div>
+      {% if (task.logged_hours or 0) > 0 %}
+      <div class="dashboard-log-drawer" data-dashboard-log-drawer hidden>
+        <div class="dashboard-log-list" data-dashboard-log-content></div>
+      </div>
+      {% endif %}
+    </div>
     {% else %}<p class="empty">No overdue work.</p>{% endfor %}
   </section>
-  <section class="panel">
+  <section class="panel dashboard-optional-section" data-dashboard-section="pending">
     <div class="panel-head">
       <h2>Pending</h2>
       <p>Backlog items without immediate deadlines.</p>
     </div>
     {% for task in groups.pending %}
-    <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
-      <span class="chip">{{ task.task_id }}</span>
-      <strong>{{ task.name }}</strong>
-      <small>{{ task.status.value }}</small>
-    </a>
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}">
+      <div class="dashboard-task-main" data-dashboard-highlight>
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+        <small data-dashboard-highlight>{{ task.status }}</small>
+        <span class="deadline-pill {{ task.deadline_tone }}" data-dashboard-highlight>{{ task.deadline_label }}</span>
+      </div>
+      <div class="dashboard-task-actions">
+        <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="dashboard-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "", "notes": "", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/complete" onsubmit="return confirm('Mark this task as completed?');">
+          <button type="submit" class="icon-action success-icon" title="Mark completed">✓</button>
+        </form>
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
+          <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
+        </form>
+        {% if (task.logged_hours or 0) > 0 %}
+        <button type="button" class="dashboard-expand-toggle" data-dashboard-log-toggle aria-expanded="false">Expand Logs</button>
+        {% endif %}
+      </div>
+      {% if (task.logged_hours or 0) > 0 %}
+      <div class="dashboard-log-drawer" data-dashboard-log-drawer hidden>
+        <div class="dashboard-log-list" data-dashboard-log-content></div>
+      </div>
+      {% endif %}
+    </div>
     {% else %}<p class="empty">No backlog items.</p>{% endfor %}
   </section>
+  <section class="panel dashboard-optional-section" data-dashboard-section="completed">
+    <div class="panel-head">
+      <h2>Task Completed</h2>
+      <p>Tasks completed in the current week.</p>
+    </div>
+    {% for task in groups.completed %}
+    <div class="task-card deadline-card upcoming dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or ''))|lower|e }}">
+      <div class="dashboard-task-main" data-dashboard-highlight>
+        <span class="chip">{{ task.task_id }}</span>
+        <strong>{{ task.name }}</strong>
+        <small data-dashboard-highlight>{{ task.status }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
+        <span class="deadline-pill upcoming" data-dashboard-highlight>Completed</span>
+      </div>
+      <div class="dashboard-task-actions">
+        <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": "Completed", "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+        {% if (task.logged_hours or 0) > 0 %}
+        <button type="button" class="dashboard-expand-toggle" data-dashboard-log-toggle aria-expanded="false">Expand Logs</button>
+        {% endif %}
+      </div>
+      {% if (task.logged_hours or 0) > 0 %}
+      <div class="dashboard-log-drawer" data-dashboard-log-drawer hidden>
+        <div class="dashboard-log-list" data-dashboard-log-content></div>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}<p class="empty">No tasks completed this week.</p>{% endfor %}
+  </section>
 </div>
+
+<div class="modal-backdrop" id="dashboard-view-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="dashboard-view-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="dashboard-view-title" data-modal-text="task_id_text">Task Preview</h2>
+        <p data-modal-text="task_name_text">Task details</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close task preview">×</button>
+    </div>
+    <div class="stack dashboard-preview">
+      <div class="preview-stat"><span>Status</span><strong data-modal-text="status_text"></strong></div>
+      <div class="preview-stat"><span>Deadline</span><strong data-modal-text="deadline_text"></strong></div>
+      <div class="preview-stat"><span>Booked</span><strong data-modal-text="hours_text"></strong></div>
+      <div class="preview-stat"><span>Stalled Reason</span><strong data-modal-text="stalled_reason_text"></strong></div>
+      <div class="preview-block">
+        <span>Description</span>
+        <p data-modal-text="description_text"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="dashboard-log-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="dashboard-log-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="dashboard-log-title">Add Hours</h2>
+        <p data-modal-text="task_name_text">Log effort for today.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close log time modal">×</button>
+    </div>
+    <form method="post" class="form-grid">
+      <label>Date<input name="log_date" type="date" required></label>
+      <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
+      <label class="full">Notes<textarea name="notes" rows="4"></textarea></label>
+      <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
+      <button type="submit">Add Hours</button>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="dashboard-ai-task-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="dashboard-ai-task-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="dashboard-ai-task-title">Add Task Using AI</h2>
+        <p>Paste a full email, meeting notes, or one task per line. AI will extract one or more actionable tasks and save them with your default project and activity type.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close add task using AI modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid">
+      <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Hi Shantanu, please prepare the client deck for Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday. Also block some time next week to review dashboard options." required></textarea></label>
+      <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
+      <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
+      <button type="submit">Create Tasks With AI</button>
+    </form>
+  </div>
+</div>
+<script>
+  (() => {
+    const storageKey = "ptlite-dashboard-blocks";
+    const grid = document.querySelector("[data-dashboard-grid]");
+    const toggles = Array.from(document.querySelectorAll("[data-dashboard-toggle]"));
+    const optionalSections = Array.from(document.querySelectorAll(".dashboard-optional-section"));
+    if (!grid || !toggles.length || !optionalSections.length) {
+      return;
+    }
+
+    let savedState = {};
+    try {
+      savedState = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    } catch (error) {
+      savedState = {};
+    }
+
+    toggles.forEach((toggle) => {
+      const sectionKey = toggle.dataset.dashboardToggle;
+      if (Object.prototype.hasOwnProperty.call(savedState, sectionKey)) {
+        toggle.checked = Boolean(savedState[sectionKey]);
+      }
+    });
+
+    function syncDashboardBlocks() {
+      const visibleSections = [];
+      toggles.forEach((toggle) => {
+        const section = document.querySelector(`[data-dashboard-section="${toggle.dataset.dashboardToggle}"]`);
+        if (!section) {
+          return;
+        }
+        section.hidden = !toggle.checked;
+        if (toggle.checked) {
+          visibleSections.push(section);
+        }
+      });
+
+      let focusSpan = 10;
+      let sectionSpan = 0;
+      if (visibleSections.length === 1) {
+        focusSpan = 5;
+        sectionSpan = 5;
+      } else if (visibleSections.length >= 2) {
+        focusSpan = 4;
+        sectionSpan = 3;
+      }
+
+      grid.style.setProperty("--dashboard-focus-span", String(focusSpan));
+      optionalSections.forEach((section) => section.style.removeProperty("--dashboard-section-span"));
+      visibleSections.forEach((section) => {
+        section.style.setProperty("--dashboard-section-span", String(sectionSpan));
+      });
+
+      const state = {};
+      toggles.forEach((toggle) => {
+        state[toggle.dataset.dashboardToggle] = toggle.checked;
+      });
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    }
+
+    toggles.forEach((toggle) => toggle.addEventListener("change", () => {
+      const checkedToggles = toggles.filter((item) => item.checked);
+      if (checkedToggles.length > 2) {
+        toggle.checked = false;
+        return;
+      }
+      syncDashboardBlocks();
+    }));
+    syncDashboardBlocks();
+  })();
+
+  (() => {
+    const storageKey = "ptlite-dashboard-week-show-completed";
+    const weekCompletedToggle = document.querySelector("[data-dashboard-week-toggle=\"completed\"]");
+    const weekTasks = Array.from(document.querySelectorAll("[data-dashboard-week-task]"));
+    const weekEmptyState = document.querySelector("[data-dashboard-week-empty]");
+    const dashboardSearchInput = document.querySelector("[data-dashboard-search-input]");
+    const dashboardSearchHint = document.querySelector("[data-dashboard-search-hint]");
+    const taskCards = Array.from(document.querySelectorAll("[data-dashboard-task-card]"));
+    const taskLogCache = new Map();
+    if (!weekCompletedToggle) {
+      return;
+    }
+
+    const savedPreference = localStorage.getItem(storageKey);
+    if (savedPreference !== null) {
+      weekCompletedToggle.checked = savedPreference !== "false";
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function escapeRegExp(value) {
+      return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function getActiveSearchTerm() {
+      const rawValue = (dashboardSearchInput?.value || "").trim();
+      return rawValue.length >= 3 ? rawValue.toLowerCase() : "";
+    }
+
+    function getCombinedSearchText(taskCard) {
+      return `${taskCard.dataset.dashboardSearch || ""} ${taskCard.dataset.dashboardSearchLogs || ""}`.trim();
+    }
+
+    async function loadTaskLogs(taskCard) {
+      const taskCode = taskCard.dataset.taskCode;
+      if (!taskCode) {
+        return [];
+      }
+      if (taskLogCache.has(taskCode)) {
+        return taskLogCache.get(taskCode);
+      }
+
+      const request = fetch(`/api/v1/tasks/${encodeURIComponent(taskCode)}/time-logs`, {
+        credentials: "same-origin",
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Log fetch failed for ${taskCode}`);
+          }
+          return response.json();
+        })
+        .then((logs) => {
+          const safeLogs = Array.isArray(logs) ? logs : [];
+          taskCard.dataset.dashboardSearchLogs = safeLogs
+            .map((item) => `${item.date || ""} ${item.hours || ""} ${item.notes || ""}`)
+            .join(" ")
+            .toLowerCase();
+          return safeLogs;
+        })
+        .catch(() => {
+          taskCard.dataset.dashboardSearchLogs = "";
+          return [];
+        });
+
+      taskLogCache.set(taskCode, request);
+      return request;
+    }
+
+    function renderTaskLogs(taskCard, logs) {
+      const drawer = taskCard.querySelector("[data-dashboard-log-drawer]");
+      const content = taskCard.querySelector("[data-dashboard-log-content]");
+      if (!drawer || !content) {
+        return;
+      }
+      if (!logs.length) {
+        content.innerHTML = '<p class="empty">No time log notes found.</p>';
+        drawer.hidden = false;
+        return;
+      }
+      content.innerHTML = logs
+        .map((item) => `
+          <article class="dashboard-log-item" data-dashboard-highlight>
+            <div class="dashboard-log-meta">
+              <span>${escapeHtml(item.date || "")}</span>
+              <span class="dashboard-log-hours">${escapeHtml(String(item.hours || 0))}h</span>
+            </div>
+            <div class="dashboard-log-notes">${escapeHtml(item.notes || "No comments added.")}</div>
+          </article>
+        `)
+        .join("");
+      drawer.hidden = false;
+      applyHighlights(getActiveSearchTerm());
+    }
+
+    async function toggleTaskLogs(taskCard, button) {
+      const drawer = taskCard.querySelector("[data-dashboard-log-drawer]");
+      if (!drawer) {
+        return;
+      }
+      const isOpen = !drawer.hidden;
+      if (isOpen) {
+        drawer.hidden = true;
+        button.textContent = "Expand Logs";
+        button.setAttribute("aria-expanded", "false");
+        return;
+      }
+      button.textContent = "Loading...";
+      const logs = await loadTaskLogs(taskCard);
+      renderTaskLogs(taskCard, logs);
+      button.textContent = "Collapse Logs";
+      button.setAttribute("aria-expanded", "true");
+    }
+
+    function ensureLogsLoadedForSearch() {
+      if (!getActiveSearchTerm()) {
+        return;
+      }
+      taskCards
+        .filter((taskCard) => taskCard.dataset.taskHasLogs === "true")
+        .forEach((taskCard) => {
+          if (taskCard.dataset.dashboardSearchLogsLoaded === "true") {
+            return;
+          }
+          taskCard.dataset.dashboardSearchLogsLoaded = "loading";
+          loadTaskLogs(taskCard).then(() => {
+            taskCard.dataset.dashboardSearchLogsLoaded = "true";
+            syncWeekCompletedVisibility();
+          });
+        });
+    }
+
+    function applyHighlights(term) {
+      const highlightPattern = term ? new RegExp(`(${escapeRegExp(term)})`, "gi") : null;
+      document.querySelectorAll("[data-dashboard-highlight]").forEach((node) => {
+        if (!node.dataset.originalHtml) {
+          node.dataset.originalHtml = node.innerHTML;
+        }
+        const originalHtml = node.dataset.originalHtml;
+        if (!highlightPattern) {
+          node.innerHTML = originalHtml;
+          return;
+        }
+        const textOnly = node.textContent || "";
+        if (!textOnly.toLowerCase().includes(term)) {
+          node.innerHTML = originalHtml;
+          return;
+        }
+        node.innerHTML = originalHtml.replace(/>([^<]+)</g, (fullMatch, textContent) => {
+          const highlightedText = escapeHtml(textContent).replace(highlightPattern, "<mark>$1</mark>");
+          return `>${highlightedText}<`;
+        });
+      });
+    }
+
+    function syncWeekCompletedVisibility() {
+      const searchTerm = getActiveSearchTerm();
+      let visibleTaskCount = 0;
+      taskCards.forEach((taskCard) => {
+        const matchesSearch = !searchTerm || getCombinedSearchText(taskCard).includes(searchTerm);
+        const isWeekTask = taskCard.hasAttribute("data-dashboard-week-task");
+        const isCompleted = taskCard.dataset.taskCompleted === "true";
+        const matchesWeekCompletion = !isWeekTask || weekCompletedToggle.checked || !isCompleted;
+        const shouldShow = matchesSearch && matchesWeekCompletion;
+        taskCard.style.display = shouldShow ? "" : "none";
+        if (shouldShow && isWeekTask) {
+          visibleTaskCount += 1;
+        }
+      });
+      if (weekEmptyState) {
+        weekEmptyState.hidden = visibleTaskCount > 0;
+      }
+      if (dashboardSearchHint) {
+        const rawLength = (dashboardSearchInput?.value || "").trim().length;
+        if (!rawLength) {
+          dashboardSearchHint.textContent = "Enter 3 or more characters.";
+        } else if (rawLength < 3) {
+          dashboardSearchHint.textContent = "Keep typing. Search starts at 3 characters.";
+        } else {
+          dashboardSearchHint.textContent = `Filtering by "${dashboardSearchInput.value.trim()}".`;
+        }
+      }
+      applyHighlights(searchTerm);
+      localStorage.setItem(storageKey, String(weekCompletedToggle.checked));
+    }
+
+    taskCards.forEach((taskCard) => {
+      const toggleButton = taskCard.querySelector("[data-dashboard-log-toggle]");
+      if (!toggleButton) {
+        return;
+      }
+      toggleButton.addEventListener("click", () => {
+        toggleTaskLogs(taskCard, toggleButton);
+      });
+    });
+
+    weekCompletedToggle.addEventListener("change", syncWeekCompletedVisibility);
+    dashboardSearchInput?.addEventListener("input", () => {
+      ensureLogsLoadedForSearch();
+      syncWeekCompletedVisibility();
+    });
+    syncWeekCompletedVisibility();
+  })();
+</script>
 {% endblock %}

@@ -5,7 +5,7 @@ After=network.target
 [Service]
 User=root
 WorkingDirectory=/opt/protracklite
-EnvironmentFile=/opt/protracklite/.env
+EnvironmentFile=-/etc/protracklite.env
 ExecStart=/opt/protracklite/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8011
 Restart=always
 RestartSec=5

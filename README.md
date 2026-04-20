@@ -32,11 +32,6 @@ uvicorn app.main:app --reload
 
 4. Open `http://127.0.0.1:8000/solulever/login`
 
-Seed admin credentials:
-
-- email: `admin@solulever.com`
-- password: `ChangeMe123`
-
 ## Deployment
 
 The repo includes:
@@ -45,10 +40,17 @@ The repo includes:
 - [deploy/protracklite.service](/home/shantanu/ptlite/deploy/protracklite.service)
 - [deploy.sh](/home/shantanu/ptlite/deploy.sh)
 
-Use `.env` on the server to point `DATABASE_URL` at your MySQL instance, for example:
+Use `/etc/protracklite.env` on the server for runtime settings. Do not keep production settings inside `/opt/protracklite`, because deploys refresh that directory. For MySQL, for example:
 
 ```env
 DATABASE_URL=mysql+pymysql://USER:PASSWORD@127.0.0.1:3307/protracklite
+BASE_DOMAIN=tasks.omnihire.in
+```
+
+If you use SQLite in production, do not keep the database inside `/opt/protracklite`, because release extracts can overwrite it. Use a persistent path outside the app directory, for example:
+
+```env
+DATABASE_URL=sqlite:////var/lib/protracklite/protracklite.db
 BASE_DOMAIN=tasks.omnihire.in
 ```
 
@@ -70,5 +72,7 @@ The script:
 - pushes `main` to `origin`
 - uploads the current `HEAD` as a tarball to the VPS
 - refreshes `/opt/protracklite`
+- preserves runtime settings by reading environment variables from `/etc/protracklite.env`
+- preserves production data because `git archive` does not include ignored files such as local `*.db`
 - reinstalls Python dependencies in `/opt/protracklite/.venv`
 - reloads systemd and restarts `protracklite`

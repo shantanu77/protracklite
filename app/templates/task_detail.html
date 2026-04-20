@@ -4,73 +4,191 @@
   <div>
     <p class="eyebrow">{{ task.task_id }}</p>
     <h1>{{ task.name }}</h1>
-    <p>{{ task.status.value }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</p>
+    <p>{{ task.status.value|replace('_', ' ') }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged{% if task.start_date is none and task.end_date is none %} · backlog{% endif %}{% if task.is_archived %} · archived{% endif %}</p>
+  </div>
+  <div class="page-head-actions">
+    <button type="button" class="button" data-modal-open="task-log-modal">＋ Log Hours</button>
+    {% if task.status.value != "closed" %}
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/complete" onsubmit="return confirm('Mark this task as completed?');">
+      <button type="submit" class="button secondary">✓ Mark Completed</button>
+    </form>
+    {% endif %}
+    {% if task.start_date %}
+    <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}/calendar.ics">Add To Calendar</a>
+    {% endif %}
+    {% if task.is_archived %}
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/unarchive">
+      <button type="submit" class="button secondary">Recover Task</button>
+    </form>
+    {% endif %}
   </div>
 </section>
 
-<div class="grid two">
-  <form method="post" class="panel form-grid">
-    <label>Project
-      <select name="project_id" required>
-        {% for project in projects %}
-        <option value="{{ project.id }}" {% if project.id == task.project_id %}selected{% endif %}>{{ project.name }} ({{ project.code }})</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Name<input name="name" value="{{ task.name }}" required></label>
-    <label>Activity Type
-      <select name="activity_type_id" required>
-        {% for item in activity_types %}
-        <option value="{{ item.id }}" {% if item.id == task.activity_type_id %}selected{% endif %}>{{ item.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Status
-      <select name="status">
-        {% for item in statuses %}
-        <option value="{{ item.value }}" {% if item == task.status %}selected{% endif %}>{{ item.value }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% if user.role.value == "admin" %}
-    <label>Assign To
-      <select name="assigned_to">
-        {% for person in people %}
-        <option value="{{ person.id }}" {% if person.id == task.assigned_to %}selected{% endif %}>{{ person.full_name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% endif %}
-    <label>Start Date<input name="start_date" type="date" value="{{ task.start_date }}" required></label>
-    <label>End Date<input name="end_date" type="date" value="{{ task.end_date or '' }}"></label>
-    <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" value="{{ task.estimated_hours or '' }}"></label>
-    <label class="checkbox"><input name="is_private" type="checkbox" {% if task.is_private %}checked{% endif %}>Private task</label>
-    <label class="full">Description<textarea name="description" rows="8">{{ task.description|safe }}</textarea></label>
-    <button type="submit">Update Task</button>
-  </form>
-
+<section class="task-detail-layout">
   <div class="stack">
-    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/time-log" class="panel form-grid">
-      <h2 class="full">Add Time Log</h2>
-      <label>Date<input name="log_date" type="date" required></label>
-      <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
-      <label class="full">Notes<textarea name="notes" rows="4"></textarea></label>
-      <button type="submit">Log Time</button>
-    </form>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Recent Time Logs</h2>
-        <p>Latest entries for this task.</p>
+    <section class="panel task-detail-summary">
+      <div class="task-detail-summary-head">
+        <div>
+          <span class="chip">{{ task.task_id }}</span>
+          <h2>{{ task.name }}</h2>
+        </div>
+        <span class="badge {% if task.status.value == 'started' %}success{% elif task.status.value == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status.value|replace('_', ' ') }}</span>
       </div>
-      {% for log in logs %}
-      <div class="list-row">
-        <strong>{{ log.log_date }}</strong>
-        <span>{{ "%.2f"|format(log.hours) }}h</span>
-        <p>{{ log.notes or "No notes" }}</p>
+      <div class="task-detail-stats">
+        <div class="task-detail-stat">
+          <span>Booked</span>
+          <strong>{{ "%.2f"|format(task.logged_hours or 0) }}h</strong>
+        </div>
+        <div class="task-detail-stat">
+          <span>Planned</span>
+          <strong>{% if task.estimated_hours is not none %}{{ "%.2f"|format(task.estimated_hours) }}h{% else %}Not set{% endif %}</strong>
+        </div>
+        <div class="task-detail-stat">
+          <span>Schedule</span>
+          <strong>{% if task.start_date or task.end_date %}{{ task.start_date or "Not set" }} to {{ task.end_date or "Not set" }}{% else %}Backlog{% endif %}</strong>
+        </div>
+        <div class="task-detail-stat">
+          <span>Privacy</span>
+          <strong>{{ "Private" if task.is_private else "Visible to team" }}</strong>
+        </div>
       </div>
-      {% else %}<p class="empty">No time logged yet.</p>{% endfor %}
+      <div class="task-detail-meta">
+        <div><span>Project</span><strong>{{ task.project.name }} ({{ task.project.code }})</strong></div>
+        <div><span>Activity</span><strong>{% for item in activity_types %}{% if item.id == task.activity_type_id %}{{ item.name }}{% endif %}{% endfor %}</strong></div>
+        <div><span>Assigned To</span><strong>{% for person in people %}{% if person.id == task.assigned_to %}{{ person.full_name }}{% endif %}{% endfor %}</strong></div>
+      </div>
+      {% if task.description %}
+      <div class="task-detail-description">
+        <span>Description</span>
+        <p>{{ task.description|safe }}</p>
+      </div>
+      {% endif %}
     </section>
+
+    <form method="post" class="panel form-grid task-detail-form">
+      <div class="panel-head full">
+        <div>
+          <h2>Edit Task</h2>
+          <p>Compact task details with planning and assignment controls.</p>
+        </div>
+      </div>
+      <label>Project
+        <select name="project_id" required>
+          {% for project in projects %}
+          <option value="{{ project.id }}" {% if project.id == task.project_id %}selected{% endif %}>{{ project.name }} ({{ project.code }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Name<input name="name" value="{{ task.name }}" required></label>
+      <label>Category
+        <select name="activity_category" data-activity-category required>
+          {% for category_key, category_label in activity_categories %}
+          <option value="{{ category_key }}" {% if category_key == current_activity_category %}selected{% endif %}>{{ category_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Activity Type
+        <select name="activity_type_id" data-activity-type-select required>
+          {% for item in activity_types %}
+          <option value="{{ item.id }}" data-category="{{ item.category }}" {% if item.id == task.activity_type_id %}selected{% endif %}>{{ item.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Status
+        <select name="status">
+          {% for item in statuses %}
+          <option value="{{ item.value }}" {% if item == task.status %}selected{% endif %}>{{ item.value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if user.role.value == "admin" %}
+      <label>Assign To
+        <select name="assigned_to">
+          {% for person in people %}
+          <option value="{{ person.id }}" {% if person.id == task.assigned_to %}selected{% endif %}>{{ person.full_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label class="checkbox"><input name="is_backlog" type="checkbox" data-backlog-toggle {% if task.start_date is none and task.end_date is none %}checked{% endif %}>Backlog task</label>
+      <label>Start Date<input name="start_date" type="date" value="{{ task.start_date or '' }}" data-backlog-field></label>
+      <label>End Date<input name="end_date" type="date" value="{{ task.end_date or '' }}" data-backlog-field></label>
+      <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" value="{{ task.estimated_hours or '' }}" data-backlog-field></label>
+      <label class="checkbox"><input name="is_private" type="checkbox" {% if task.is_private %}checked{% endif %}>Private task</label>
+      <label class="full">Stalled Reason<textarea name="stalled_reason" rows="3" placeholder="Required only if task is stalled">{{ task.stalled_reason or '' }}</textarea></label>
+      <label class="full">Description<textarea name="description" rows="6">{{ task.description|safe }}</textarea></label>
+      <p class="full empty">Backlog tasks do not carry schedule or effort until they are planned.</p>
+      <button type="submit">Update Task</button>
+    </form>
+  </div>
+
+  <section class="panel task-timeline-panel">
+    <div class="panel-head">
+      <div>
+        <h2>Work Log Timeline</h2>
+        <p>Latest logged time with comments in timeline view.</p>
+      </div>
+    </div>
+    <div class="task-timeline">
+      {% for log in logs %}
+      <article class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-card">
+          <div class="timeline-head">
+            <strong>{{ "%.2f"|format(log.hours) }}h</strong>
+            <span>{{ log.log_date }}</span>
+          </div>
+          <p>{{ log.notes or "No comments added." }}</p>
+        </div>
+      </article>
+      {% else %}
+      <p class="empty">No time logged yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+
+<div class="modal-backdrop" id="task-log-modal" data-modal aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="task-log-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="task-log-title">Log Hours</h2>
+        <p>{{ task.task_id }} · {{ task.name }}</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close log hours modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/time-log" class="form-grid">
+      <label>Date<input name="log_date" type="date" value="{{ today.isoformat() }}" required></label>
+      <label>Hours<input name="hours" type="number" step="0.25" min="0.25" value="4" required></label>
+      <label class="full">Comments<textarea name="notes" rows="4" placeholder="What was done today?"></textarea></label>
+      <button type="submit">Add Time Log</button>
+    </form>
   </div>
 </div>
+
+<script>
+  (() => {
+    const form = document.querySelector(".task-detail-form");
+    const backlogToggle = form?.querySelector("[data-backlog-toggle]");
+    const fields = form ? Array.from(form.querySelectorAll("[data-backlog-field]")) : [];
+    if (!form || !backlogToggle) {
+      return;
+    }
+
+    function syncBacklogState() {
+      fields.forEach((field) => {
+        if (backlogToggle.checked) {
+          field.dataset.previousValue = field.value;
+          field.value = "";
+        } else if (!field.value && field.dataset.previousValue) {
+          field.value = field.dataset.previousValue;
+        }
+        field.disabled = backlogToggle.checked;
+      });
+    }
+
+    backlogToggle.addEventListener("change", syncBacklogState);
+    syncBacklogState();
+  })();
+</script>
 {% endblock %}

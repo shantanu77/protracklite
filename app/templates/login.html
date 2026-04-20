@@ -4,14 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ org.name }} Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="landing">
+<body class="landing" data-forgot-open="{% if forgot_error or forgot_success %}true{% else %}false{% endif %}">
   <section class="login-shell">
     <div class="login-hero">
       <div class="login-badge">Protrack<em>Lite</em></div>
       <h1>{{ org.name }}</h1>
-      <p class="login-copy">A cleaner weekly task view for focused work, reporting, and admin control.</p>
+      <p class="login-copy">Task planning, reporting, and admin controls in one focused workspace.</p>
       <div class="login-points">
         <div class="login-point">
           <strong>Scoped Access</strong>
@@ -31,14 +34,33 @@
         <p>Use your org email and password to continue.</p>
       </div>
       {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-      <form method="post" class="stack login-form">
-        <label>Email<input name="email" type="email" placeholder="you@company.com" required></label>
+      <form method="post" action="/{{ org.slug }}/login" class="stack login-form">
+        <label>Email<input id="login-email" name="email" type="email" placeholder="you@company.com" autocomplete="username" required></label>
         <label>Password<input name="password" type="password" placeholder="Enter your password" required></label>
         <button type="submit">Login</button>
       </form>
       <div class="login-divider"><span>Forgot your password?</span></div>
-      <form method="post" action="/{{ org.slug }}/forgot-password" class="stack login-form forgot-form">
-        <label>Email<input name="email" type="email" placeholder="you@company.com" required></label>
+      <button type="button" class="button secondary forgot-trigger" id="forgot-trigger">Forgot Password?</button>
+      <div class="login-help">
+        <span>Org slug</span>
+        <code>/{{ org.slug }}/</code>
+      </div>
+    </section>
+  </section>
+  <div class="modal-backdrop" id="forgot-modal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="forgot-title">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Reset Password</p>
+          <h2 id="forgot-title">Send a temporary password</h2>
+          <p>Enter your org email and solve the captcha. The reset password will be sent to your email.</p>
+        </div>
+        <button type="button" class="modal-close" id="forgot-close" aria-label="Close reset popup">×</button>
+      </div>
+      {% if forgot_error %}<div class="alert">{{ forgot_error }}</div>{% endif %}
+      {% if forgot_success %}<div class="alert alert-success">{{ forgot_success }}</div>{% endif %}
+      <form method="post" action="/{{ org.slug }}/forgot-password" class="stack login-form" id="forgot-form">
+        <label>Email<input id="forgot-email" name="email" type="email" placeholder="you@company.com" autocomplete="username" required></label>
         <input type="hidden" name="captcha_left" value="{{ captcha_left }}">
         <input type="hidden" name="captcha_right" value="{{ captcha_right }}">
         <input type="hidden" name="captcha_issued_at" value="{{ captcha_issued_at }}">
@@ -46,16 +68,58 @@
         <label>Captcha
           <input name="captcha_answer" inputmode="numeric" placeholder="What is {{ captcha_left }} + {{ captcha_right }}?" required>
         </label>
-        <button type="submit">Reset Password</button>
+        <button type="submit" id="forgot-submit">Send Reset Password</button>
       </form>
-      {% if forgot_error %}<div class="alert">{{ forgot_error }}</div>{% endif %}
-      {% if forgot_success %}<div class="alert alert-success">{{ forgot_success }}</div>{% endif %}
-      <div class="login-help">
-        <span>Org slug</span>
-        <code>/{{ org.slug }}/</code>
-      </div>
-      <p class="hint">Seed admin: <code>admin@solulever.com</code> / <code>ChangeMe123</code></p>
-    </section>
-  </section>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const body = document.body;
+      const modal = document.getElementById("forgot-modal");
+      const openButton = document.getElementById("forgot-trigger");
+      const closeButton = document.getElementById("forgot-close");
+      const loginEmail = document.getElementById("login-email");
+      const forgotEmail = document.getElementById("forgot-email");
+      const forgotForm = document.getElementById("forgot-form");
+      const forgotSubmit = document.getElementById("forgot-submit");
+
+      function openModal() {
+        if (loginEmail && forgotEmail && loginEmail.value && !forgotEmail.value) {
+          forgotEmail.value = loginEmail.value;
+        }
+        modal.classList.add("is-open");
+        modal.setAttribute("aria-hidden", "false");
+      }
+
+      function closeModal() {
+        modal.classList.remove("is-open");
+        modal.setAttribute("aria-hidden", "true");
+      }
+
+      openButton.addEventListener("click", openModal);
+      closeButton.addEventListener("click", closeModal);
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          closeModal();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && modal.classList.contains("is-open")) {
+          closeModal();
+        }
+      });
+
+      if (body.dataset.forgotOpen === "true") {
+        openModal();
+      }
+
+      if (forgotForm && forgotSubmit) {
+        forgotForm.addEventListener("submit", () => {
+          forgotSubmit.disabled = true;
+          forgotSubmit.textContent = "Sending...";
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

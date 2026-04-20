@@ -348,7 +348,7 @@ All tasks with `status ≠ 'closed'` created before the **start of the current w
 Sorted by: Pending days descending (oldest first).
 
 #### Section B — Tasks Completed Last Week
-All tasks with `status = 'closed'` AND `closed_at` within the previous Monday–Friday window.
+All tasks with `status = 'closed'` AND `closed_at` within the previous Monday–Sunday window.
 
 | Column | Description |
 |---|---|

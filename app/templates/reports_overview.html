@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">My Reports</p>
+    <h1>Reports</h1>
+    <p>Weekly effort, current month performance, top tasks, pending work, burn-down, and activity allocation.</p>
+  </div>
+</section>
+
+<div class="grid report-layout">
+  <section class="panel report-section">
+    <div class="panel-head">
+      <h2>Week Wise Effort Summary</h2>
+      <p>Booked hours against available hours for the last four weeks.</p>
+    </div>
+    <div class="chart-canvas" id="week-effort-chart" aria-label="Week wise effort summary chart"></div>
+  </section>
+
+  <section class="panel report-section month-summary-card">
+    <div class="panel-head">
+      <h2>This Month</h2>
+      <p>Total effort booked versus available hours from {{ report.month_start }} to {{ report.today }}.</p>
+    </div>
+    <div class="stats compact-stats">
+      <div class="stat"><span>Booked</span><strong>{{ report.month_rates.total_logged_hours }}h</strong></div>
+      <div class="stat"><span>Available</span><strong>{{ report.month_rates.available_hours }}h</strong></div>
+      <div class="stat"><span>Booked %</span><strong>{{ report.month_rates.total_rate }}%</strong></div>
+      <div class="stat"><span>Chargeable</span><strong>{{ report.month_rates.chargeable_hours }}h</strong></div>
+    </div>
+  </section>
+
+  <section class="panel report-section">
+    <div class="panel-head">
+      <h2>Top 5 Tasks This Month</h2>
+      <p>Tasks with the highest booked effort this month.</p>
+    </div>
+    <div class="table-wrap compact-report-wrap">
+      <table class="report-mini-table">
+        <thead>
+          <tr>
+            <th>Task Summary</th>
+            <th>Booked</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.top_tasks %}
+          <tr>
+            <td class="report-mini-main">
+              <a class="report-mini-link" href="/{{ org.slug }}/tasks/{{ row.task_id }}">
+                <strong>{{ row.task_id }}</strong>
+                <span>{{ row.name }}</span>
+              </a>
+              <div class="report-mini-meta">
+                {% if row.project_code %}<span class="report-mini-kicker">{{ row.project_code }}</span>{% endif %}
+                <span class="badge {% if row.status == 'started' %}success{% elif row.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ row.status|replace('_', ' ') }}</span>
+              </div>
+            </td>
+            <td class="report-mini-value">{{ "%.2f"|format(row.hours) }}h</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="empty">No task effort booked this month.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel report-section">
+    <div class="panel-head">
+      <h2>Pending Task List</h2>
+      <p>{{ report.pending_task_count }} open non-stalled tasks ordered by highest delay first.</p>
+    </div>
+    <div class="chart-canvas" id="pending-delay-chart" aria-label="Pending task delay distribution chart"></div>
+    {% if not report.pending_task_count %}<p class="empty">No pending tasks.</p>{% endif %}
+  </section>
+
+  <section class="panel report-section">
+    <div class="panel-head">
+      <h2>Burn Down</h2>
+      <p>Tasks assigned versus tasks closed in each of the last five weeks.</p>
+    </div>
+    <div class="chart-canvas" id="burn-down-chart" aria-label="Burn down chart"></div>
+  </section>
+
+  <section class="panel report-section">
+    <div class="panel-head">
+      <h2>Task Type Wise Allocation</h2>
+      <p>Where your monthly effort went by activity type for this month.</p>
+    </div>
+    <div class="chart-canvas" id="activity-allocation-chart" aria-label="Task type allocation chart"></div>
+    <div class="table-wrap compact-report-wrap allocation-table">
+      <table class="report-mini-table">
+        <thead>
+          <tr>
+            <th>Allocation</th>
+            <th>Booked</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.activity_allocation %}
+          <tr>
+            <td class="report-mini-main">
+              <strong>{{ row.name }}</strong>
+              <span>
+                {% if report.month_rates.total_logged_hours %}
+                  {{ "%.1f"|format((row.hours / report.month_rates.total_logged_hours) * 100) }}% of this month's booked effort
+                {% else %}
+                  No booked effort this month
+                {% endif %}
+              </span>
+            </td>
+            <td class="report-mini-value">{{ "%.2f"|format(row.hours) }}h</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="empty">No activity allocation this month.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+  (() => {
+    const weekEffort = {{ report.week_effort|tojson }};
+    const burnDown = {{ report.burn_down|tojson }};
+    const pendingDelayBuckets = {{ report.pending_delay_buckets|tojson }};
+    const activityAllocation = {{ report.activity_allocation|tojson }};
+    const reportTextColor = "#62707c";
+    const splitLine = "rgba(29, 52, 66, 0.08)";
+
+    function makeChart(id, optionsFactory) {
+      const node = document.getElementById(id);
+      if (!node || typeof echarts === "undefined") {
+        return;
+      }
+      const chart = echarts.init(node);
+      chart.setOption(optionsFactory());
+      window.addEventListener("resize", () => chart.resize());
+    }
+
+    makeChart("week-effort-chart", () => ({
+      tooltip: { trigger: "axis" },
+      legend: { bottom: 0, textStyle: { color: reportTextColor } },
+      grid: { left: 48, right: 18, top: 20, bottom: 52 },
+      xAxis: {
+        type: "category",
+        data: weekEffort.map((row) => row.label),
+        axisLabel: { color: reportTextColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: "#d9e0e4" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Hours",
+        nameTextStyle: { color: reportTextColor },
+        axisLabel: { color: reportTextColor },
+        splitLine: { lineStyle: { color: splitLine } },
+      },
+      series: [
+        {
+          name: "Available",
+          type: "bar",
+          data: weekEffort.map((row) => row.available_hours),
+          itemStyle: { color: "#9bb2bf", borderRadius: [10, 10, 0, 0] },
+        },
+        {
+          name: "Booked",
+          type: "bar",
+          data: weekEffort.map((row) => row.booked_hours),
+          itemStyle: { color: "#1d3442", borderRadius: [10, 10, 0, 0] },
+        },
+      ],
+    }));
+
+    makeChart("burn-down-chart", () => ({
+      tooltip: { trigger: "axis" },
+      legend: { bottom: 0, textStyle: { color: reportTextColor } },
+      grid: { left: 48, right: 18, top: 20, bottom: 52 },
+      xAxis: {
+        type: "category",
+        data: burnDown.map((row) => row.label),
+        axisLabel: { color: reportTextColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: "#d9e0e4" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Tasks",
+        nameTextStyle: { color: reportTextColor },
+        axisLabel: { color: reportTextColor },
+        splitLine: { lineStyle: { color: splitLine } },
+      },
+      series: [
+        {
+          name: "Assigned",
+          type: "line",
+          smooth: true,
+          symbolSize: 9,
+          data: burnDown.map((row) => row.assigned),
+          lineStyle: { width: 3, color: "#8ca6b5" },
+          itemStyle: { color: "#8ca6b5" },
+          areaStyle: { color: "rgba(140, 166, 181, 0.14)" },
+        },
+        {
+          name: "Closed",
+          type: "line",
+          smooth: true,
+          symbolSize: 9,
+          data: burnDown.map((row) => row.closed),
+          lineStyle: { width: 3, color: "#1f7a52" },
+          itemStyle: { color: "#1f7a52" },
+          areaStyle: { color: "rgba(31, 122, 82, 0.12)" },
+        },
+      ],
+    }));
+
+    makeChart("pending-delay-chart", () => ({
+      tooltip: { trigger: "axis" },
+      grid: { left: 48, right: 18, top: 20, bottom: 32 },
+      xAxis: {
+        type: "category",
+        data: pendingDelayBuckets.map((row) => row.label),
+        axisLabel: { color: reportTextColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: "#d9e0e4" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Tasks",
+        nameTextStyle: { color: reportTextColor },
+        axisLabel: { color: reportTextColor },
+        splitLine: { lineStyle: { color: splitLine } },
+      },
+      series: [
+        {
+          type: "bar",
+          data: pendingDelayBuckets.map((row) => row.count),
+          itemStyle: { color: "#c2413b", borderRadius: [10, 10, 0, 0] },
+        },
+      ],
+    }));
+
+    makeChart("activity-allocation-chart", () => ({
+      tooltip: { trigger: "item" },
+      legend: {
+        bottom: 0,
+        textStyle: { color: reportTextColor },
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["44%", "72%"],
+          center: ["50%", "42%"],
+          itemStyle: {
+            borderColor: "#ffffff",
+            borderWidth: 3,
+            borderRadius: 12,
+          },
+          label: {
+            color: "#16212b",
+            formatter: ({ name, value }) => `${name}\n${value}h`,
+          },
+          data: activityAllocation.map((row) => ({
+            name: row.name,
+            value: Number(row.hours.toFixed ? row.hours.toFixed(2) : row.hours),
+          })),
+        },
+      ],
+    }));
+  })();
+</script>
+{% endblock %}

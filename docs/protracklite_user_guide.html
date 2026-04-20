@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ProtrackLite User Guide</title>
+  <style>
+    body {
+      font-family: Calibri, Arial, sans-serif;
+      font-size: 11pt;
+      line-height: 1.5;
+      color: #1f2933;
+      margin: 36pt 42pt;
+    }
+    h1, h2, h3 {
+      color: #102a43;
+      margin-bottom: 6pt;
+    }
+    h1 {
+      font-size: 24pt;
+      border-bottom: 2pt solid #bcccdc;
+      padding-bottom: 8pt;
+    }
+    h2 {
+      font-size: 16pt;
+      margin-top: 20pt;
+      border-bottom: 1pt solid #d9e2ec;
+      padding-bottom: 4pt;
+    }
+    h3 {
+      font-size: 12.5pt;
+      margin-top: 14pt;
+    }
+    p {
+      margin: 8pt 0;
+    }
+    ul, ol {
+      margin: 8pt 0 8pt 18pt;
+    }
+    li {
+      margin: 4pt 0;
+    }
+    .meta {
+      background: #f0f4f8;
+      border: 1pt solid #d9e2ec;
+      padding: 10pt 12pt;
+      margin: 12pt 0 18pt;
+    }
+    .note {
+      background: #fff7d6;
+      border-left: 4pt solid #f0b429;
+      padding: 8pt 10pt;
+      margin: 10pt 0;
+    }
+    .tip {
+      background: #effcf6;
+      border-left: 4pt solid #2f855a;
+      padding: 8pt 10pt;
+      margin: 10pt 0;
+    }
+    .path, code {
+      font-family: Consolas, "Courier New", monospace;
+      background: #f0f4f8;
+      padding: 1pt 3pt;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10pt 0 14pt;
+    }
+    th, td {
+      border: 1pt solid #d9e2ec;
+      padding: 8pt;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f0f4f8;
+      color: #102a43;
+    }
+  </style>
+</head>
+<body>
+  <h1>ProtrackLite User Guide</h1>
+
+  <div class="meta">
+    <p><strong>Application:</strong> ProtrackLite</p>
+    <p><strong>Main Login URL:</strong> <span class="path">https://tasks.omnihire.in/solulever/login</span></p>
+    <p><strong>Audience:</strong> Team members using the application for task planning, weekly review, and personal reporting</p>
+    <p><strong>Prepared On:</strong> 13 April 2026</p>
+  </div>
+
+  <h2>1. What This App Is Used For</h2>
+  <p>ProtrackLite is used to manage personal work in a structured way. It helps each user log in, create and maintain tasks, plan work for the week, review Monday updates, and track effort through personal reports.</p>
+  <p>The most important pages for day-to-day use are:</p>
+  <ul>
+    <li><strong>Login</strong> for secure access and password reset</li>
+    <li><strong>Create Task</strong> for adding one task at a time or multiple tasks with AI</li>
+    <li><strong>Monday Report</strong> for weekly planning and weekly review</li>
+    <li><strong>My Reports</strong> for effort, performance, and workload visibility</li>
+  </ul>
+
+  <h2>2. Logging In</h2>
+  <h3>2.1 Open the Login Page</h3>
+  <p>Open the following page in your browser:</p>
+  <p><span class="path">https://tasks.omnihire.in/solulever/login</span></p>
+  <p>This page is specific to the <strong>solulever</strong> organization, so always use the correct org login URL.</p>
+
+  <h3>2.2 Enter Your Credentials</h3>
+  <ol>
+    <li>Enter your company email address.</li>
+    <li>Enter your password.</li>
+    <li>Click <strong>Login</strong>.</li>
+  </ol>
+  <p>After successful login, you will be taken into the main workspace.</p>
+
+  <h3>2.3 If You Forgot Your Password</h3>
+  <p>The recommended way to access the app is to use the built-in password reset flow.</p>
+  <ol>
+    <li>Open the login page.</li>
+    <li>Click <strong>Forgot Password?</strong></li>
+    <li>In the popup window, enter your company email address.</li>
+    <li>Solve the simple captcha shown in the popup.</li>
+    <li>Click <strong>Send Reset Password</strong>.</li>
+  </ol>
+  <p>The system sends a temporary password to your email address. Use that temporary password to log in.</p>
+  <div class="note">
+    <p><strong>Important:</strong> Temporary passwords are time-sensitive. If the reset message is not available or expires, repeat the forgot-password process.</p>
+  </div>
+
+  <h2>3. Creating a Task</h2>
+  <h3>3.1 Open the Create Task Page</h3>
+  <p>After login, go to <strong>Create Task</strong> from the left navigation, or open:</p>
+  <p><span class="path">https://tasks.omnihire.in/solulever/tasks/new</span></p>
+
+  <h3>3.2 Create One Task Manually</h3>
+  <p>The standard task form is designed for fast entry. Fill the fields as follows:</p>
+  <table>
+    <tr>
+      <th>Field</th>
+      <th>What To Do</th>
+    </tr>
+    <tr>
+      <td>Add as Backlog item</td>
+      <td>Check this if the task is only for future reminder and you do not want to schedule it right now.</td>
+    </tr>
+    <tr>
+      <td>Project</td>
+      <td>Select the relevant project from the dropdown.</td>
+    </tr>
+    <tr>
+      <td>Name</td>
+      <td>Enter a short, clear task title.</td>
+    </tr>
+    <tr>
+      <td>Category</td>
+      <td>Select the high-level task category first.</td>
+    </tr>
+    <tr>
+      <td>Activity Type</td>
+      <td>Select the detailed activity under the chosen category.</td>
+    </tr>
+    <tr>
+      <td>Status</td>
+      <td>Select the current state if the task is not backlog.</td>
+    </tr>
+    <tr>
+      <td>Start Date / End Date</td>
+      <td>Set planned dates for execution.</td>
+    </tr>
+    <tr>
+      <td>Estimated Hours</td>
+      <td>Enter expected effort.</td>
+    </tr>
+    <tr>
+      <td>Private task</td>
+      <td>Use this when the task should stay private.</td>
+    </tr>
+    <tr>
+      <td>Description</td>
+      <td>Add supporting notes or context if needed.</td>
+    </tr>
+  </table>
+
+  <h3>3.3 Creating a Backlog Task</h3>
+  <p>A backlog task is a task that you want to remember, but do not want to prioritize or schedule yet.</p>
+  <ol>
+    <li>Check <strong>Add as Backlog item</strong> first.</li>
+    <li>Complete only the basic fields such as project, name, category, activity type, and optional description.</li>
+    <li>Save the task.</li>
+  </ol>
+  <p>When backlog is enabled, schedule-related fields are hidden because backlog items do not need start date, end date, or effort at the time of creation.</p>
+
+  <h3>3.4 Save and Continue</h3>
+  <p>When you click <strong>Save Task</strong>, the app stays on the same page so you can continue adding more tasks. The newest task appears at the top of the <strong>My Tasks</strong> list on the same screen.</p>
+
+  <div class="tip">
+    <p><strong>Good practice:</strong> Use clear task names. A good task title makes reporting, searching, and weekly review much easier.</p>
+  </div>
+
+  <h2>4. Creating Multiple Tasks With AI</h2>
+  <h3>4.1 When To Use This</h3>
+  <p>Use <strong>Add Multiple Task</strong> when you have several tasks in your mind and do not want to create them one by one.</p>
+
+  <h3>4.2 How It Works</h3>
+  <ol>
+    <li>Open the <strong>Create Task</strong> page.</li>
+    <li>Click <strong>Add Multiple Task</strong>.</li>
+    <li>A popup window opens.</li>
+    <li>Enter one task per line in free-flow language.</li>
+    <li>Optionally check <strong>Private tasks</strong> if all items should be private.</li>
+    <li>Click <strong>Create Tasks With AI</strong>.</li>
+  </ol>
+
+  <h3>4.3 What AI Extracts</h3>
+  <p>The AI parser attempts to identify the following details from each line:</p>
+  <ul>
+    <li>task title</li>
+    <li>possible start date</li>
+    <li>possible end date</li>
+    <li>possible effort</li>
+  </ul>
+  <p>Each parsed task is then saved using your default project and default activity type settings.</p>
+
+  <h3>4.4 Example Input</h3>
+  <p>You can write tasks like this:</p>
+  <ul>
+    <li>Prepare client deck by Thursday</li>
+    <li>Review infra access request tomorrow</li>
+    <li>Research hiring dashboard options next week</li>
+    <li>Document sprint plan by 18 April 4h</li>
+  </ul>
+
+  <h3>4.5 After AI Task Creation</h3>
+  <p>After processing, the app returns you to the Create Task page and shows a confirmation with the task codes created. You can then:</p>
+  <ul>
+    <li>continue adding more tasks</li>
+    <li>review the newly created tasks from the task list on the same page</li>
+    <li>open any task later to refine dates, effort, status, or notes</li>
+  </ul>
+
+  <div class="note">
+    <p><strong>Important:</strong> AI parsing is a helper, not a replacement for review. If a task needs precise dates or effort, open the task afterward and confirm the details.</p>
+  </div>
+
+  <h2>5. Using the Monday Report</h2>
+  <h3>5.1 When To Use It</h3>
+  <p>The Monday Report should be used every Monday as part of your weekly planning and presentation process.</p>
+  <p>Open:</p>
+  <p><span class="path">https://tasks.omnihire.in/solulever/reports/monday</span></p>
+
+  <h3>5.2 What The Monday Report Shows</h3>
+  <p>The page is structured into clear sections:</p>
+  <ul>
+    <li><strong>Last Week Closed</strong>: number of tasks closed last week</li>
+    <li><strong>Last Week Effort</strong>: total hours booked last week</li>
+    <li><strong>Booked %</strong>: booked effort versus available weekly hours</li>
+    <li><strong>This Week Tasks</strong>: tasks starting in the current week</li>
+    <li><strong>Pending Tasks</strong>: active open tasks from before this week that are not stalled</li>
+    <li><strong>Completed Tasks</strong>: items closed last week, with planned versus actual effort</li>
+    <li><strong>Stalled Tasks</strong>: tasks currently marked stalled</li>
+  </ul>
+
+  <h3>5.3 How To Read It In A Weekly Meeting</h3>
+  <p>Use the Monday Report as your weekly presentation page.</p>
+  <ol>
+    <li>Start with the top summary cards to explain last week’s closure and effort.</li>
+    <li>Review <strong>This Week Tasks</strong> to explain what you plan to start this week.</li>
+    <li>Review <strong>Pending Tasks</strong> to call out work still open and any overdue items.</li>
+    <li>Use <strong>Completed Tasks</strong> to explain what was closed and whether actual effort matched plan.</li>
+    <li>Review <strong>Stalled Tasks</strong> if something is blocked.</li>
+  </ol>
+  <p>The page already highlights logged hours and deadline state so the important numbers are easy to present on screen.</p>
+
+  <h3>5.4 Add Tasks From Backlog Into This Week</h3>
+  <p>If you want to pull work into the current week directly from backlog:</p>
+  <ol>
+    <li>Open the Monday Report.</li>
+    <li>In the <strong>This Week Tasks</strong> section, click <strong>Add From Backlog</strong>.</li>
+    <li>Select the backlog tasks you want to plan for this week.</li>
+    <li>Adjust this week’s end date if required.</li>
+    <li>Adjust planned effort if required.</li>
+    <li>Click <strong>Add To This Week</strong>.</li>
+  </ol>
+  <p>The system moves the selected tasks into the week plan with a start date for the current week and the planned values you choose in the popup.</p>
+
+  <h2>6. Using My Reports</h2>
+  <h3>6.1 Open My Reports</h3>
+  <p>Open:</p>
+  <p><span class="path">https://tasks.omnihire.in/solulever/reports/overview</span></p>
+
+  <h3>6.2 What This Page Is For</h3>
+  <p>My Reports gives you a personal performance and effort view. It is useful for self-review, planning, and management visibility.</p>
+
+  <h3>6.3 Main Sections On The Page</h3>
+  <table>
+    <tr>
+      <th>Section</th>
+      <th>Meaning</th>
+    </tr>
+    <tr>
+      <td>Week Wise Effort Summary</td>
+      <td>Booked hours against available hours for the last four weeks.</td>
+    </tr>
+    <tr>
+      <td>This Month</td>
+      <td>Total booked effort, available hours, booked percentage, and chargeable effort for the current month.</td>
+    </tr>
+    <tr>
+      <td>Top 5 Tasks This Month</td>
+      <td>The tasks where you booked the highest effort this month.</td>
+    </tr>
+    <tr>
+      <td>Pending Task List</td>
+      <td>Delay distribution of current pending tasks, shown as a chart.</td>
+    </tr>
+    <tr>
+      <td>Burn Down</td>
+      <td>Weekly comparison of assigned versus closed tasks for the last five weeks.</td>
+    </tr>
+    <tr>
+      <td>Task Type Wise Allocation</td>
+      <td>How your monthly effort is distributed across activity types.</td>
+    </tr>
+  </table>
+
+  <h3>6.4 How To Use My Reports Properly</h3>
+  <ul>
+    <li>Check whether your booked hours are close to your available hours.</li>
+    <li>Look at the top tasks to understand where most time went.</li>
+    <li>Monitor pending-task delay to catch slippage early.</li>
+    <li>Review the burn-down trend to see whether closure is keeping pace with assignment.</li>
+    <li>Review activity allocation to understand how your time is split across task types.</li>
+  </ul>
+
+  <h2>7. Recommended Weekly Working Pattern</h2>
+  <ol>
+    <li>Use <strong>Forgot Password</strong> if you cannot sign in.</li>
+    <li>Create or refine your tasks before starting work.</li>
+    <li>Use <strong>Add Multiple Task</strong> when you have many tasks to capture quickly.</li>
+    <li>Keep backlog items for future work you do not want to schedule yet.</li>
+    <li>Every Monday, open <strong>Monday Report</strong> and align your week.</li>
+    <li>During the week, keep tasks updated so Monday reporting stays accurate.</li>
+    <li>Use <strong>My Reports</strong> to monitor effort and closure trends.</li>
+  </ol>
+
+  <h2>8. Quick Links</h2>
+  <ul>
+    <li>Login: <span class="path">https://tasks.omnihire.in/solulever/login</span></li>
+    <li>Create Task: <span class="path">https://tasks.omnihire.in/solulever/tasks/new</span></li>
+    <li>Monday Report: <span class="path">https://tasks.omnihire.in/solulever/reports/monday</span></li>
+    <li>My Reports: <span class="path">https://tasks.omnihire.in/solulever/reports/overview</span></li>
+  </ul>
+
+  <h2>9. Final Notes</h2>
+  <p>The app is most effective when tasks are kept current. If task titles are clear, dates are realistic, and effort is updated regularly, the Monday Report and My Reports will stay useful without extra manual work.</p>
+</body>
+</html>

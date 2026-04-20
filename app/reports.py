@@ -2,25 +2,26 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from math import ceil
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Task, TaskStatus, TimeLog
+from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus, TimeLog
 
 
 def current_week_bounds(today: date | None = None) -> tuple[date, date]:
     today = today or date.today()
     monday = today - timedelta(days=today.weekday())
-    friday = monday + timedelta(days=4)
-    return monday, friday
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
 
 
 def previous_week_bounds(today: date | None = None) -> tuple[date, date]:
     monday, _ = current_week_bounds(today)
     prev_monday = monday - timedelta(days=7)
-    return prev_monday, prev_monday + timedelta(days=4)
+    return prev_monday, prev_monday + timedelta(days=6)
 
 
 def leave_weight(leave_type: LeaveType) -> Decimal:
@@ -113,21 +114,55 @@ def compute_work_rate(db: Session, org_id: int, user_id: int, from_date: date, t
 
 def monday_report(db: Session, org_id: int, user_id: int, today: date | None = None) -> dict:
     today = today or date.today()
-    this_monday, this_friday = current_week_bounds(today)
-    prev_monday, prev_friday = previous_week_bounds(today)
+    this_monday, this_sunday = current_week_bounds(today)
+    prev_monday, prev_sunday = previous_week_bounds(today)
+    null_end_date_last = case((Task.end_date.is_(None), 1), else_=0)
 
-    pending = db.scalars(
+    last_week_rates = compute_work_rate(db, org_id, user_id, prev_monday, prev_sunday)
+
+    this_week_tasks = db.scalars(
         select(Task)
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
             Task.status != TaskStatus.CLOSED,
-            Task.created_at < datetime.combine(this_monday, datetime.min.time()),
+            Task.status != TaskStatus.STALLED,
+            Task.start_date >= this_monday,
+            Task.start_date <= this_sunday,
+            Task.end_date.is_not(None),
         )
-        .order_by(Task.created_at.asc())
+        .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
     ).all()
 
-    completed = db.scalars(
+    pending_tasks = db.scalars(
+        select(Task)
+        .where(
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.status != TaskStatus.CLOSED,
+            Task.status != TaskStatus.STALLED,
+            Task.start_date < this_monday,
+            Task.start_date.is_not(None),
+            Task.end_date.is_not(None),
+        )
+        .order_by(Task.start_date.asc(), null_end_date_last.asc(), Task.end_date.asc(), Task.created_at.asc())
+    ).all()
+
+    backlog_tasks = db.scalars(
+        select(Task)
+        .where(
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.status != TaskStatus.CLOSED,
+            Task.status != TaskStatus.STALLED,
+            Task.start_date.is_(None),
+            Task.end_date.is_(None),
+            Task.estimated_hours.is_(None),
+        )
+        .order_by(Task.start_date.asc(), Task.created_at.asc())
+    ).all()
+
+    completed_tasks = db.scalars(
         select(Task)
         .where(
             Task.org_id == org_id,
@@ -135,20 +170,269 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             Task.status == TaskStatus.CLOSED,
             Task.closed_at.is_not(None),
             Task.closed_at >= datetime.combine(prev_monday, datetime.min.time()),
-            Task.closed_at <= datetime.combine(prev_friday, datetime.max.time()),
+            Task.closed_at <= datetime.combine(prev_sunday, datetime.max.time()),
         )
-        .order_by(Task.closed_at.desc())
+        .order_by(Task.closed_at.desc(), Task.start_date.asc())
     ).all()
 
-    planned = db.scalars(
+    stalled_tasks = db.scalars(
         select(Task)
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
-            Task.start_date >= this_monday,
-            Task.start_date <= this_friday,
+            Task.status == TaskStatus.STALLED,
         )
-        .order_by(Task.start_date.asc())
+        .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
     ).all()
 
-    return {"pending": pending, "completed": completed, "planned": planned}
+    def serialize_open_task(task: Task) -> dict:
+        deadline_label = "No deadline"
+        deadline_tone = "muted"
+        overdue_days = None
+        if task.end_date:
+            day_delta = (task.end_date - today).days
+            if day_delta < 0:
+                overdue_days = abs(day_delta)
+                deadline_label = f"Late by {overdue_days} day{'s' if overdue_days != 1 else ''}"
+                deadline_tone = "late"
+            elif day_delta == 0:
+                deadline_label = "Due today"
+                deadline_tone = "due"
+            else:
+                deadline_label = f"{day_delta} day{'s' if day_delta != 1 else ''} remaining"
+                deadline_tone = "upcoming"
+
+        return {
+            "task_id": task.task_id,
+            "name": task.name,
+            "status": task.status.value,
+            "start_date": task.start_date,
+            "end_date": task.end_date,
+            "logged_hours": float(task.logged_hours or 0),
+            "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
+            "deadline_label": deadline_label,
+            "deadline_tone": deadline_tone,
+            "overdue_days": overdue_days,
+            "stalled_reason": task.stalled_reason or "",
+        }
+
+    def serialize_completed_task(task: Task) -> dict:
+        estimated_hours = float(task.estimated_hours) if task.estimated_hours is not None else None
+        logged_hours = float(task.logged_hours or 0)
+        effort_percent = None
+        effort_label = "No estimate"
+        effort_tone = "muted"
+        if estimated_hours and estimated_hours > 0:
+            delta_percent = ((logged_hours - estimated_hours) / estimated_hours) * 100
+            effort_percent = round(delta_percent, 2)
+            if abs(delta_percent) < 0.01:
+                effort_label = "On estimate"
+                effort_tone = "upcoming"
+            elif delta_percent > 0:
+                effort_label = f"{abs(delta_percent):.2f}% over"
+                effort_tone = "late"
+            else:
+                effort_label = f"{abs(delta_percent):.2f}% under"
+                effort_tone = "upcoming"
+        return {
+            "task_id": task.task_id,
+            "name": task.name,
+            "status": task.status.value,
+            "start_date": task.start_date,
+            "end_date": task.end_date,
+            "closed_at": task.closed_at.date() if task.closed_at else None,
+            "logged_hours": logged_hours,
+            "estimated_hours": estimated_hours,
+            "effort_percent": effort_percent,
+            "effort_label": effort_label,
+            "effort_tone": effort_tone,
+        }
+
+    return {
+        "week_start": this_monday,
+        "week_end": this_sunday,
+        "previous_week_start": prev_monday,
+        "previous_week_end": prev_sunday,
+        "previous_week_closed_count": len(completed_tasks),
+        "previous_week_effort_hours": last_week_rates["total_logged_hours"],
+        "previous_week_effort_rate": last_week_rates["total_rate"],
+        "this_week_tasks": [serialize_open_task(task) for task in this_week_tasks],
+        "pending_tasks": [serialize_open_task(task) for task in pending_tasks],
+        "backlog_tasks": [serialize_open_task(task) for task in backlog_tasks],
+        "completed_tasks": [serialize_completed_task(task) for task in completed_tasks],
+        "stalled_tasks": [serialize_open_task(task) for task in stalled_tasks],
+        "previous_week_start": prev_monday,
+    }
+
+
+def reports_overview(db: Session, org_id: int, user_id: int, today: date | None = None) -> dict:
+    today = today or date.today()
+    now = datetime.now()
+    this_monday, _ = current_week_bounds(today)
+    month_start = today.replace(day=1)
+
+    week_effort = []
+    for offset in range(3, -1, -1):
+        week_start = this_monday - timedelta(days=7 * offset)
+        week_end = week_start + timedelta(days=6)
+        rates = compute_work_rate(db, org_id, user_id, week_start, week_end)
+        week_effort.append(
+            {
+                "label": f"{week_start.strftime('%d %b')} - {week_end.strftime('%d %b')}",
+                "booked_hours": rates["total_logged_hours"],
+                "available_hours": rates["available_hours"],
+            }
+        )
+
+    month_rates = compute_work_rate(db, org_id, user_id, month_start, today)
+
+    top_task_rows = db.execute(
+        select(
+            Task.task_id,
+            Task.name,
+            Task.status,
+            Project.code,
+            func.coalesce(func.sum(TimeLog.hours), 0).label("hours"),
+        )
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .join(Project, Task.project_id == Project.id)
+        .where(
+            Task.org_id == org_id,
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= month_start,
+            TimeLog.log_date <= today,
+        )
+        .group_by(Task.id, Task.task_id, Task.name, Task.status, Project.code)
+        .order_by(func.sum(TimeLog.hours).desc(), Task.updated_at.desc())
+        .limit(5)
+    ).all()
+    top_tasks = [
+        {
+            "task_id": row.task_id,
+            "name": row.name,
+            "status": row.status.value,
+            "project_code": row.code,
+            "hours": float(row.hours or 0),
+        }
+        for row in top_task_rows
+    ]
+
+    null_end_date_last = case((Task.end_date.is_(None), 1), else_=0)
+    pending_rows = db.scalars(
+        select(Task)
+        .where(
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.status.not_in([TaskStatus.CLOSED, TaskStatus.STALLED]),
+            Task.start_date.is_not(None),
+            Task.end_date.is_not(None),
+        )
+        .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.desc(), Task.created_at.desc())
+    ).all()
+    pending_tasks = []
+    pending_delay_buckets = {
+        "1-8h": 0,
+        "8-24h": 0,
+        "24-40h": 0,
+        "40h+": 0,
+    }
+    for task in pending_rows:
+        overdue_days = 0
+        overdue_hours = 0
+        if task.end_date and task.end_date < today:
+            overdue_days = (today - task.end_date).days
+            overdue_at = datetime.combine(task.end_date, datetime.max.time())
+            overdue_hours = max(1, ceil((now - overdue_at).total_seconds() / 3600))
+            if overdue_hours <= 8:
+                pending_delay_buckets["1-8h"] += 1
+            elif overdue_hours <= 24:
+                pending_delay_buckets["8-24h"] += 1
+            elif overdue_hours <= 40:
+                pending_delay_buckets["24-40h"] += 1
+            else:
+                pending_delay_buckets["40h+"] += 1
+        pending_tasks.append(
+            {
+                "task_id": task.task_id,
+                "name": task.name,
+                "status": task.status.value,
+                "start_date": task.start_date,
+                "end_date": task.end_date,
+                "logged_hours": float(task.logged_hours or 0),
+                "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
+                "overdue_days": overdue_days,
+                "overdue_hours": overdue_hours,
+            }
+        )
+    pending_tasks.sort(
+        key=lambda item: (item["overdue_hours"], item["overdue_days"], item["start_date"].toordinal() if item["start_date"] else 0),
+        reverse=True,
+    )
+
+    burn_down = []
+    for offset in range(4, -1, -1):
+        week_start = this_monday - timedelta(days=7 * offset)
+        week_end = week_start + timedelta(days=6)
+        assigned_count = db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.org_id == org_id,
+                Task.assigned_to == user_id,
+                Task.created_at >= datetime.combine(week_start, datetime.min.time()),
+                Task.created_at <= datetime.combine(week_end, datetime.max.time()),
+            )
+        )
+        closed_count = db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.org_id == org_id,
+                Task.assigned_to == user_id,
+                Task.status == TaskStatus.CLOSED,
+                Task.closed_at.is_not(None),
+                Task.closed_at >= datetime.combine(week_start, datetime.min.time()),
+                Task.closed_at <= datetime.combine(week_end, datetime.max.time()),
+            )
+        )
+        burn_down.append(
+            {
+                "label": week_start.strftime("%d %b"),
+                "assigned": int(assigned_count or 0),
+                "closed": int(closed_count or 0),
+            }
+        )
+
+    activity_allocation_rows = db.execute(
+        select(
+            ActivityType.name,
+            func.coalesce(func.sum(TimeLog.hours), 0).label("hours"),
+        )
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .join(ActivityType, Task.activity_type_id == ActivityType.id)
+        .where(
+            Task.org_id == org_id,
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= month_start,
+            TimeLog.log_date <= today,
+        )
+        .group_by(ActivityType.name)
+        .order_by(func.sum(TimeLog.hours).desc(), ActivityType.name.asc())
+    ).all()
+
+    activity_allocation = [{"name": row.name, "hours": float(row.hours or 0)} for row in activity_allocation_rows]
+
+    return {
+        "week_effort": week_effort,
+        "month_rates": month_rates,
+        "top_tasks": top_tasks,
+        "pending_tasks": pending_tasks,
+        "pending_task_count": len(pending_tasks),
+        "pending_delay_buckets": [{"label": key, "count": value} for key, value in pending_delay_buckets.items()],
+        "burn_down": burn_down,
+        "activity_allocation": activity_allocation,
+        "month_start": month_start,
+        "today": today,
+    }

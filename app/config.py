@@ -8,15 +8,17 @@ class Settings(BaseSettings):
     app_env: str = "development"
     secret_key: str = "change-this-in-production"
     jwt_algorithm: str = "HS256"
-    access_token_ttl_minutes: int = 60
+    access_token_ttl_minutes: int = 10080
     refresh_token_ttl_days: int = 7
-    database_url: str = "sqlite:///./protracklite.db"
+    database_url: str = ""
     smtp_host: str = "localhost"
     smtp_port: int = 25
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from: str = "no-reply@task.omnihire.in"
     base_domain: str = "task.omnihire.in"
+    openai_api_key: str = ""
+    openai_backlog_model: str = "gpt-5.4-mini"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

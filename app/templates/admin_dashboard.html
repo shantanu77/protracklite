@@ -20,10 +20,20 @@
   <div class="stat"><span>Closed This Month</span><strong>{{ summary.tasks_closed_month }}</strong></div>
   <div class="stat"><span>Weekend Days</span><strong>{{ settings.weekend_days|join(', ') }}</strong></div>
 </div>
-<section class="panel">
-  <div class="panel-head">
-    <h2>Team Performance</h2>
-    <p>Current month availability, effort, and task counts.</p>
+<section class="panel data-grid" data-grid>
+  <div class="grid-toolbar">
+    <div class="grid-toolbar-main">
+      <div>
+        <h2>Team Performance</h2>
+        <p>Current month availability, effort, and task counts in the standard admin grid.</p>
+      </div>
+      <span class="grid-toolbar-meta" data-grid-count></span>
+    </div>
+    <div class="grid-controls">
+      <label class="grid-search">Search
+        <input type="search" placeholder="Search by employee name" data-grid-search>
+      </label>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
@@ -41,7 +51,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr data-grid-row data-grid-search="{{ row.member.full_name }}">
           <td><a href="/{{ org.slug }}/team/{{ row.member.id }}/tasks">{{ row.member.full_name }}</a></td>
           <td>{{ row.rates.available_hours }}</td>
           <td>{{ row.rates.total_logged_hours }}</td>
@@ -55,5 +65,6 @@
       </tbody>
     </table>
   </div>
+  <p class="grid-empty empty" data-grid-empty hidden>No team members match the current search.</p>
 </section>
 {% endblock %}

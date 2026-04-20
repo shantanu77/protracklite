@@ -6,9 +6,30 @@
     <h1>Create Task</h1>
     <p>Capture a task with dates, effort, and visibility in one pass.</p>
   </div>
+  <div class="page-head-actions">
+    <button type="button" class="button secondary" data-modal-open="bulk-backlog-modal">✦ Add Task Using AI</button>
+  </div>
 </section>
 <div class="stack">
+  {% if created_count %}
+  <section class="panel">
+    <p><strong>{{ created_count }}</strong> tasks were created.
+      {% if created_task_ids %}
+      Open:
+      {% for task_id in created_task_ids %}
+      <a href="/{{ org.slug }}/tasks/{{ task_id }}">{{ task_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+      {% endif %}
+      You can continue adding more tasks below.
+    </p>
+  </section>
+  {% elif created_task_id %}
+  <section class="panel">
+    <p><a href="/{{ org.slug }}/tasks/{{ created_task_id }}"><strong>{{ created_task_id }}</strong></a> was created. You can continue adding more tasks below.</p>
+  </section>
+  {% endif %}
   <form method="post" class="panel form-grid">
+    <label class="checkbox full"><input name="is_backlog" type="checkbox" data-backlog-toggle>Add as Backlog item</label>
     <label>Project
       <select name="project_id" required>
         {% for project in projects %}
@@ -17,42 +38,130 @@
       </select>
     </label>
     <label>Name<input name="name" required></label>
+    <label>Category
+      <select name="activity_category" data-activity-category required>
+        {% for category_key, category_label in activity_categories %}
+        <option value="{{ category_key }}">{{ category_label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Activity Type
-      <select name="activity_type_id" required>
+      <select name="activity_type_id" data-activity-type-select required>
         {% for item in activity_types %}
-        <option value="{{ item.id }}">{{ item.name }}</option>
+        <option value="{{ item.id }}" data-category="{{ item.category }}">{{ item.name }}</option>
         {% endfor %}
       </select>
     </label>
     <label>Status
-      <select name="status">
+      <select name="status" data-backlog-field>
         {% for item in statuses %}
         <option value="{{ item.value }}">{{ item.value }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>Start Date<input name="start_date" type="date" value="{{ today }}" required></label>
-    <label>End Date<input name="end_date" type="date"></label>
-    <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0"></label>
+    <label>Start Date<input name="start_date" type="date" value="{{ today }}" data-backlog-field></label>
+    <label>End Date<input name="end_date" type="date" data-backlog-field></label>
+    <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" data-backlog-field></label>
     <label class="checkbox"><input name="is_private" type="checkbox">Private task</label>
     <label class="full">Description<textarea name="description" rows="8"></textarea></label>
+    <p class="full empty">If this is checked, only the basic task details are needed. Schedule and effort can be added later when you decide to pick it up.</p>
     <button type="submit">Save Task</button>
   </form>
 
   <section class="panel">
     <div class="panel-head">
       <h2>My Tasks</h2>
-      <p>Your current task list.</p>
+      <p>Newest tasks first, with current schedule and effort details.</p>
     </div>
     {% for task in tasks %}
     <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
       <span class="chip">{{ task.task_id }}</span>
       <strong>{{ task.name }}</strong>
-      <small>{{ task.status.value }}{% if task.start_date %} · starts {{ task.start_date }}{% endif %}{% if task.end_date %} · ends {{ task.end_date }}{% endif %}</small>
+      <small>
+        {{ task.project_code }}{% if task.project_name %} · {{ task.project_name }}{% endif %}
+        {% if task.activity_type_name %} · {{ task.activity_type_name }}{% endif %}
+      </small>
+      <small>
+        {{ task.status|replace('_', ' ') }}
+        {% if task.is_backlog %}
+        · backlog
+        {% elif task.start_date or task.end_date %}
+        {% if task.start_date %} · starts {{ task.start_date }}{% endif %}
+        {% if task.end_date %} · ends {{ task.end_date }}{% endif %}
+        {% endif %}
+        {% if task.estimated_hours is not none %} · plan {{ "%.2f"|format(task.estimated_hours) }}h{% endif %}
+        · logged {{ "%.2f"|format(task.logged_hours or 0) }}h
+        {% if task.is_private %} · private{% endif %}
+      </small>
     </a>
     {% else %}
     <p class="empty">No tasks created yet.</p>
     {% endfor %}
   </section>
 </div>
+<div class="modal-backdrop" id="bulk-backlog-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="bulk-backlog-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="bulk-backlog-title">Add Task Using AI</h2>
+        <p>Paste a full email, meeting notes, or one task per line. AI will understand the content, extract one or more actionable tasks, and generate cleaner task names and descriptions before saving them with your default project and activity type.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close bulk backlog modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid">
+      <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Hi Shantanu, please prepare the client deck for Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday. Also block some time next week to review dashboard options." required></textarea></label>
+      <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
+      <button type="submit">Create Tasks With AI</button>
+    </form>
+  </div>
+</div>
+<script>
+  (() => {
+    const form = document.querySelector("form.panel.form-grid");
+    const backlogToggle = form?.querySelector("[data-backlog-toggle]");
+    const fields = form ? Array.from(form.querySelectorAll("[data-backlog-field]")) : [];
+    if (!form || !backlogToggle) {
+      return;
+    }
+
+    function syncBacklogState() {
+      fields.forEach((field) => {
+        if (backlogToggle.checked) {
+          field.dataset.previousValue = field.value;
+          if (field.tagName === "SELECT" && field.name === "status") {
+            field.value = "not_started";
+          } else {
+            field.value = "";
+          }
+        } else if (!field.value && field.dataset.previousValue) {
+          field.value = field.dataset.previousValue;
+        }
+        const label = field.closest("label");
+        field.disabled = backlogToggle.checked;
+        if (label) {
+          label.hidden = backlogToggle.checked;
+        }
+      });
+    }
+
+    backlogToggle.addEventListener("change", syncBacklogState);
+    syncBacklogState();
+  })();
+
+  (() => {
+    const shouldOpenAi = {{ "true" if open_ai else "false" }};
+    if (!shouldOpenAi) {
+      return;
+    }
+    window.addEventListener("load", () => {
+      const modal = document.getElementById("bulk-backlog-modal");
+      if (!modal) {
+        return;
+      }
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+    });
+  })();
+</script>
 {% endblock %}

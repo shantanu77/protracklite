@@ -7,37 +7,101 @@
     <p>Filter the org task list by assignee, project, and status.</p>
   </div>
 </section>
-<form method="get" class="panel compact-form">
-  <label>Assignee
-    <select name="assignee_id">
-      <option value="">All</option>
-      {% for person in people %}
-      <option value="{{ person.id }}" {% if assignee_id == person.id %}selected{% endif %}>{{ person.full_name }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label>Project
-    <select name="project_id">
-      <option value="">All</option>
-      {% for project in projects %}
-      <option value="{{ project.id }}" {% if project_id == project.id %}selected{% endif %}>{{ project.name }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label>Status
-    <select name="status_filter">
-      <option value="">All</option>
-      {% for item in statuses %}
-      <option value="{{ item.value }}" {% if status_filter == item.value %}selected{% endif %}>{{ item.value }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button type="submit">Filter</button>
-</form>
+
 <section class="panel">
   <div class="panel-head">
-    <h2>Task List</h2>
-    <p>Cross-org view for monitoring work in progress.</p>
+    <div>
+      <h2>Executive Summary</h2>
+      <p>Management view for the current task set after filters.</p>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><span>Total Tasks</span><strong>{{ task_summary.total }}</strong></div>
+    <div class="stat"><span>Open Tasks</span><strong>{{ task_summary.open }}</strong></div>
+    <div class="stat"><span>Overdue</span><strong>{{ task_summary.overdue }}</strong></div>
+    <div class="stat"><span>Due This Week</span><strong>{{ task_summary.due_this_week }}</strong></div>
+    <div class="stat"><span>Backlog</span><strong>{{ task_summary.backlog }}</strong></div>
+    <div class="stat"><span>Stalled</span><strong>{{ task_summary.stalled }}</strong></div>
+    <div class="stat"><span>Completed</span><strong>{{ task_summary.completed }}</strong></div>
+    <div class="stat"><span>Booked Hours</span><strong>{{ "%.2f"|format(task_summary.logged_hours) }}h</strong></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Assignee Snapshot</h2>
+      <p>Ordered by booked effort in the current filtered task set.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Assignee</th>
+          <th>Open</th>
+          <th>Overdue</th>
+          <th>Completed</th>
+          <th>Booked</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in assignee_summary %}
+        <tr>
+          <td>{{ row.person.full_name }}</td>
+          <td>{{ row.open }}</td>
+          <td>{% if row.overdue %}<span class="badge danger">{{ row.overdue }}</span>{% else %}<span class="badge muted">0</span>{% endif %}</td>
+          <td>{{ row.completed }}</td>
+          <td>{{ "%.2f"|format(row.logged_hours) }}h</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No assignees in the current task set.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel data-grid" data-grid>
+  <div class="grid-toolbar">
+    <div class="grid-toolbar-main">
+      <div>
+        <h2>Task List</h2>
+        <p>Cross-org view with the same standard grid search and filters.</p>
+      </div>
+      <span class="grid-toolbar-meta" data-grid-count></span>
+    </div>
+    <div class="grid-controls">
+      <label class="grid-search">Search
+        <input type="search" placeholder="Search by task, assignee, or project" data-grid-search>
+      </label>
+      <div class="grid-filters">
+        <label>Assignee
+          <select data-grid-filter="assignee">
+            <option value="">All</option>
+            {% for person in people %}
+            <option value="{{ person.id }}" {% if assignee_id == person.id %}selected{% endif %}>{{ person.full_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Project
+          <select data-grid-filter="project">
+            <option value="">All</option>
+            {% for project in projects %}
+            <option value="{{ project.id }}" {% if project_id == project.id %}selected{% endif %}>{{ project.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Status
+          <select data-grid-filter="status">
+            <option value="">All</option>
+            {% for item in statuses %}
+            <option value="{{ item.value }}" {% if status_filter == item.value %}selected{% endif %}>{{ item.value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
@@ -53,7 +117,13 @@
       </thead>
       <tbody>
         {% for task in tasks %}
-        <tr>
+        <tr
+          data-grid-row
+          data-grid-search="{{ task.task_id }} {{ task.name }} {{ people_map.get(task.assigned_to, task.assigned_to) }} {{ task.project.name if task.project else '' }}"
+          data-assignee="{{ task.assigned_to }}"
+          data-project="{{ task.project_id }}"
+          data-status="{{ task.status.value }}"
+        >
           <td>{{ task.task_id }}</td>
           <td>{{ task.name }}</td>
           <td>{{ people_map.get(task.assigned_to, task.assigned_to) }}</td>
@@ -65,5 +135,6 @@
       </tbody>
     </table>
   </div>
+  <p class="grid-empty empty" data-grid-empty hidden>No tasks match the current search and filters.</p>
 </section>
 {% endblock %}
