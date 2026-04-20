@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Weekly Planning</p>
     <h1>Monday Report</h1>
-    <p>Last week booking and closure performance, this week starts, carry-forward pressure, and active pending work.</p>
+    <p>{{ report.previous_week_start.strftime("%A, %Y-%m-%d") }} to {{ report.previous_week_end.strftime("%A, %Y-%m-%d") }}</p>
   </div>
 </section>
 <div class="stats">
@@ -33,10 +33,6 @@
   <div class="stat">
     <span>Total Open Tasks</span>
     <strong>{{ report.total_open_task_count }}</strong>
-  </div>
-  <div class="stat">
-    <span>Last Week Window</span>
-    <strong>{{ report.previous_week_start }} to {{ report.previous_week_end }}</strong>
   </div>
 </div>
 <section class="panel monday-summary-panel">
