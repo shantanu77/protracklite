@@ -1,4 +1,86 @@
 {% extends "base.html" %}
+{% macro render_task_card(task, card_kind="open") %}
+  {% set detail_id = "monday-task-details-" ~ task.task_id %}
+  <div class="list-row deadline-card {{ 'upcoming' if card_kind == 'completed' else task.deadline_tone }} monday-task-card">
+    <div class="monday-task-main">
+      <div>
+        <div class="report-row-head">
+          <strong>{{ task.task_id }}</strong>
+          <div class="report-row-badges">
+            {% if card_kind == "completed" %}
+            <span class="report-hours-pill emphasis">{{ "%.2f"|format(task.logged_hours or 0) }}h actual</span>
+            <span class="badge success">closed</span>
+            <span class="deadline-pill {{ task.effort_tone }}">{{ task.effort_label }}</span>
+            {% elif card_kind == "stalled" %}
+            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="badge danger">stalled</span>
+            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+            {% else %}
+            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
+            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <span>{{ task.name }}</span>
+        <small>
+          {% if card_kind == "completed" %}
+          Started {{ task.start_date }}
+          {% if task.end_date %} · end date {{ task.end_date }}{% endif %}
+          {% if task.closed_at %} · closed {{ task.closed_at }}{% endif %}
+          · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h
+          {% else %}
+          Starts {{ task.start_date }}
+          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+          {% if task.overdue_days %} · overdue by {{ task.overdue_days }} day{% if task.overdue_days != 1 %}s{% endif %}{% endif %}
+          {% endif %}
+        </small>
+      </div>
+      <button
+        type="button"
+        class="dashboard-expand-toggle monday-expand-toggle"
+        data-monday-expand-toggle
+        data-expand-label="Details"
+        aria-expanded="false"
+        aria-controls="{{ detail_id }}"
+      >
+        Expand Details
+      </button>
+    </div>
+    <div class="monday-task-details" id="{{ detail_id }}" data-monday-expand-panel hidden>
+      <div class="monday-task-detail-block">
+        <span class="monday-task-detail-label">Description</span>
+        {% if task.description %}
+        <div class="monday-task-detail-text">{{ task.description|safe }}</div>
+        {% else %}
+        <p class="empty">No description added.</p>
+        {% endif %}
+      </div>
+      {% if card_kind == "stalled" %}
+      <div class="monday-task-detail-block">
+        <span class="monday-task-detail-label">Stalled Reason</span>
+        <p>{{ task.stalled_reason or "No stalled reason recorded." }}</p>
+      </div>
+      {% endif %}
+      <div class="monday-task-detail-block">
+        <span class="monday-task-detail-label">Booked Hour Log</span>
+        <div class="dashboard-log-list">
+          {% for log in task.time_logs %}
+          <article class="dashboard-log-item">
+            <div class="dashboard-log-meta">
+              <span>{{ log.date }}</span>
+              <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
+            </div>
+            <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
+          </article>
+          {% else %}
+          <p class="empty">No booked-hour log found.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
 {% block content %}
 <section class="page-head">
   <div>
@@ -55,23 +137,7 @@
       </div>
     </div>
     {% for task in report.this_week_tasks %}
-    <div class="list-row deadline-card {{ task.deadline_tone }}">
-      <div>
-        <div class="report-row-head">
-          <strong>{{ task.task_id }}</strong>
-          <div class="report-row-badges">
-            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
-            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
-            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
-          </div>
-        </div>
-        <span>{{ task.name }}</span>
-        <small>
-          Starts {{ task.start_date }}
-          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
-        </small>
-      </div>
-    </div>
+    {{ render_task_card(task, "open") }}
     {% else %}<p class="empty">No open tasks in this week.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -80,24 +146,7 @@
       <p>All open tasks assigned to you that are not stalled and started before this week.</p>
     </div>
     {% for task in report.pending_tasks %}
-    <div class="list-row deadline-card {{ task.deadline_tone }}">
-      <div>
-        <div class="report-row-head">
-          <strong>{{ task.task_id }}</strong>
-          <div class="report-row-badges">
-            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
-            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
-            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
-          </div>
-        </div>
-        <span>{{ task.name }}</span>
-        <small>
-          Starts {{ task.start_date }}
-          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
-          {% if task.overdue_days %} · overdue by {{ task.overdue_days }} day{% if task.overdue_days != 1 %}s{% endif %}{% endif %}
-        </small>
-      </div>
-    </div>
+    {{ render_task_card(task, "open") }}
     {% else %}<p class="empty">No pending non-stalled tasks.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -106,25 +155,7 @@
       <p>Tasks closed in the previous week, with estimated versus actual effort.</p>
     </div>
     {% for task in report.completed_tasks %}
-    <div class="list-row deadline-card upcoming">
-      <div>
-        <div class="report-row-head">
-          <strong>{{ task.task_id }}</strong>
-          <div class="report-row-badges">
-            <span class="report-hours-pill emphasis">{{ "%.2f"|format(task.logged_hours or 0) }}h actual</span>
-            <span class="badge success">closed</span>
-            <span class="deadline-pill {{ task.effort_tone }}">{{ task.effort_label }}</span>
-          </div>
-        </div>
-        <span>{{ task.name }}</span>
-        <small>
-          Started {{ task.start_date }}
-          {% if task.end_date %} · end date {{ task.end_date }}{% endif %}
-          {% if task.closed_at %} · closed {{ task.closed_at }}{% endif %}
-          · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h
-        </small>
-      </div>
-    </div>
+    {{ render_task_card(task, "completed") }}
     {% else %}<p class="empty">No tasks were closed last week.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -133,24 +164,7 @@
       <p>Tasks marked stalled, along with the reason recorded on the task.</p>
     </div>
     {% for task in report.stalled_tasks %}
-    <div class="list-row deadline-card {{ task.deadline_tone }}">
-      <div>
-        <div class="report-row-head">
-          <strong>{{ task.task_id }}</strong>
-          <div class="report-row-badges">
-            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
-            <span class="badge danger">stalled</span>
-            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
-          </div>
-        </div>
-        <span>{{ task.name }}</span>
-        <small>
-          Starts {{ task.start_date }}
-          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
-        </small>
-        <p>{{ task.stalled_reason or "No stalled reason recorded." }}</p>
-      </div>
-    </div>
+    {{ render_task_card(task, "stalled") }}
     {% else %}<p class="empty">No stalled tasks.</p>{% endfor %}
   </section>
 </div>
@@ -214,6 +228,23 @@
 </div>
 <script>
   (() => {
+    document.querySelectorAll("[data-monday-expand-toggle]").forEach((button) => {
+      const panelId = button.getAttribute("aria-controls");
+      const panel = panelId ? document.getElementById(panelId) : null;
+      const label = button.dataset.expandLabel || "Details";
+
+      if (!panel) {
+        return;
+      }
+
+      button.addEventListener("click", () => {
+        const isExpanded = button.getAttribute("aria-expanded") === "true";
+        panel.hidden = isExpanded;
+        button.setAttribute("aria-expanded", String(!isExpanded));
+        button.textContent = isExpanded ? `Expand ${label}` : `Collapse ${label}`;
+      });
+    });
+
     const form = document.querySelector("[data-backlog-form]");
     if (!form) {
       return;

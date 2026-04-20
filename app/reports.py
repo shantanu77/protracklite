@@ -186,6 +186,26 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
     ).all()
 
+    report_task_ids = [
+        task.id
+        for task in [*this_week_tasks, *pending_tasks, *completed_tasks, *stalled_tasks]
+    ]
+    logs_by_task_id: dict[int, list[dict]] = defaultdict(list)
+    if report_task_ids:
+        report_logs = db.scalars(
+            select(TimeLog)
+            .where(TimeLog.task_id.in_(report_task_ids), TimeLog.user_id == user_id)
+            .order_by(TimeLog.task_id.asc(), TimeLog.log_date.desc(), TimeLog.created_at.desc())
+        ).all()
+        for log in report_logs:
+            logs_by_task_id[log.task_id].append(
+                {
+                    "date": log.log_date,
+                    "hours": float(log.hours or 0),
+                    "notes": log.notes or "",
+                }
+            )
+
     previous_week_booked_hours = last_week_rates["total_logged_hours"]
     previous_week_available_hours = last_week_rates["available_hours"]
     previous_week_target_hours = round(min(35.0, previous_week_available_hours), 2)
@@ -229,6 +249,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "task_id": task.task_id,
             "name": task.name,
             "status": task.status.value,
+            "description": task.description or "",
             "start_date": task.start_date,
             "end_date": task.end_date,
             "logged_hours": float(task.logged_hours or 0),
@@ -237,6 +258,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "deadline_tone": deadline_tone,
             "overdue_days": overdue_days,
             "stalled_reason": task.stalled_reason or "",
+            "time_logs": logs_by_task_id.get(task.id, []),
         }
 
     def serialize_completed_task(task: Task) -> dict:
@@ -261,6 +283,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "task_id": task.task_id,
             "name": task.name,
             "status": task.status.value,
+            "description": task.description or "",
             "start_date": task.start_date,
             "end_date": task.end_date,
             "closed_at": task.closed_at.date() if task.closed_at else None,
@@ -269,6 +292,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "effort_percent": effort_percent,
             "effort_label": effort_label,
             "effort_tone": effort_tone,
+            "time_logs": logs_by_task_id.get(task.id, []),
         }
 
     return {
