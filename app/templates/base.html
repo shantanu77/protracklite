@@ -67,6 +67,45 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  {% if user and org %}
+  <div class="modal-backdrop" id="quick-task-modal" data-modal aria-hidden="true">
+    <div class="modal-card wide quick-task-modal" role="dialog" aria-modal="true" aria-labelledby="quick-task-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="quick-task-title">Quick Create Task</h2>
+          <p>Use <strong>Ctrl+Shift+K</strong> or <strong>Cmd+Shift+K</strong> to open this from anywhere.</p>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close quick create task modal">×</button>
+      </div>
+      <form class="form-grid quick-task-form" data-quick-task-form>
+        <div class="full quick-task-feedback" data-quick-task-feedback hidden></div>
+        <label class="checkbox full"><input name="is_backlog" type="checkbox" data-quick-task-backlog-toggle>Add as Backlog item</label>
+        <label>Project
+          <select name="project_id" data-quick-task-project required></select>
+        </label>
+        <label>Name<input name="name" data-quick-task-name required></label>
+        <label>Category
+          <select name="activity_category" data-quick-task-category required></select>
+        </label>
+        <label>Activity Type
+          <select name="activity_type_id" data-quick-task-activity-type required></select>
+        </label>
+        <label>Status
+          <select name="status" data-quick-task-backlog-field></select>
+        </label>
+        <label>Start Date<input name="start_date" type="date" data-quick-task-backlog-field></label>
+        <label>End Date<input name="end_date" type="date" data-quick-task-backlog-field></label>
+        <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" data-quick-task-backlog-field></label>
+        <label class="checkbox"><input name="is_private" type="checkbox">Private task</label>
+        <label class="full">Description<textarea name="description" rows="5"></textarea></label>
+        <div class="full quick-task-actions">
+          <span class="empty">Create a task without leaving the current page.</span>
+          <button type="submit" data-quick-task-submit>Create Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
   <script>
   (() => {
     const modals = document.querySelectorAll("[data-modal]");
@@ -298,6 +337,260 @@
       }
       categorySelect.addEventListener("change", syncActivityTypes);
       syncActivityTypes();
+    });
+
+    const quickTaskModal = document.getElementById("quick-task-modal");
+    const quickTaskForm = quickTaskModal?.querySelector("[data-quick-task-form]");
+    const quickTaskFeedback = quickTaskModal?.querySelector("[data-quick-task-feedback]");
+    const quickTaskNameInput = quickTaskModal?.querySelector("[data-quick-task-name]");
+    const quickTaskBacklogToggle = quickTaskModal?.querySelector("[data-quick-task-backlog-toggle]");
+    const quickTaskProjectSelect = quickTaskModal?.querySelector("[data-quick-task-project]");
+    const quickTaskCategorySelect = quickTaskModal?.querySelector("[data-quick-task-category]");
+    const quickTaskActivityTypeSelect = quickTaskModal?.querySelector("[data-quick-task-activity-type]");
+    const quickTaskSubmit = quickTaskModal?.querySelector("[data-quick-task-submit]");
+    const quickTaskBacklogFields = quickTaskModal ? Array.from(quickTaskModal.querySelectorAll("[data-quick-task-backlog-field]")) : [];
+    let quickTaskOptions = null;
+    let quickTaskOptionsRequest = null;
+
+    function quickTaskField(name) {
+      return quickTaskForm?.elements?.namedItem(name) || null;
+    }
+
+    function quickTaskNormalize(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function setQuickTaskFeedback(message, tone = "info") {
+      if (!quickTaskFeedback) {
+        return;
+      }
+      quickTaskFeedback.hidden = !message;
+      quickTaskFeedback.className = `full quick-task-feedback ${tone}`;
+      quickTaskFeedback.innerHTML = message || "";
+    }
+
+    function syncQuickTaskActivityTypes() {
+      if (!quickTaskCategorySelect || !quickTaskActivityTypeSelect) {
+        return;
+      }
+      const selectedCategory = quickTaskCategorySelect.value;
+      const options = Array.from(quickTaskActivityTypeSelect.querySelectorAll("option"));
+      let firstVisible = null;
+      options.forEach((option) => {
+        const matches = !selectedCategory || option.dataset.category === selectedCategory;
+        option.hidden = !matches;
+        option.disabled = !matches;
+        if (matches && !firstVisible) {
+          firstVisible = option;
+        }
+      });
+      const current = quickTaskActivityTypeSelect.selectedOptions[0];
+      if (!current || current.hidden || current.disabled) {
+        if (firstVisible) {
+          quickTaskActivityTypeSelect.value = firstVisible.value;
+        }
+      }
+    }
+
+    function syncQuickTaskBacklogState() {
+      if (!quickTaskBacklogToggle) {
+        return;
+      }
+      quickTaskBacklogFields.forEach((field) => {
+        if (quickTaskBacklogToggle.checked) {
+          field.dataset.previousValue = field.value;
+          if (field.tagName === "SELECT" && field.name === "status") {
+            field.value = "not_started";
+          } else {
+            field.value = "";
+          }
+        } else if (!field.value && field.dataset.previousValue) {
+          field.value = field.dataset.previousValue;
+        }
+        const label = field.closest("label");
+        field.disabled = quickTaskBacklogToggle.checked;
+        if (label) {
+          label.hidden = quickTaskBacklogToggle.checked;
+        }
+      });
+    }
+
+    function populateQuickTaskForm(options) {
+      if (!quickTaskForm || !quickTaskProjectSelect || !quickTaskCategorySelect || !quickTaskActivityTypeSelect) {
+        return;
+      }
+
+      quickTaskProjectSelect.innerHTML = (options.projects || [])
+        .map((project) => `<option value="${project.id}">${project.name} (${project.code})</option>`)
+        .join("");
+
+      quickTaskCategorySelect.innerHTML = (options.activity_categories || [])
+        .map((item) => `<option value="${item.key}">${item.label}</option>`)
+        .join("");
+
+      quickTaskActivityTypeSelect.innerHTML = (options.activity_types || [])
+        .map((item) => `<option value="${item.id}" data-category="${item.category || ""}">${item.name}</option>`)
+        .join("");
+
+      const statusSelect = quickTaskForm.querySelector('[name="status"]');
+      if (statusSelect) {
+        statusSelect.innerHTML = (options.statuses || [])
+          .map((item) => `<option value="${item.value}">${item.label}</option>`)
+          .join("");
+      }
+
+      quickTaskProjectSelect.value = String(options.defaults?.project_id || "");
+      quickTaskActivityTypeSelect.value = String(options.defaults?.activity_type_id || "");
+      if (statusSelect) {
+        statusSelect.value = String(options.defaults?.status || "not_started");
+      }
+
+      const selectedActivityOption = quickTaskActivityTypeSelect.selectedOptions[0];
+      if (selectedActivityOption?.dataset.category) {
+        quickTaskCategorySelect.value = selectedActivityOption.dataset.category;
+      } else if (quickTaskCategorySelect.options.length) {
+        quickTaskCategorySelect.value = quickTaskCategorySelect.options[0].value;
+      }
+
+      const startDateInput = quickTaskForm.querySelector('[name="start_date"]');
+      if (startDateInput) {
+        startDateInput.value = options.defaults?.start_date || "";
+      }
+
+      syncQuickTaskActivityTypes();
+      syncQuickTaskBacklogState();
+    }
+
+    async function ensureQuickTaskOptions() {
+      if (quickTaskOptions) {
+        return quickTaskOptions;
+      }
+      if (!quickTaskOptionsRequest) {
+        quickTaskOptionsRequest = fetch("/api/v1/tasks/quick-create/options", {
+          credentials: "same-origin",
+        }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Quick task options failed: ${response.status}`);
+          }
+          quickTaskOptions = await response.json();
+          populateQuickTaskForm(quickTaskOptions);
+          return quickTaskOptions;
+        }).catch((error) => {
+          quickTaskOptionsRequest = null;
+          throw error;
+        });
+      }
+      return quickTaskOptionsRequest;
+    }
+
+    async function openQuickTaskModal() {
+      if (!quickTaskModal || !quickTaskForm) {
+        return;
+      }
+      try {
+        await ensureQuickTaskOptions();
+        quickTaskForm.reset();
+        populateQuickTaskForm(quickTaskOptions);
+        setQuickTaskFeedback("");
+        setModalState(quickTaskModal, true);
+        window.setTimeout(() => quickTaskNameInput?.focus(), 0);
+      } catch (error) {
+        console.error(error);
+        setQuickTaskFeedback("Unable to load quick task form right now.", "error");
+        setModalState(quickTaskModal, true);
+      }
+    }
+
+    function shouldIgnoreQuickTaskShortcut(target) {
+      if (!(target instanceof Element)) {
+        return false;
+      }
+      return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+    }
+
+    quickTaskCategorySelect?.addEventListener("change", syncQuickTaskActivityTypes);
+    quickTaskBacklogToggle?.addEventListener("change", syncQuickTaskBacklogState);
+
+    quickTaskForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!quickTaskForm || !quickTaskSubmit) {
+        return;
+      }
+
+      const projectField = quickTaskField("project_id");
+      const nameField = quickTaskField("name");
+      const activityTypeField = quickTaskField("activity_type_id");
+      const descriptionField = quickTaskField("description");
+      const startDateField = quickTaskField("start_date");
+      const endDateField = quickTaskField("end_date");
+      const estimatedHoursField = quickTaskField("estimated_hours");
+      const statusField = quickTaskField("status");
+      const backlogField = quickTaskField("is_backlog");
+      const privateField = quickTaskField("is_private");
+
+      const payload = {
+        project_id: Number(projectField?.value || 0),
+        name: String(nameField?.value || "").trim(),
+        activity_type_id: Number(activityTypeField?.value || 0),
+        description: String(descriptionField?.value || ""),
+        start_date: String(startDateField?.value || ""),
+        end_date: String(endDateField?.value || ""),
+        estimated_hours: String(estimatedHoursField?.value || ""),
+        status: String(statusField?.value || "not_started"),
+        is_backlog: Boolean(backlogField?.checked),
+        is_private: Boolean(privateField?.checked),
+      };
+
+      if (!payload.name) {
+        setQuickTaskFeedback("Task name is required.", "error");
+        quickTaskNameInput?.focus();
+        return;
+      }
+
+      quickTaskSubmit.disabled = true;
+      quickTaskSubmit.textContent = "Creating...";
+      setQuickTaskFeedback("");
+
+      try {
+        const response = await fetch("/api/v1/tasks/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result.detail || `Quick task create failed: ${response.status}`);
+        }
+
+        const taskCode = result.task_id || "";
+        setQuickTaskFeedback(
+          `Created <a href="/{{ org.slug }}/tasks/${taskCode}"><strong>${taskCode}</strong></a>. You can keep adding more tasks.`,
+          "success"
+        );
+        quickTaskForm.reset();
+        populateQuickTaskForm(quickTaskOptions);
+        quickTaskNameInput?.focus();
+      } catch (error) {
+        console.error(error);
+        setQuickTaskFeedback(error.message || "Unable to create task right now.", "error");
+      } finally {
+        quickTaskSubmit.disabled = false;
+        quickTaskSubmit.textContent = "Create Task";
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (!quickTaskModal) {
+        return;
+      }
+      const isShortcut = (event.ctrlKey || event.metaKey) && event.shiftKey && quickTaskNormalize(event.key) === "k";
+      if (!isShortcut || shouldIgnoreQuickTaskShortcut(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      openQuickTaskModal();
     });
   })();
   </script>

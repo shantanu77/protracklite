@@ -1787,6 +1787,35 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
     return {"task_id": task.task_id}
 
 
+@app.get("/api/v1/tasks/quick-create/options")
+def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, _ = org_user
+    settings_obj = get_org_settings(db, org.id)
+    projects = org_projects(db, org.id)
+    activity_types = org_activity_types(db, org.id)
+    default_project, default_activity_type = resolve_default_task_targets(db, org.id)
+    default_status = settings_obj.default_task_status or TaskStatus.NOT_STARTED.value
+
+    return {
+        "projects": [{"id": item.id, "name": item.name, "code": item.code} for item in projects],
+        "activity_types": [
+            {"id": item.id, "name": item.name, "category": item.category}
+            for item in activity_types
+        ],
+        "activity_categories": [
+            {"key": key, "label": label}
+            for key, label in active_activity_categories(db, org.id)
+        ],
+        "statuses": [{"value": item.value, "label": item.value.replace("_", " ")} for item in TaskStatus],
+        "defaults": {
+            "project_id": default_project.id,
+            "activity_type_id": default_activity_type.id,
+            "status": default_status,
+            "start_date": date.today().isoformat(),
+        },
+    }
+
+
 @app.get("/api/v1/tasks/{task_code}")
 def api_get_task(task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
