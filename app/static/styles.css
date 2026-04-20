@@ -1092,6 +1092,18 @@ mark {
   padding: 1rem;
 }
 
+.stat.warning {
+  box-shadow: inset 4px 0 0 var(--warning);
+}
+
+.stat.danger {
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+.stat.success {
+  box-shadow: inset 4px 0 0 var(--success);
+}
+
 .stat span {
   display: block;
   color: var(--muted);
@@ -1103,6 +1115,23 @@ mark {
   display: block;
   font-size: clamp(1.35rem, 4vw, 1.9rem);
   line-height: 1.1;
+}
+
+.stat small {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.monday-summary-panel {
+  margin-bottom: 1rem;
+}
+
+.monday-summary-panel p {
+  margin: 0;
+  font-size: 0.98rem;
+  color: var(--text);
 }
 
 .quick-link {

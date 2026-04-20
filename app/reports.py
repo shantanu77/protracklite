@@ -116,6 +116,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
     today = today or date.today()
     this_monday, this_sunday = current_week_bounds(today)
     prev_monday, prev_sunday = previous_week_bounds(today)
+    two_week_cutoff = prev_monday - timedelta(days=7)
     null_end_date_last = case((Task.end_date.is_(None), 1), else_=0)
 
     last_week_rates = compute_work_rate(db, org_id, user_id, prev_monday, prev_sunday)
@@ -184,6 +185,28 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         )
         .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
     ).all()
+
+    previous_week_booked_hours = last_week_rates["total_logged_hours"]
+    previous_week_available_hours = last_week_rates["available_hours"]
+    previous_week_target_hours = round(min(35.0, previous_week_available_hours), 2)
+    previous_week_effort_rate = last_week_rates["total_rate"]
+
+    booking_health_tone = "success"
+    if previous_week_effort_rate < 80 or previous_week_booked_hours < previous_week_target_hours:
+        booking_health_tone = "danger"
+    elif previous_week_effort_rate < 90:
+        booking_health_tone = "warning"
+
+    pending_from_last_week_count = sum(1 for task in pending_tasks if task.start_date and prev_monday <= task.start_date <= prev_sunday)
+    pending_more_than_two_weeks_count = sum(1 for task in pending_tasks if task.start_date and task.start_date < two_week_cutoff)
+    total_open_task_count = len(this_week_tasks) + len(pending_tasks) + len(backlog_tasks) + len(stalled_tasks)
+
+    booking_summary = (
+        f"Last week: {previous_week_booked_hours:.2f}h booked against "
+        f"{previous_week_target_hours:.2f}h target, {pending_from_last_week_count} task"
+        f"{'' if pending_from_last_week_count == 1 else 's'} carried from last week, "
+        f"{pending_more_than_two_weeks_count} older than 2 weeks."
+    )
 
     def serialize_open_task(task: Task) -> dict:
         deadline_label = "No deadline"
@@ -254,8 +277,15 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         "previous_week_start": prev_monday,
         "previous_week_end": prev_sunday,
         "previous_week_closed_count": len(completed_tasks),
-        "previous_week_effort_hours": last_week_rates["total_logged_hours"],
-        "previous_week_effort_rate": last_week_rates["total_rate"],
+        "previous_week_effort_hours": previous_week_booked_hours,
+        "previous_week_available_hours": previous_week_available_hours,
+        "previous_week_target_hours": previous_week_target_hours,
+        "previous_week_effort_rate": previous_week_effort_rate,
+        "previous_week_booking_tone": booking_health_tone,
+        "pending_from_last_week_count": pending_from_last_week_count,
+        "pending_more_than_two_weeks_count": pending_more_than_two_weeks_count,
+        "total_open_task_count": total_open_task_count,
+        "booking_summary": booking_summary,
         "this_week_tasks": [serialize_open_task(task) for task in this_week_tasks],
         "pending_tasks": [serialize_open_task(task) for task in pending_tasks],
         "backlog_tasks": [serialize_open_task(task) for task in backlog_tasks],

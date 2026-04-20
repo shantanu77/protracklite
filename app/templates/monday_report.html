@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Weekly Planning</p>
     <h1>Monday Report</h1>
-    <p>Last week summary, this week starts, active pending work, completed tasks, and stalled items.</p>
+    <p>Last week booking and closure performance, this week starts, carry-forward pressure, and active pending work.</p>
   </div>
 </section>
 <div class="stats">
@@ -12,19 +12,36 @@
     <span>Last Week Closed</span>
     <strong>{{ report.previous_week_closed_count }}</strong>
   </div>
-  <div class="stat">
-    <span>Last Week Effort</span>
-    <strong>{{ report.previous_week_effort_hours }}h</strong>
+  <div class="stat {{ report.previous_week_booking_tone }}">
+    <span>Booked Hours</span>
+    <strong>{{ "%.2f"|format(report.previous_week_effort_hours) }}h</strong>
+    <small>Target {{ "%.2f"|format(report.previous_week_target_hours) }}h</small>
+  </div>
+  <div class="stat {{ report.previous_week_booking_tone }}">
+    <span>Booked %</span>
+    <strong>{{ "%.2f"|format(report.previous_week_effort_rate) }}%</strong>
+    <small>Available {{ "%.2f"|format(report.previous_week_available_hours) }}h</small>
   </div>
   <div class="stat">
-    <span>Booked %</span>
-    <strong>{{ report.previous_week_effort_rate }}%</strong>
+    <span>Pending From Last Week</span>
+    <strong>{{ report.pending_from_last_week_count }}</strong>
+  </div>
+  <div class="stat {% if report.pending_more_than_two_weeks_count > 0 %}danger{% endif %}">
+    <span>Pending &gt; 2 Weeks</span>
+    <strong>{{ report.pending_more_than_two_weeks_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Total Open Tasks</span>
+    <strong>{{ report.total_open_task_count }}</strong>
   </div>
   <div class="stat">
     <span>Last Week Window</span>
     <strong>{{ report.previous_week_start }} to {{ report.previous_week_end }}</strong>
   </div>
 </div>
+<section class="panel monday-summary-panel">
+  <p>{{ report.booking_summary }}</p>
+</section>
 <div class="grid">
   <section class="panel">
     <div class="panel-head">
