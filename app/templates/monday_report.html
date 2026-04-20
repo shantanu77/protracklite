@@ -36,7 +36,12 @@
   </div>
 </div>
 <section class="panel monday-summary-panel">
-  <p>{{ report.booking_summary }}</p>
+  <p>
+    Last week: {{ "%.2f"|format(report.previous_week_effort_hours) }}h booked against
+    {{ "%.2f"|format(report.previous_week_target_hours) }}h target,
+    {{ report.pending_from_last_week_count }} task{% if report.pending_from_last_week_count != 1 %}s{% endif %} carried from last week,
+    <strong>{{ report.pending_more_than_two_weeks_count }} older than 2 weeks.</strong>
+  </p>
 </section>
 <div class="grid">
   <section class="panel">
