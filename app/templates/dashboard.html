@@ -91,12 +91,12 @@
     </div>
     {% for task in groups.week %}
     <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-completed="{{ 'true' if task.status == 'closed' else 'false' }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
-      <div class="dashboard-task-main" data-dashboard-highlight>
+      <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
-          <span class="chip">{{ task.task_id }}</span>
+          <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
-        <strong>{{ task.name }}</strong>
+        <strong data-dashboard-highlight>{{ task.name }}</strong>
         <small data-dashboard-highlight>
           {% if task.start_date or task.end_date %}{{ task.start_date or "Not set" }}{% if task.end_date %} to {{ task.end_date }}{% endif %}{% else %}Backlog item{% endif %}
           {% if task.status == 'closed' %}
@@ -152,12 +152,12 @@
     <div data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order">
     {% for task in groups.today %}
     <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}" data-dashboard-sort-item>
-      <div class="dashboard-task-main" data-dashboard-highlight>
+      <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
-          <span class="chip">{{ task.task_id }}</span>
+          <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
-        <strong>{{ task.name }}</strong>
+        <strong data-dashboard-highlight>{{ task.name }}</strong>
         <small data-dashboard-highlight>{{ task.status }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
         <span class="deadline-pill {{ task.deadline_tone }}" data-dashboard-highlight>{{ task.deadline_label }}</span>
         {% if task.tags %}
@@ -203,12 +203,12 @@
     </div>
     {% for task in groups.overdue %}
     <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
-      <div class="dashboard-task-main" data-dashboard-highlight>
+      <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
-          <span class="chip">{{ task.task_id }}</span>
+          <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
-        <strong>{{ task.name }}</strong>
+        <strong data-dashboard-highlight>{{ task.name }}</strong>
         <small data-dashboard-highlight>End date {{ task.end_date }}</small>
         <span class="deadline-pill late" data-dashboard-highlight>{{ task.deadline_label }}</span>
         {% if task.tags %}
@@ -252,12 +252,12 @@
     </div>
     {% for task in groups.pending %}
     <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
-      <div class="dashboard-task-main" data-dashboard-highlight>
+      <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
-          <span class="chip">{{ task.task_id }}</span>
+          <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
-        <strong>{{ task.name }}</strong>
+        <strong data-dashboard-highlight>{{ task.name }}</strong>
         <small data-dashboard-highlight>{{ task.status }}</small>
         <span class="deadline-pill {{ task.deadline_tone }}" data-dashboard-highlight>{{ task.deadline_label }}</span>
         {% if task.tags %}
@@ -301,12 +301,12 @@
     </div>
     {% for task in groups.completed %}
     <div class="task-card deadline-card upcoming dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
-      <div class="dashboard-task-main" data-dashboard-highlight>
+      <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
-          <span class="chip">{{ task.task_id }}</span>
+          <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
-        <strong>{{ task.name }}</strong>
+        <strong data-dashboard-highlight>{{ task.name }}</strong>
         <small data-dashboard-highlight>{{ task.status }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
         <span class="deadline-pill upcoming" data-dashboard-highlight>Completed</span>
         {% if task.tags %}
