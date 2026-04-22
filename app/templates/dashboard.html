@@ -54,14 +54,28 @@
     <label class="dashboard-search-field">
       <input type="search" placeholder="Search by keyword in task id, name, description, status, dates, or tags" data-dashboard-search-input>
     </label>
-    <label class="dashboard-color-filter">
-      <select data-dashboard-color-filter>
-        <option value="">All colors</option>
+    <div class="dashboard-color-filter" data-dashboard-color-filter-wrap>
+      <input type="hidden" value="" data-dashboard-color-filter>
+      <button type="button" class="dashboard-color-filter-button" data-dashboard-color-button aria-expanded="false">
+        <span class="dashboard-color-filter-display">
+          <span class="dashboard-color-filter-swatch is-empty" data-dashboard-color-current-swatch></span>
+          <span data-dashboard-color-current-label>All colors</span>
+        </span>
+        <span class="dashboard-color-filter-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="dashboard-color-filter-menu" data-dashboard-color-menu hidden>
+        <button type="button" class="dashboard-color-filter-option is-active" data-dashboard-color-option data-color="" data-label="All colors">
+          <span class="dashboard-color-filter-swatch is-empty"></span>
+          <span>All colors</span>
+        </button>
         {% for color, label in task_color_choices %}
-        <option value="{{ color }}">{{ label }}</option>
+        <button type="button" class="dashboard-color-filter-option" data-dashboard-color-option data-color="{{ color }}" data-label="{{ label }}">
+          <span class="dashboard-color-filter-swatch" style="--task-color: {{ color }};"></span>
+          <span>{{ label }}</span>
+        </button>
         {% endfor %}
-      </select>
-    </label>
+      </div>
+    </div>
     <p class="dashboard-search-hint" data-dashboard-search-hint>Enter 3 or more characters.</p>
   </div>
 </section>
@@ -456,6 +470,12 @@
     const weekEmptyState = document.querySelector("[data-dashboard-week-empty]");
     const dashboardSearchInput = document.querySelector("[data-dashboard-search-input]");
     const dashboardColorFilter = document.querySelector("[data-dashboard-color-filter]");
+    const dashboardColorFilterWrap = document.querySelector("[data-dashboard-color-filter-wrap]");
+    const dashboardColorButton = document.querySelector("[data-dashboard-color-button]");
+    const dashboardColorMenu = document.querySelector("[data-dashboard-color-menu]");
+    const dashboardColorCurrentSwatch = document.querySelector("[data-dashboard-color-current-swatch]");
+    const dashboardColorCurrentLabel = document.querySelector("[data-dashboard-color-current-label]");
+    const dashboardColorOptions = Array.from(document.querySelectorAll("[data-dashboard-color-option]"));
     const dashboardSearchHint = document.querySelector("[data-dashboard-search-hint]");
     const taskCards = Array.from(document.querySelectorAll("[data-dashboard-task-card]"));
     const taskLogCache = new Map();
@@ -486,6 +506,43 @@
 
     function getActiveColorFilter() {
       return (dashboardColorFilter?.value || "").trim().toLowerCase();
+    }
+
+    function setDashboardColorFilter(color, label) {
+      if (!dashboardColorFilter) {
+        return;
+      }
+      dashboardColorFilter.value = color || "";
+      if (dashboardColorCurrentLabel) {
+        dashboardColorCurrentLabel.textContent = label || "All colors";
+      }
+      if (dashboardColorCurrentSwatch) {
+        dashboardColorCurrentSwatch.classList.toggle("is-empty", !color);
+        if (color) {
+          dashboardColorCurrentSwatch.style.setProperty("--task-color", color);
+        } else {
+          dashboardColorCurrentSwatch.style.removeProperty("--task-color");
+        }
+      }
+      dashboardColorOptions.forEach((option) => {
+        option.classList.toggle("is-active", (option.dataset.color || "") === (color || ""));
+      });
+    }
+
+    function closeDashboardColorMenu() {
+      if (!dashboardColorMenu || !dashboardColorButton) {
+        return;
+      }
+      dashboardColorMenu.hidden = true;
+      dashboardColorButton.setAttribute("aria-expanded", "false");
+    }
+
+    function openDashboardColorMenu() {
+      if (!dashboardColorMenu || !dashboardColorButton) {
+        return;
+      }
+      dashboardColorMenu.hidden = false;
+      dashboardColorButton.setAttribute("aria-expanded", "true");
     }
 
     function getCombinedSearchText(taskCard) {
@@ -664,6 +721,32 @@
       syncWeekCompletedVisibility();
     });
     dashboardColorFilter?.addEventListener("change", syncWeekCompletedVisibility);
+    dashboardColorButton?.addEventListener("click", () => {
+      if (dashboardColorMenu?.hidden) {
+        openDashboardColorMenu();
+      } else {
+        closeDashboardColorMenu();
+      }
+    });
+    dashboardColorOptions.forEach((option) => {
+      option.addEventListener("click", () => {
+        setDashboardColorFilter(option.dataset.color || "", option.dataset.label || "All colors");
+        closeDashboardColorMenu();
+        syncWeekCompletedVisibility();
+      });
+    });
+    document.addEventListener("click", (event) => {
+      if (!dashboardColorFilterWrap || dashboardColorFilterWrap.contains(event.target)) {
+        return;
+      }
+      closeDashboardColorMenu();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeDashboardColorMenu();
+      }
+    });
+    setDashboardColorFilter(dashboardColorFilter?.value || "", "All colors");
     document.addEventListener("task-color-updated", syncWeekCompletedVisibility);
     syncWeekCompletedVisibility();
   })();
