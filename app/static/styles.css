@@ -443,6 +443,10 @@ textarea {
   overflow: auto;
 }
 
+.dashboard-color-filter-menu[hidden] {
+  display: none;
+}
+
 .dashboard-color-filter-option {
   width: 100%;
   display: flex;
