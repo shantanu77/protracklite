@@ -31,8 +31,18 @@
         {% for task in backlog_tasks %}
         <tr>
           <td class="backlog-task-cell">
-            <strong>{{ task.task_id }}</strong><br>
+            <div class="task-card-headline">
+              <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+              <strong>{{ task.task_id }}</strong>
+            </div>
             <small>{{ task.name }}</small>
+            {% if task.tags %}
+            <div class="dashboard-task-badges">
+              {% for tag in task.tags %}
+              <span class="badge muted">#{{ tag }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
           </td>
           <td>{{ task.status_label }}</td>
           <td>{{ task.created_at.date() }}</td>

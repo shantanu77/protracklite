@@ -32,7 +32,18 @@
     <section class="panel task-detail-summary">
       <div class="task-detail-summary-head">
         <div>
-          <span class="chip">{{ task.task_id }}</span>
+          <div class="task-card-headline">
+            <button
+              type="button"
+              class="task-color-trigger"
+              data-task-color-trigger
+              data-task-code="{{ task.task_id }}"
+              data-task-color="{{ task.task_color }}"
+              data-task-color-label="{{ task.task_color }}"
+              aria-label="Task color"
+            ></button>
+            <span class="chip">{{ task.task_id }}</span>
+          </div>
           <h2>{{ task.name }}</h2>
         </div>
         <span class="badge {% if task.status.value == 'started' %}success{% elif task.status.value == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status.value|replace('_', ' ') }}</span>
@@ -60,6 +71,14 @@
         <div><span>Activity</span><strong>{% for item in activity_types %}{% if item.id == task.activity_type_id %}{{ item.name }}{% endif %}{% endfor %}</strong></div>
         <div><span>Assigned To</span><strong>{% for person in people %}{% if person.id == task.assigned_to %}{{ person.full_name }}{% endif %}{% endfor %}</strong></div>
       </div>
+      {% set task_tag_list = task.tags_text.split(', ') if task.tags_text else [] %}
+      {% if task_tag_list %}
+      <div class="dashboard-task-badges">
+        {% for tag in task_tag_list %}
+        <span class="badge muted">#{{ tag }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% if task.description %}
       <div class="task-detail-description">
         <span>Description</span>
@@ -118,6 +137,13 @@
       <label>End Date<input name="end_date" type="date" value="{{ task.end_date or '' }}" data-backlog-field></label>
       <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" value="{{ task.estimated_hours or '' }}" data-backlog-field></label>
       <label class="checkbox"><input name="is_private" type="checkbox" {% if task.is_private %}checked{% endif %}>Private task</label>
+      <label class="full">Tags
+        <div class="tag-editor" data-tag-editor>
+          <input type="hidden" name="tags" value="{{ task.tags_text }}">
+          <div class="tag-editor-list" data-tag-list></div>
+          <input type="text" class="tag-editor-input" placeholder="Add a tag and press Enter" data-tag-input autocomplete="off">
+        </div>
+      </label>
       <label class="full">Stalled Reason<textarea name="stalled_reason" rows="3" placeholder="Required only if task is stalled">{{ task.stalled_reason or '' }}</textarea></label>
       <label class="full">Description<textarea name="description" rows="6">{{ task.description|safe }}</textarea></label>
       <p class="full empty">Backlog tasks do not carry schedule or effort until they are planned.</p>

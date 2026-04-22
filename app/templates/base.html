@@ -115,12 +115,41 @@
         <label>End Date<input name="end_date" type="date" data-quick-task-backlog-field></label>
         <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" data-quick-task-backlog-field></label>
         <label class="checkbox"><input name="is_private" type="checkbox">Private task</label>
+        <label class="full">Tags
+          <div class="tag-editor" data-tag-editor>
+            <input type="hidden" name="tags" value="">
+            <div class="tag-editor-list" data-tag-list></div>
+            <input type="text" class="tag-editor-input" placeholder="Add a tag and press Enter" data-tag-input autocomplete="off">
+          </div>
+        </label>
+        <input name="task_color" type="hidden" value="{{ default_task_color }}">
         <label class="full">Description<textarea name="description" rows="5"></textarea></label>
         <div class="full quick-task-actions">
           <span class="empty">Create a task without leaving the current page.</span>
           <button type="submit" data-quick-task-submit>Create Task</button>
         </div>
       </form>
+    </div>
+  </div>
+  <div class="task-color-popover" data-task-color-popover hidden>
+    <div class="task-color-popover-card">
+      <div class="task-color-popover-head">
+        <strong>Task Color</strong>
+        <span data-task-color-label>Green</span>
+      </div>
+      <div class="task-color-grid">
+        {% for color, label in task_color_choices %}
+        <button
+          type="button"
+          class="task-color-option"
+          title="{{ label }}"
+          aria-label="{{ label }}"
+          data-task-color-option
+          data-color="{{ color }}"
+          style="--task-color: {{ color }};"
+        ></button>
+        {% endfor %}
+      </div>
     </div>
   </div>
   {% endif %}
@@ -228,6 +257,7 @@
       if (event.key !== "Escape") {
         return;
       }
+      closeTaskColorPopover();
       modals.forEach((modal) => {
         if (modal.classList.contains("is-open")) {
           setModalState(modal, false);
@@ -342,6 +372,224 @@
       });
     });
 
+    const sharedTagDatalistId = "task-tag-suggestions";
+    let sharedTagSuggestionsRequest = null;
+
+    function ensureSharedTagDatalist() {
+      let datalist = document.getElementById(sharedTagDatalistId);
+      if (!datalist) {
+        datalist = document.createElement("datalist");
+        datalist.id = sharedTagDatalistId;
+        document.body.appendChild(datalist);
+      }
+      return datalist;
+    }
+
+    function parseTagValue(value) {
+      return String(value || "")
+        .split(/[,\n;]/)
+        .map((item) => item.trim().replace(/^#+/, "").replace(/\s+/g, " ").toLowerCase())
+        .filter(Boolean)
+        .slice(0, 20);
+    }
+
+    function loadTagSuggestions() {
+      if (!sharedTagSuggestionsRequest) {
+        sharedTagSuggestionsRequest = fetch("/api/v1/tasks/tag-options", {
+          credentials: "same-origin",
+        })
+          .then((response) => response.ok ? response.json() : { tags: [] })
+          .then((payload) => {
+            const datalist = ensureSharedTagDatalist();
+            datalist.innerHTML = (payload.tags || [])
+              .map((tag) => `<option value="${String(tag).replaceAll('"', "&quot;")}"></option>`)
+              .join("");
+            return payload.tags || [];
+          })
+          .catch(() => []);
+      }
+      return sharedTagSuggestionsRequest;
+    }
+
+    function initializeTagEditor(editor) {
+      if (!editor || editor.dataset.tagEditorReady === "true") {
+        return;
+      }
+      const hiddenInput = editor.querySelector('input[type="hidden"][name="tags"]');
+      const textInput = editor.querySelector("[data-tag-input]");
+      const list = editor.querySelector("[data-tag-list]");
+      if (!hiddenInput || !textInput || !list) {
+        return;
+      }
+
+      textInput.setAttribute("list", sharedTagDatalistId);
+      loadTagSuggestions();
+
+      let tags = parseTagValue(hiddenInput.value);
+
+      function syncHidden() {
+        hiddenInput.value = tags.join(", ");
+      }
+
+      function render() {
+        list.innerHTML = tags.map((tag) => `
+          <span class="tag-chip">
+            <span>${tag}</span>
+            <button type="button" data-remove-tag="${tag}" aria-label="Remove ${tag}">×</button>
+          </span>
+        `).join("");
+        syncHidden();
+      }
+
+      function addTag(rawTag) {
+        const incoming = parseTagValue(rawTag);
+        incoming.forEach((tag) => {
+          if (!tags.includes(tag) && tags.length < 20) {
+            tags.push(tag);
+          }
+        });
+        textInput.value = "";
+        render();
+      }
+
+      editor.setTags = (nextTags) => {
+        tags = parseTagValue(Array.isArray(nextTags) ? nextTags.join(", ") : nextTags);
+        render();
+      };
+
+      textInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === ",") {
+          event.preventDefault();
+          addTag(textInput.value);
+        } else if (event.key === "Backspace" && !textInput.value && tags.length) {
+          tags.pop();
+          render();
+        }
+      });
+
+      textInput.addEventListener("blur", () => {
+        if (textInput.value.trim()) {
+          addTag(textInput.value);
+        }
+      });
+
+      list.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-remove-tag]");
+        if (!button) {
+          return;
+        }
+        tags = tags.filter((tag) => tag !== button.dataset.removeTag);
+        render();
+      });
+
+      render();
+      editor.dataset.tagEditorReady = "true";
+    }
+
+    document.querySelectorAll("[data-tag-editor]").forEach(initializeTagEditor);
+
+    const taskColorPopover = document.querySelector("[data-task-color-popover]");
+    const taskColorLabel = taskColorPopover?.querySelector("[data-task-color-label]");
+    let activeTaskColorTrigger = null;
+
+    function applyTaskColor(taskCode, color, label) {
+      document.querySelectorAll(`[data-task-color-trigger][data-task-code="${taskCode}"]`).forEach((button) => {
+        button.dataset.taskColor = color;
+        button.dataset.taskColorLabel = label;
+        button.style.setProperty("--task-color", color);
+        button.setAttribute("aria-label", `Task color ${label}`);
+        const textNode = button.querySelector("[data-task-color-name]");
+        if (textNode) {
+          textNode.textContent = label;
+        }
+      });
+      document.querySelectorAll(`[data-dashboard-task-card][data-task-code="${taskCode}"]`).forEach((card) => {
+        card.dataset.taskColor = color;
+      });
+      document.dispatchEvent(new CustomEvent("task-color-updated", { detail: { taskCode, color, label } }));
+    }
+
+    function closeTaskColorPopover() {
+      if (!taskColorPopover) {
+        return;
+      }
+      taskColorPopover.hidden = true;
+      activeTaskColorTrigger = null;
+    }
+
+    function openTaskColorPopover(trigger) {
+      if (!taskColorPopover) {
+        return;
+      }
+      activeTaskColorTrigger = trigger;
+      const rect = trigger.getBoundingClientRect();
+      taskColorPopover.hidden = false;
+      taskColorPopover.style.top = `${window.scrollY + rect.bottom + 8}px`;
+      taskColorPopover.style.left = `${Math.max(16, window.scrollX + rect.left - 16)}px`;
+      if (taskColorLabel) {
+        taskColorLabel.textContent = trigger.dataset.taskColorLabel || "Green";
+      }
+      taskColorPopover.querySelectorAll("[data-task-color-option]").forEach((option) => {
+        option.classList.toggle("is-active", option.dataset.color === trigger.dataset.taskColor);
+      });
+    }
+
+    document.querySelectorAll("[data-task-color-trigger]").forEach((button) => {
+      button.style.setProperty("--task-color", button.dataset.taskColor || "{{ default_task_color }}");
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (activeTaskColorTrigger === button && !taskColorPopover?.hidden) {
+          closeTaskColorPopover();
+          return;
+        }
+        openTaskColorPopover(button);
+      });
+      button.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+        event.preventDefault();
+        button.click();
+      });
+    });
+
+    taskColorPopover?.querySelectorAll("[data-task-color-option]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (!activeTaskColorTrigger) {
+          return;
+        }
+        const taskCode = activeTaskColorTrigger.dataset.taskCode;
+        const color = button.dataset.color || "{{ default_task_color }}";
+        const label = button.getAttribute("aria-label") || "Green";
+        try {
+          const response = await fetch(`/api/v1/tasks/${encodeURIComponent(taskCode)}/color`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ color }),
+          });
+          if (!response.ok) {
+            throw new Error(`Color update failed: ${response.status}`);
+          }
+          applyTaskColor(taskCode, color, label);
+          closeTaskColorPopover();
+        } catch (error) {
+          console.error(error);
+        }
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!taskColorPopover || taskColorPopover.hidden) {
+        return;
+      }
+      if (event.target.closest("[data-task-color-popover]") || event.target.closest("[data-task-color-trigger]")) {
+        return;
+      }
+      closeTaskColorPopover();
+    });
+
     document.querySelectorAll("form").forEach((form) => {
       const categorySelect = form.querySelector("[data-activity-category]");
       const typeSelect = form.querySelector("[data-activity-type-select]");
@@ -387,6 +635,7 @@
     const quickTaskActivityTypeSelect = quickTaskModal?.querySelector("[data-quick-task-activity-type]");
     const quickTaskSubmit = quickTaskModal?.querySelector("[data-quick-task-submit]");
     const quickTaskBacklogFields = quickTaskModal ? Array.from(quickTaskModal.querySelectorAll("[data-quick-task-backlog-field]")) : [];
+    const quickTaskTagEditor = quickTaskModal?.querySelector("[data-tag-editor]");
     let quickTaskOptions = null;
     let quickTaskOptionsRequest = null;
 
@@ -494,6 +743,7 @@
       if (startDateInput) {
         startDateInput.value = options.defaults?.start_date || "";
       }
+      quickTaskTagEditor?.setTags?.([]);
 
       syncQuickTaskActivityTypes();
       syncQuickTaskBacklogState();
@@ -565,6 +815,8 @@
       const statusField = quickTaskField("status");
       const backlogField = quickTaskField("is_backlog");
       const privateField = quickTaskField("is_private");
+      const tagsField = quickTaskField("tags");
+      const colorField = quickTaskField("task_color");
 
       const payload = {
         project_id: Number(projectField?.value || 0),
@@ -577,6 +829,8 @@
         status: String(statusField?.value || "not_started"),
         is_backlog: Boolean(backlogField?.checked),
         is_private: Boolean(privateField?.checked),
+        tags: String(tagsField?.value || ""),
+        task_color: String(colorField?.value || "{{ default_task_color }}"),
       };
 
       if (!payload.name) {

@@ -63,6 +63,13 @@
     <label>End Date<input name="end_date" type="date" data-backlog-field></label>
     <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" data-backlog-field></label>
     <label class="checkbox"><input name="is_private" type="checkbox">Private task</label>
+    <label class="full">Tags
+      <div class="tag-editor" data-tag-editor>
+        <input type="hidden" name="tags" value="">
+        <div class="tag-editor-list" data-tag-list></div>
+        <input type="text" class="tag-editor-input" placeholder="Add a tag and press Enter" data-tag-input autocomplete="off">
+      </div>
+    </label>
     <label class="full">Description<textarea name="description" rows="8"></textarea></label>
     <p class="full empty">If this is checked, only the basic task details are needed. Schedule and effort can be added later when you decide to pick it up.</p>
     <button type="submit">Save Task</button>
@@ -75,7 +82,19 @@
     </div>
     {% for task in tasks %}
     <a class="task-card" href="/{{ org.slug }}/tasks/{{ task.task_id }}">
-      <span class="chip">{{ task.task_id }}</span>
+      <div class="task-card-headline">
+        <span
+          class="task-color-trigger"
+          data-task-color-trigger
+          data-task-code="{{ task.task_id }}"
+          data-task-color="{{ task.task_color }}"
+          data-task-color-label="{{ task.task_color_label }}"
+          role="button"
+          tabindex="0"
+          aria-label="Task color"
+        ></span>
+        <span class="chip">{{ task.task_id }}</span>
+      </div>
       <strong>{{ task.name }}</strong>
       <small>
         {{ task.project_code }}{% if task.project_name %} · {{ task.project_name }}{% endif %}
@@ -93,6 +112,13 @@
         · logged {{ "%.2f"|format(task.logged_hours or 0) }}h
         {% if task.is_private %} · private{% endif %}
       </small>
+      {% if task.tags %}
+      <div class="dashboard-task-badges">
+        {% for tag in task.tags %}
+        <span class="badge muted">#{{ tag }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
     </a>
     {% else %}
     <p class="empty">No tasks created yet.</p>

@@ -100,6 +100,14 @@
             {% endfor %}
           </select>
         </label>
+        <label>Color
+          <select data-grid-filter="color">
+            <option value="">All</option>
+            {% for color, label in task_color_choices %}
+            <option value="{{ color }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
       </div>
     </div>
   </div>
@@ -119,12 +127,18 @@
         {% for task in tasks %}
         <tr
           data-grid-row
-          data-grid-search="{{ task.task_id }} {{ task.name }} {{ people_map.get(task.assigned_to, task.assigned_to) }} {{ task.project.name if task.project else '' }}"
+          data-grid-search="{{ task.task_id }} {{ task.name }} {{ people_map.get(task.assigned_to, task.assigned_to) }} {{ task.project.name if task.project else '' }} {{ task.tags_text or '' }}"
           data-assignee="{{ task.assigned_to }}"
           data-project="{{ task.project_id }}"
           data-status="{{ task.status.value }}"
+          data-color="{{ task.task_color }}"
         >
-          <td>{{ task.task_id }}</td>
+          <td>
+            <div class="task-card-headline">
+              <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color }}" aria-label="Task color"></button>
+              <span>{{ task.task_id }}</span>
+            </div>
+          </td>
           <td>{{ task.name }}</td>
           <td>{{ people_map.get(task.assigned_to, task.assigned_to) }}</td>
           <td>{{ task.status.value }}</td>

@@ -52,7 +52,15 @@
   </div>
   <div class="dashboard-search-row">
     <label class="dashboard-search-field">
-      <input type="search" placeholder="Search by keyword in task id, name, description, status, or dates" data-dashboard-search-input>
+      <input type="search" placeholder="Search by keyword in task id, name, description, status, dates, or tags" data-dashboard-search-input>
+    </label>
+    <label class="dashboard-color-filter">
+      <select data-dashboard-color-filter>
+        <option value="">All colors</option>
+        {% for color, label in task_color_choices %}
+        <option value="{{ color }}">{{ label }}</option>
+        {% endfor %}
+      </select>
     </label>
     <p class="dashboard-search-hint" data-dashboard-search-hint>Enter 3 or more characters.</p>
   </div>
@@ -68,9 +76,12 @@
       <label class="checkbox"><input type="checkbox" data-dashboard-week-toggle="completed" checked>Show Completed</label>
     </div>
     {% for task in groups.week %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-status="{{ task.status }}" data-task-completed="{{ 'true' if task.status == 'closed' else 'false' }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-completed="{{ 'true' if task.status == 'closed' else 'false' }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main" data-dashboard-highlight>
-        <span class="chip">{{ task.task_id }}</span>
+        <div class="task-card-headline">
+          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+          <span class="chip">{{ task.task_id }}</span>
+        </div>
         <strong>{{ task.name }}</strong>
         <small data-dashboard-highlight>
           {% if task.start_date or task.end_date %}{{ task.start_date or "Not set" }}{% if task.end_date %} to {{ task.end_date }}{% endif %}{% else %}Backlog item{% endif %}
@@ -85,6 +96,9 @@
           {% if task.is_backlog %}<span class="badge muted">◌ backlog</span>{% endif %}
           {% if task.deadline_tone == 'late' %}<span class="badge danger">! delayed</span>{% endif %}
           <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+          {% for tag in task.tags %}
+          <span class="badge muted">#{{ tag }}</span>
+          {% endfor %}
         </div>
       </div>
       <div class="dashboard-task-actions">
@@ -123,12 +137,22 @@
     </div>
     <div data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order">
     {% for task in groups.today %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}" data-dashboard-sort-item>
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}" data-dashboard-sort-item>
       <div class="dashboard-task-main" data-dashboard-highlight>
-        <span class="chip">{{ task.task_id }}</span>
+        <div class="task-card-headline">
+          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+          <span class="chip">{{ task.task_id }}</span>
+        </div>
         <strong>{{ task.name }}</strong>
         <small data-dashboard-highlight>{{ task.status }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
         <span class="deadline-pill {{ task.deadline_tone }}" data-dashboard-highlight>{{ task.deadline_label }}</span>
+        {% if task.tags %}
+        <div class="dashboard-task-badges" data-dashboard-highlight>
+          {% for tag in task.tags %}
+          <span class="badge muted">#{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
       <div class="dashboard-task-actions">
         <button type="button" class="icon-action drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
@@ -164,12 +188,22 @@
       <p>Tasks that need attention first.</p>
     </div>
     {% for task in groups.overdue %}
-    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}">
+    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main" data-dashboard-highlight>
-        <span class="chip">{{ task.task_id }}</span>
+        <div class="task-card-headline">
+          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+          <span class="chip">{{ task.task_id }}</span>
+        </div>
         <strong>{{ task.name }}</strong>
         <small data-dashboard-highlight>End date {{ task.end_date }}</small>
         <span class="deadline-pill late" data-dashboard-highlight>{{ task.deadline_label }}</span>
+        {% if task.tags %}
+        <div class="dashboard-task-badges" data-dashboard-highlight>
+          {% for tag in task.tags %}
+          <span class="badge muted">#{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
       <div class="dashboard-task-actions">
         <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
@@ -203,12 +237,22 @@
       <p>Backlog items without immediate deadlines.</p>
     </div>
     {% for task in groups.pending %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main" data-dashboard-highlight>
-        <span class="chip">{{ task.task_id }}</span>
+        <div class="task-card-headline">
+          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+          <span class="chip">{{ task.task_id }}</span>
+        </div>
         <strong>{{ task.name }}</strong>
         <small data-dashboard-highlight>{{ task.status }}</small>
         <span class="deadline-pill {{ task.deadline_tone }}" data-dashboard-highlight>{{ task.deadline_label }}</span>
+        {% if task.tags %}
+        <div class="dashboard-task-badges" data-dashboard-highlight>
+          {% for tag in task.tags %}
+          <span class="badge muted">#{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
       <div class="dashboard-task-actions">
         <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
@@ -242,12 +286,22 @@
       <p>Tasks completed in the current week.</p>
     </div>
     {% for task in groups.completed %}
-    <div class="task-card deadline-card upcoming dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or ''))|lower|e }}">
+    <div class="task-card deadline-card upcoming dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main" data-dashboard-highlight>
-        <span class="chip">{{ task.task_id }}</span>
+        <div class="task-card-headline">
+          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+          <span class="chip">{{ task.task_id }}</span>
+        </div>
         <strong>{{ task.name }}</strong>
         <small data-dashboard-highlight>{{ task.status }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged</small>
         <span class="deadline-pill upcoming" data-dashboard-highlight>Completed</span>
+        {% if task.tags %}
+        <div class="dashboard-task-badges" data-dashboard-highlight>
+          {% for tag in task.tags %}
+          <span class="badge muted">#{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
       <div class="dashboard-task-actions">
         <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status|replace("_", " "), "deadline_text": "Completed", "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
@@ -401,6 +455,7 @@
     const weekTasks = Array.from(document.querySelectorAll("[data-dashboard-week-task]"));
     const weekEmptyState = document.querySelector("[data-dashboard-week-empty]");
     const dashboardSearchInput = document.querySelector("[data-dashboard-search-input]");
+    const dashboardColorFilter = document.querySelector("[data-dashboard-color-filter]");
     const dashboardSearchHint = document.querySelector("[data-dashboard-search-hint]");
     const taskCards = Array.from(document.querySelectorAll("[data-dashboard-task-card]"));
     const taskLogCache = new Map();
@@ -427,6 +482,10 @@
     function getActiveSearchTerm() {
       const rawValue = (dashboardSearchInput?.value || "").trim();
       return rawValue.length >= 3 ? rawValue.toLowerCase() : "";
+    }
+
+    function getActiveColorFilter() {
+      return (dashboardColorFilter?.value || "").trim().toLowerCase();
     }
 
     function getCombinedSearchText(taskCard) {
@@ -556,13 +615,15 @@
 
     function syncWeekCompletedVisibility() {
       const searchTerm = getActiveSearchTerm();
+      const colorFilter = getActiveColorFilter();
       let visibleTaskCount = 0;
       taskCards.forEach((taskCard) => {
         const matchesSearch = !searchTerm || getCombinedSearchText(taskCard).includes(searchTerm);
+        const matchesColor = !colorFilter || (taskCard.dataset.taskColor || "").toLowerCase() === colorFilter;
         const isWeekTask = taskCard.hasAttribute("data-dashboard-week-task");
         const isCompleted = taskCard.dataset.taskCompleted === "true";
         const matchesWeekCompletion = !isWeekTask || weekCompletedToggle.checked || !isCompleted;
-        const shouldShow = matchesSearch && matchesWeekCompletion;
+        const shouldShow = matchesSearch && matchesColor && matchesWeekCompletion;
         taskCard.style.display = shouldShow ? "" : "none";
         if (shouldShow && isWeekTask) {
           visibleTaskCount += 1;
@@ -574,11 +635,13 @@
       if (dashboardSearchHint) {
         const rawLength = (dashboardSearchInput?.value || "").trim().length;
         if (!rawLength) {
-          dashboardSearchHint.textContent = "Enter 3 or more characters.";
+          dashboardSearchHint.textContent = colorFilter ? "Filtering by color." : "Enter 3 or more characters.";
         } else if (rawLength < 3) {
           dashboardSearchHint.textContent = "Keep typing. Search starts at 3 characters.";
         } else {
-          dashboardSearchHint.textContent = `Filtering by "${dashboardSearchInput.value.trim()}".`;
+          dashboardSearchHint.textContent = colorFilter
+            ? `Filtering by "${dashboardSearchInput.value.trim()}" and selected color.`
+            : `Filtering by "${dashboardSearchInput.value.trim()}".`;
         }
       }
       applyHighlights(searchTerm);
@@ -600,6 +663,8 @@
       ensureLogsLoadedForSearch();
       syncWeekCompletedVisibility();
     });
+    dashboardColorFilter?.addEventListener("change", syncWeekCompletedVisibility);
+    document.addEventListener("task-color-updated", syncWeekCompletedVisibility);
     syncWeekCompletedVisibility();
   })();
 </script>

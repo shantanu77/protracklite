@@ -73,6 +73,37 @@ ACTIVITY_CATEGORY_CHOICES = [
     ("others", "Others"),
 ]
 ACTIVITY_CATEGORY_LABELS = dict(ACTIVITY_CATEGORY_CHOICES)
+DEFAULT_TASK_COLOR = "#22c55e"
+TASK_COLOR_CHOICES = [
+    ("#22c55e", "Green"),
+    ("#16a34a", "Forest"),
+    ("#65a30d", "Lime"),
+    ("#84cc16", "Citron"),
+    ("#eab308", "Amber"),
+    ("#f59e0b", "Gold"),
+    ("#f97316", "Orange"),
+    ("#ea580c", "Burnt Orange"),
+    ("#ef4444", "Red"),
+    ("#dc2626", "Crimson"),
+    ("#ec4899", "Pink"),
+    ("#db2777", "Rose"),
+    ("#a855f7", "Violet"),
+    ("#7c3aed", "Indigo"),
+    ("#6366f1", "Iris"),
+    ("#2563eb", "Blue"),
+    ("#0ea5e9", "Sky"),
+    ("#06b6d4", "Cyan"),
+    ("#14b8a6", "Teal"),
+    ("#10b981", "Mint"),
+    ("#64748b", "Slate"),
+    ("#475569", "Steel"),
+    ("#78716c", "Stone"),
+    ("#a16207", "Ochre"),
+]
+TASK_COLOR_MAP = {color: label for color, label in TASK_COLOR_CHOICES}
+TASK_COLOR_VALUES = set(TASK_COLOR_MAP)
+templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
+templates.env.globals["default_task_color"] = DEFAULT_TASK_COLOR
 
 
 def infer_activity_category(code: str, name: str) -> str:
@@ -90,6 +121,37 @@ def infer_activity_category(code: str, name: str) -> str:
     if any(word in token for word in ["training", "performance", "process review", "people"]):
         return "people_management"
     return "others"
+
+
+def normalize_task_color(raw_color: str | None) -> str:
+    color = str(raw_color or "").strip().lower()
+    return color if color in TASK_COLOR_VALUES else DEFAULT_TASK_COLOR
+
+
+def parse_task_tags(raw_value: str | None) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    for raw_tag in re.split(r"[,;\n]+", raw_value or ""):
+        tag = re.sub(r"\s+", " ", raw_tag).strip().strip("#")
+        tag = re.sub(r"[^\w /&+\-.]", "", tag)
+        normalized = tag.lower().strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        tags.append(normalized[:40])
+    return tags[:20]
+
+
+def serialize_task_tags(tags: list[str]) -> str:
+    return ", ".join(parse_task_tags(", ".join(tags)))
+
+
+def task_tags(task: Task) -> list[str]:
+    return parse_task_tags(task.tags_text)
+
+
+def task_tags_text(task: Task) -> str:
+    return " ".join(task_tags(task))
 
 def ensure_org_settings_schema() -> None:
     inspector = inspect(engine)
@@ -119,6 +181,8 @@ def ensure_tasks_schema() -> None:
         "stalled_reason": "ALTER TABLE tasks ADD COLUMN stalled_reason VARCHAR(500) NOT NULL DEFAULT ''",
         "is_archived": "ALTER TABLE tasks ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE",
         "dashboard_rank": "ALTER TABLE tasks ADD COLUMN dashboard_rank INTEGER NOT NULL DEFAULT 0",
+        "task_color": f"ALTER TABLE tasks ADD COLUMN task_color VARCHAR(7) NOT NULL DEFAULT '{DEFAULT_TASK_COLOR}'",
+        "tags_text": "ALTER TABLE tasks ADD COLUMN tags_text TEXT NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -148,6 +212,8 @@ def migrate_sqlite_tasks_table(connection) -> None:
                 description TEXT NOT NULL DEFAULT '',
                 activity_type_id INTEGER NOT NULL,
                 status VARCHAR(30) NOT NULL,
+                task_color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
+                tags_text TEXT NOT NULL DEFAULT '',
                 is_private BOOLEAN NOT NULL DEFAULT FALSE,
                 is_archived BOOLEAN NOT NULL DEFAULT FALSE,
                 dashboard_rank INTEGER NOT NULL DEFAULT 0,
@@ -173,12 +239,12 @@ def migrate_sqlite_tasks_table(connection) -> None:
             """
             INSERT INTO tasks (
                 id, task_id, org_id, project_id, assigned_to, created_by, name, description, activity_type_id,
-                status, is_private, is_archived, dashboard_rank, start_date, end_date, estimated_hours,
+                status, task_color, tags_text, is_private, is_archived, dashboard_rank, start_date, end_date, estimated_hours,
                 logged_hours, stalled_reason, created_at, updated_at, closed_at
             )
             SELECT
                 id, task_id, org_id, project_id, assigned_to, created_by, name, description, activity_type_id,
-                status, is_private, COALESCE(is_archived, FALSE), COALESCE(dashboard_rank, 0), start_date, end_date, estimated_hours,
+                status, COALESCE(task_color, '#22c55e'), COALESCE(tags_text, ''), is_private, COALESCE(is_archived, FALSE), COALESCE(dashboard_rank, 0), start_date, end_date, estimated_hours,
                 COALESCE(logged_hours, 0), COALESCE(stalled_reason, ''), created_at, updated_at, closed_at
             FROM tasks__old
             """
@@ -502,6 +568,8 @@ def build_task_ical(task: Task, org: Organization) -> str:
 
 
 def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
+    tags = task_tags(task)
+    color = normalize_task_color(task.task_color)
     overdue_days = None
     deadline_label = "No deadline"
     deadline_tone = "muted"
@@ -548,6 +616,10 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
         "description": bleach.clean(task.description or "", tags=[], strip=True),
         "created_at": task.created_at,
         "status": task.status.value,
+        "task_color": color,
+        "task_color_label": TASK_COLOR_MAP.get(color, "Green"),
+        "tags": tags,
+        "tags_text": ", ".join(tags),
         "start_date": task.start_date,
         "end_date": task.end_date,
         "logged_hours": task.logged_hours,
@@ -1198,6 +1270,10 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
             "task_id": task.task_id,
             "name": task.name,
             "status": task.status.value,
+            "task_color": normalize_task_color(task.task_color),
+            "task_color_label": TASK_COLOR_MAP.get(normalize_task_color(task.task_color), "Green"),
+            "tags": task_tags(task),
+            "tags_text": ", ".join(task_tags(task)),
             "project_code": project_map.get(task.project_id).code if project_map.get(task.project_id) else "",
             "project_name": project_map.get(task.project_id).name if project_map.get(task.project_id) else "",
             "activity_type_name": activity_type_map.get(task.activity_type_id).name if activity_type_map.get(task.activity_type_id) else "",
@@ -1211,6 +1287,13 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
         }
         for task in tasks
     ]
+
+
+def task_tag_suggestions(db: Session, org_id: int, limit: int = 80) -> list[str]:
+    values: set[str] = set()
+    for raw_tags in db.scalars(select(Task.tags_text).where(Task.org_id == org_id, Task.tags_text != "")).all():
+        values.update(parse_task_tags(raw_tags))
+    return sorted(values)[:limit]
 
 
 def next_dashboard_rank(db: Session, org_id: int, user_id: int) -> int:
@@ -1475,6 +1558,7 @@ def create_task_page(
     start_date: str = Form(""),
     end_date: str = Form(""),
     estimated_hours: str = Form(""),
+    tags: str = Form(""),
     status_value: TaskStatus = Form(TaskStatus.NOT_STARTED, alias="status"),
     is_backlog: bool = Form(False),
     is_private: bool = Form(False),
@@ -1500,6 +1584,7 @@ def create_task_page(
         description=sanitize_html(description),
         activity_type_id=activity_type_id,
         status=status_value,
+        tags_text=serialize_task_tags(parse_task_tags(tags)),
         is_private=is_private,
         dashboard_rank=next_dashboard_rank(db, org.id, user.id),
         start_date=parsed_start_date,
@@ -1766,6 +1851,7 @@ def update_task_page(
     start_date: str = Form(""),
     end_date: str = Form(""),
     estimated_hours: str = Form(""),
+    tags: str = Form(""),
     status_value: TaskStatus = Form(..., alias="status"),
     stalled_reason: str = Form(""),
     is_backlog: bool = Form(False),
@@ -1789,6 +1875,7 @@ def update_task_page(
     task.name = name
     task.activity_type_id = activity_type_id
     task.description = sanitize_html(description)
+    task.tags_text = serialize_task_tags(parse_task_tags(tags))
     task.start_date = parsed_start_date
     task.end_date = parsed_end_date
     task.estimated_hours = parsed_estimated_hours
@@ -1848,13 +1935,15 @@ def api_list_tasks(
     if project_id:
         query = query.where(Task.project_id == project_id)
     if q:
-        query = query.where(or_(Task.name.ilike(f"%{q}%"), Task.task_id.ilike(f"%{q}%")))
+        query = query.where(or_(Task.name.ilike(f"%{q}%"), Task.task_id.ilike(f"%{q}%"), Task.tags_text.ilike(f"%{q}%")))
     tasks = db.scalars(query.order_by(Task.created_at.desc())).all()
     return [
         {
             "task_id": task.task_id,
             "name": task.name,
             "status": task.status.value,
+            "task_color": normalize_task_color(task.task_color),
+            "tags": task_tags(task),
             "logged_hours": float(task.logged_hours or 0),
             "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
             "stalled_reason": task.stalled_reason,
@@ -1880,6 +1969,8 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
         description=sanitize_html(payload.get("description", "")),
         activity_type_id=payload["activity_type_id"],
         status=TaskStatus(payload.get("status", "not_started")),
+        task_color=normalize_task_color(payload.get("task_color")),
+        tags_text=serialize_task_tags(parse_task_tags(payload.get("tags"))),
         is_private=payload.get("is_private", False),
         start_date=None if payload.get("is_backlog") else parse_optional_date(payload.get("start_date")) or date.today(),
         end_date=None if payload.get("is_backlog") else parse_optional_date(payload.get("end_date")),
@@ -1916,6 +2007,7 @@ def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(
             "activity_type_id": default_activity_type.id,
             "status": default_status,
             "start_date": date.today().isoformat(),
+            "task_color": DEFAULT_TASK_COLOR,
         },
     }
 
@@ -1931,6 +2023,8 @@ def api_get_task(task_code: str, org_user: tuple[Organization, User] = Depends(g
         "name": task.name,
         "description": task.description,
         "status": task.status.value,
+        "task_color": normalize_task_color(task.task_color),
+        "tags": task_tags(task),
         "logged_hours": float(task.logged_hours or 0),
         "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
         "stalled_reason": task.stalled_reason,
@@ -1948,6 +2042,10 @@ def api_update_task(task_code: str, payload: dict, org_user: tuple[Organization,
             setattr(task, attr, payload[attr])
     if "description" in payload:
         task.description = sanitize_html(payload["description"])
+    if "task_color" in payload:
+        task.task_color = normalize_task_color(payload.get("task_color"))
+    if "tags" in payload:
+        task.tags_text = serialize_task_tags(parse_task_tags(payload.get("tags")))
     is_backlog = bool(payload.get("is_backlog"))
     if "is_backlog" in payload and is_backlog:
         task.start_date = None
@@ -2005,6 +2103,26 @@ def api_list_time_logs(task_code: str, org_user: tuple[Organization, User] = Dep
         raise HTTPException(status_code=404, detail="Task not found")
     logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc())).all()
     return [{"date": item.log_date.isoformat(), "hours": float(item.hours), "notes": item.notes} for item in logs]
+
+
+@app.get("/api/v1/tasks/tag-options")
+def api_task_tag_options(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, _ = org_user
+    return {"tags": task_tag_suggestions(db, org.id)}
+
+
+@app.post("/api/v1/tasks/{task_code}/color")
+def api_update_task_color(task_code: str, payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
+    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
+    if user.role != Role.ADMIN:
+        task_query = task_query.where(Task.assigned_to == user.id)
+    task = db.scalar(task_query)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.task_color = normalize_task_color(payload.get("color"))
+    db.commit()
+    return {"ok": True, "task_id": task.task_id, "color": task.task_color, "label": TASK_COLOR_MAP.get(task.task_color, "Green")}
 
 
 @app.get("/api/v1/projects/")
