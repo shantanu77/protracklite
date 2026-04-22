@@ -182,7 +182,7 @@ def ensure_tasks_schema() -> None:
         "is_archived": "ALTER TABLE tasks ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE",
         "dashboard_rank": "ALTER TABLE tasks ADD COLUMN dashboard_rank INTEGER NOT NULL DEFAULT 0",
         "task_color": f"ALTER TABLE tasks ADD COLUMN task_color VARCHAR(7) NOT NULL DEFAULT '{DEFAULT_TASK_COLOR}'",
-        "tags_text": "ALTER TABLE tasks ADD COLUMN tags_text TEXT NOT NULL DEFAULT ''",
+        "tags_text": "ALTER TABLE tasks ADD COLUMN tags_text VARCHAR(1000) NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -213,7 +213,7 @@ def migrate_sqlite_tasks_table(connection) -> None:
                 activity_type_id INTEGER NOT NULL,
                 status VARCHAR(30) NOT NULL,
                 task_color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
-                tags_text TEXT NOT NULL DEFAULT '',
+                tags_text VARCHAR(1000) NOT NULL DEFAULT '',
                 is_private BOOLEAN NOT NULL DEFAULT FALSE,
                 is_archived BOOLEAN NOT NULL DEFAULT FALSE,
                 dashboard_rank INTEGER NOT NULL DEFAULT 0,

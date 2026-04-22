@@ -126,7 +126,7 @@ class Task(Base):
     activity_type_id: Mapped[int] = mapped_column(ForeignKey("activity_types.id"))
     status: Mapped[TaskStatus] = mapped_column(SqlEnum(TaskStatus), default=TaskStatus.NOT_STARTED)
     task_color: Mapped[str] = mapped_column(String(7), default="#22c55e")
-    tags_text: Mapped[str] = mapped_column(Text, default="")
+    tags_text: Mapped[str] = mapped_column(String(1000), default="")
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     dashboard_rank: Mapped[int] = mapped_column(default=0)
