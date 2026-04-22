@@ -492,16 +492,26 @@
     const taskColorLabel = taskColorPopover?.querySelector("[data-task-color-label]");
     let activeTaskColorTrigger = null;
 
+    function renderTaskColorTrigger(button, color, label) {
+      if (!button) {
+        return;
+      }
+      button.dataset.taskColor = color;
+      button.dataset.taskColorLabel = label;
+      button.style.setProperty("--task-color", color);
+      button.style.background = color;
+      button.style.backgroundColor = color;
+      button.setAttribute("aria-label", `Task color ${label}`);
+      button.setAttribute("title", `Task color ${label}`);
+      const textNode = button.querySelector("[data-task-color-name]");
+      if (textNode) {
+        textNode.textContent = label;
+      }
+    }
+
     function applyTaskColor(taskCode, color, label) {
       document.querySelectorAll(`[data-task-color-trigger][data-task-code="${taskCode}"]`).forEach((button) => {
-        button.dataset.taskColor = color;
-        button.dataset.taskColorLabel = label;
-        button.style.setProperty("--task-color", color);
-        button.setAttribute("aria-label", `Task color ${label}`);
-        const textNode = button.querySelector("[data-task-color-name]");
-        if (textNode) {
-          textNode.textContent = label;
-        }
+        renderTaskColorTrigger(button, color, label);
       });
       document.querySelectorAll(`[data-dashboard-task-card][data-task-code="${taskCode}"]`).forEach((card) => {
         card.dataset.taskColor = color;
@@ -535,7 +545,11 @@
     }
 
     document.querySelectorAll("[data-task-color-trigger]").forEach((button) => {
-      button.style.setProperty("--task-color", button.dataset.taskColor || "{{ default_task_color }}");
+      renderTaskColorTrigger(
+        button,
+        button.dataset.taskColor || "{{ default_task_color }}",
+        button.dataset.taskColorLabel || "Green"
+      );
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
