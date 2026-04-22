@@ -30,19 +30,6 @@
     </div>
   </section>
 
-  <section class="panel report-section report-summary-card">
-    <div class="panel-head">
-      <h2>This Month</h2>
-      <p>Total effort booked versus available hours from {{ report.month_start }} to {{ report.today }}.</p>
-    </div>
-    <div class="stats compact-stats">
-      <div class="stat"><span>Booked</span><strong>{{ report.month_rates.total_logged_hours }}h</strong></div>
-      <div class="stat"><span>Available</span><strong>{{ report.month_rates.available_hours }}h</strong></div>
-      <div class="stat"><span>Booked %</span><strong>{{ report.month_rates.total_rate }}%</strong></div>
-      <div class="stat"><span>Chargeable</span><strong>{{ report.month_rates.chargeable_hours }}h</strong></div>
-    </div>
-  </section>
-
   <section class="panel report-section report-span-3">
     <div class="panel-head">
       <h2>Top 5 Tasks This Month</h2>
@@ -107,6 +94,19 @@
         <p class="empty">No activity allocation this month.</p>
         {% endfor %}
       </div>
+    </div>
+  </section>
+
+  <section class="panel report-section report-summary-card">
+    <div class="panel-head">
+      <h2>This Month</h2>
+      <p>Total effort booked versus available hours from {{ report.month_start }} to {{ report.today }}.</p>
+    </div>
+    <div class="stats compact-stats">
+      <div class="stat"><span>Booked</span><strong>{{ report.month_rates.total_logged_hours }}h</strong></div>
+      <div class="stat"><span>Available</span><strong>{{ report.month_rates.available_hours }}h</strong></div>
+      <div class="stat"><span>Booked %</span><strong>{{ report.month_rates.total_rate }}%</strong></div>
+      <div class="stat"><span>Chargeable</span><strong>{{ report.month_rates.chargeable_hours }}h</strong></div>
     </div>
   </section>
 </div>
