@@ -322,7 +322,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
 def reports_overview(db: Session, org_id: int, user_id: int, today: date | None = None) -> dict:
     today = today or date.today()
     now = datetime.now()
-    this_monday, _ = current_week_bounds(today)
+    this_monday, this_sunday = current_week_bounds(today)
     month_start = today.replace(day=1)
 
     week_effort = []
@@ -338,6 +338,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
             }
         )
 
+    week_rates = compute_work_rate(db, org_id, user_id, this_monday, today)
     month_rates = compute_work_rate(db, org_id, user_id, month_start, today)
 
     top_task_rows = db.execute(
@@ -480,6 +481,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
 
     return {
         "week_effort": week_effort,
+        "week_rates": week_rates,
         "month_rates": month_rates,
         "top_tasks": top_tasks,
         "pending_tasks": pending_tasks,
@@ -487,6 +489,8 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
         "pending_delay_buckets": [{"label": key, "count": value} for key, value in pending_delay_buckets.items()],
         "burn_down": burn_down,
         "activity_allocation": activity_allocation,
+        "week_start": this_monday,
+        "week_end": this_sunday,
         "month_start": month_start,
         "today": today,
     }
