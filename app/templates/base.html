@@ -34,6 +34,7 @@
             <div class="nav-section">Workspace</div>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Create Task</a>
           </div>
           <div class="nav-group">
@@ -68,6 +69,23 @@
     </main>
   </div>
   {% if user and org %}
+  <div class="modal-backdrop" id="complete-task-modal" data-modal aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="complete-task-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="complete-task-title">Mark Task Completed</h2>
+          <p data-modal-text="task_name_text">Choose the date this task was completed.</p>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close complete task modal">×</button>
+      </div>
+      <form method="post" class="form-grid">
+        <p class="full empty" data-modal-text="task_schedule_text">Pick the actual completion date.</p>
+        <label>Completed On<input name="completion_date" type="date" required></label>
+        <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
+        <button type="submit">Mark Completed</button>
+      </form>
+    </div>
+  </div>
   <div class="modal-backdrop" id="quick-task-modal" data-modal aria-hidden="true">
     <div class="modal-card wide quick-task-modal" role="dialog" aria-modal="true" aria-labelledby="quick-task-title">
       <div class="modal-head">
@@ -135,8 +153,23 @@
       if (form && payload._action) {
         form.action = payload._action;
       }
+      if (payload._fieldAttributes && form) {
+        Object.entries(payload._fieldAttributes).forEach(([fieldName, attributes]) => {
+          const field = form.querySelector(`[name="${fieldName}"]`);
+          if (!field || !attributes || typeof attributes !== "object") {
+            return;
+          }
+          Object.entries(attributes).forEach(([attributeName, attributeValue]) => {
+            if (attributeValue === null || attributeValue === undefined || attributeValue === "") {
+              field.removeAttribute(attributeName);
+            } else {
+              field.setAttribute(attributeName, String(attributeValue));
+            }
+          });
+        });
+      }
       Object.entries(payload).forEach(([key, value]) => {
-        if (key === "_action") {
+        if (key === "_action" || key === "_fieldAttributes") {
           return;
         }
         const field = modal.querySelector(`[name="${key}"]`);
@@ -166,6 +199,11 @@
         }
         fillModal(modal, button);
         setModalState(modal, true);
+        if (button.dataset.modalOpen === "complete-task-modal") {
+          window.setTimeout(() => {
+            modal.querySelector('[name="completion_date"]')?.focus();
+          }, 0);
+        }
       });
     });
 

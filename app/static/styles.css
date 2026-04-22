@@ -1771,6 +1771,15 @@ th {
   color: var(--primary);
 }
 
+.button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.button.danger:hover {
+  background: #a9342f;
+}
+
 .logout-btn:hover,
 .nav-toggle:hover {
   background: rgba(255, 255, 255, 0.10);
@@ -2052,6 +2061,22 @@ th {
 
 .backlog-input-cell input {
   min-width: 118px;
+}
+
+.backlog-manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  min-width: 360px;
+}
+
+.backlog-manage-actions form {
+  margin: 0;
+}
+
+.backlog-manage-actions .button,
+.backlog-action-link {
+  white-space: nowrap;
 }
 
 .modal-head {

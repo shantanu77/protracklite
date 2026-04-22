@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Workspace</p>
+    <h1>Manage Backlogs</h1>
+    <p>Edit backlog items, delete items you no longer need, or move them into this week with start date set to today and end date set to {{ week_end }}.</p>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Backlog Items</h2>
+      <p>Only open non-stalled items without schedule or planned effort appear here.</p>
+    </div>
+  </div>
+  {% if backlog_tasks %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Details</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in backlog_tasks %}
+        <tr>
+          <td class="backlog-task-cell">
+            <strong>{{ task.task_id }}</strong><br>
+            <small>{{ task.name }}</small>
+          </td>
+          <td>{{ task.status_label }}</td>
+          <td>{{ task.created_at.date() }}</td>
+          <td class="backlog-date-cell">
+            <small>
+              {{ "%.2f"|format(task.logged_hours or 0) }}h logged
+              {% if task.description %} · {{ task.description }}{% endif %}
+            </small>
+          </td>
+          <td class="backlog-manage-actions">
+            <a class="button secondary backlog-action-link" href="/{{ org.slug }}/tasks/{{ task.task_id }}">Edit</a>
+            <form method="post" action="/{{ org.slug }}/backlogs/{{ task.task_id }}/add-to-this-week">
+              <input type="hidden" name="redirect_to" value="/{{ org.slug }}/backlogs">
+              <button type="submit" class="button secondary">Add To This Week</button>
+            </form>
+            <form method="post" action="/{{ org.slug }}/backlogs/{{ task.task_id }}/delete" onsubmit="return confirm('Delete this backlog item permanently?');">
+              <input type="hidden" name="redirect_to" value="/{{ org.slug }}/backlogs">
+              <button type="submit" class="button danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No backlog items are available right now.</p>
+  {% endif %}
+</section>
+{% endblock %}

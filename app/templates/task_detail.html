@@ -9,9 +9,12 @@
   <div class="page-head-actions">
     <button type="button" class="button" data-modal-open="task-log-modal">＋ Log Hours</button>
     {% if task.status.value != "closed" %}
-    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/complete" onsubmit="return confirm('Mark this task as completed?');">
-      <button type="submit" class="button secondary">✓ Mark Completed</button>
-    </form>
+    <button
+      type="button"
+      class="button secondary"
+      data-modal-open="complete-task-modal"
+      data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/complete", "completion_date": today.isoformat(), "redirect_to": "/" ~ org.slug ~ "/tasks/" ~ task.task_id, "task_name_text": task.task_id ~ " · " ~ task.name, "task_schedule_text": "Choose a completion date from " ~ ((task.start_date or task.created_at.date()).isoformat()) ~ " to " ~ today.isoformat() ~ ".", "_fieldAttributes": {"completion_date": {"min": (task.start_date or task.created_at.date()).isoformat(), "max": today.isoformat()}}}|tojson|e }}'
+    >✓ Mark Completed</button>
     {% endif %}
     {% if task.start_date %}
     <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}/calendar.ics">Add To Calendar</a>

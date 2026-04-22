@@ -546,6 +546,7 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
         "task_id": task.task_id,
         "name": task.name,
         "description": bleach.clean(task.description or "", tags=[], strip=True),
+        "created_at": task.created_at,
         "status": task.status.value,
         "start_date": task.start_date,
         "end_date": task.end_date,
@@ -561,6 +562,8 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
         "is_backlog": task.start_date is None and task.end_date is None,
         "completion_delay_days": completion_delay_days,
         "completion_delay_label": completion_delay_label,
+        "completion_min_date": task.start_date or task.created_at.date(),
+        "completion_max_date": today,
     }
 
 
@@ -1008,6 +1011,25 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
     return groups
 
 
+def backlog_tasks_payload(db: Session, org: Organization, user: User) -> list[dict[str, Any]]:
+    today = date.today()
+    backlog_tasks = db.scalars(
+        select(Task)
+        .where(
+            Task.org_id == org.id,
+            Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
+            Task.status != TaskStatus.CLOSED,
+            Task.status != TaskStatus.STALLED,
+            Task.start_date.is_(None),
+            Task.end_date.is_(None),
+            Task.estimated_hours.is_(None),
+        )
+        .order_by(Task.created_at.desc(), Task.id.desc())
+    ).all()
+    return [dashboard_task_summary(task, today) for task in backlog_tasks]
+
+
 def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
     today = date.today()
     month_start = today.replace(day=1)
@@ -1386,6 +1408,24 @@ def today_page(request: Request, org_user: tuple[Organization, User] = Depends(g
     )
 
 
+@app.get("/{org_slug}/backlogs", response_class=HTMLResponse)
+def backlog_management_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
+    today = date.today()
+    _, week_end = current_week_bounds(today)
+    return templates.TemplateResponse(
+        "backlog_management.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "today": today,
+            "week_end": week_end,
+            "backlog_tasks": backlog_tasks_payload(db, org, user),
+        },
+    )
+
+
 @app.get("/{org_slug}/tasks/new", response_class=HTMLResponse)
 def new_task_page(
     request: Request,
@@ -1585,8 +1625,64 @@ def archive_task_page(org_slug: str, task_code: str, org_user: tuple[Organizatio
     return RedirectResponse(url=f"/{org_slug}/dashboard", status_code=303)
 
 
+@app.post("/{org_slug}/backlogs/{task_code}/delete")
+def delete_backlog_task_page(
+    org_slug: str,
+    task_code: str,
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.is_archived.is_(False))
+    if user.role != Role.ADMIN:
+        task_query = task_query.where(Task.assigned_to == user.id)
+    task = db.scalar(task_query)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status in {TaskStatus.CLOSED, TaskStatus.STALLED} or task.start_date or task.end_date or task.estimated_hours is not None:
+        raise HTTPException(status_code=400, detail="Only backlog items can be deleted from backlog management")
+
+    db.delete(task)
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/backlogs"), status_code=303)
+
+
+@app.post("/{org_slug}/backlogs/{task_code}/add-to-this-week")
+def add_backlog_task_to_this_week(
+    org_slug: str,
+    task_code: str,
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.is_archived.is_(False))
+    if user.role != Role.ADMIN:
+        task_query = task_query.where(Task.assigned_to == user.id)
+    task = db.scalar(task_query)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status in {TaskStatus.CLOSED, TaskStatus.STALLED} or task.start_date or task.end_date or task.estimated_hours is not None:
+        raise HTTPException(status_code=400, detail="Only backlog items can be added from backlog management")
+
+    today = date.today()
+    _, week_end = current_week_bounds(today)
+    task.start_date = today
+    task.end_date = week_end
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/backlogs"), status_code=303)
+
+
 @app.post("/{org_slug}/tasks/{task_code}/complete")
-def complete_task_page(org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+def complete_task_page(
+    org_slug: str,
+    task_code: str,
+    completion_date: date = Form(...),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
     org, user = org_user
     task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
     if user.role != Role.ADMIN:
@@ -1594,12 +1690,20 @@ def complete_task_page(org_slug: str, task_code: str, org_user: tuple[Organizati
     task = db.scalar(task_query)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    today = date.today()
+    earliest_completion_date = task.start_date or task.created_at.date()
+    if completion_date < earliest_completion_date or completion_date > today:
+        raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
+
     task.status = TaskStatus.CLOSED
-    task.closed_at = datetime.utcnow()
+    task.closed_at = datetime.combine(completion_date, datetime.max.time().replace(microsecond=0))
+    if task.start_date is None:
+        task.start_date = completion_date
     if task.end_date is None:
-        task.end_date = date.today()
+        task.end_date = completion_date
     db.commit()
-    return RedirectResponse(url=f"/{org_slug}/dashboard", status_code=303)
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
 
 
 @app.post("/{org_slug}/tasks/{task_code}/unarchive")
