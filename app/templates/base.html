@@ -572,7 +572,12 @@
           if (!response.ok) {
             throw new Error(`Color update failed: ${response.status}`);
           }
-          applyTaskColor(taskCode, color, label);
+          const payload = await response.json().catch(() => ({}));
+          applyTaskColor(
+            taskCode,
+            payload.color || color,
+            payload.label || label
+          );
           closeTaskColorPopover();
         } catch (error) {
           console.error(error);

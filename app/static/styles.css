@@ -571,6 +571,15 @@ label:not(.checkbox) textarea {
   cursor: pointer;
 }
 
+.task-color-trigger:hover,
+.task-color-trigger:focus-visible {
+  background: var(--task-color, #22c55e);
+  border-color: rgba(29, 52, 66, 0.72);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 0 0 2px rgba(29, 52, 66, 0.14);
+}
+
 .task-color-popover {
   position: absolute;
   z-index: 40;
@@ -607,6 +616,13 @@ label:not(.checkbox) textarea {
   border: 2px solid transparent;
   background: var(--task-color);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.task-color-option:hover,
+.task-color-option:focus-visible {
+  background: var(--task-color);
+  border-color: rgba(29, 52, 66, 0.58);
+  transform: none;
 }
 
 .task-color-option.is-active {
