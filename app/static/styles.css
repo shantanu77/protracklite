@@ -1041,6 +1041,14 @@ mark {
   gap: 0.32rem;
 }
 
+.monday-task-name {
+  color: var(--text);
+  line-height: 1.35;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+}
+
 .monday-expand-toggle {
   flex-shrink: 0;
   align-self: flex-start;

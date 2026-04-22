@@ -22,7 +22,7 @@
             {% endif %}
           </div>
         </div>
-        <span>{{ task.name }}</span>
+        <span class="monday-task-name">{{ task.name }}</span>
         <small>
           {% if card_kind == "completed" %}
           Started {{ task.start_date }}
@@ -239,9 +239,10 @@
 
       button.addEventListener("click", () => {
         const isExpanded = button.getAttribute("aria-expanded") === "true";
-        panel.hidden = isExpanded;
-        button.setAttribute("aria-expanded", String(!isExpanded));
-        button.textContent = isExpanded ? `Expand ${label}` : `Collapse ${label}`;
+        const nextExpanded = !isExpanded;
+        panel.hidden = !nextExpanded;
+        button.setAttribute("aria-expanded", String(nextExpanded));
+        button.textContent = nextExpanded ? `Collapse ${label}` : `Expand ${label}`;
       });
     });
 
