@@ -82,7 +82,7 @@ The script:
 
 ## Weekly effort reminder
 
-The reminder runs through systemd every Friday at `15:00` server time and executes:
+The reminder runs through systemd every Friday at `15:00 Asia/Kolkata` and executes:
 
 ```bash
 /opt/protracklite/.venv/bin/python -m app.weekly_effort_reminder --threshold 85
