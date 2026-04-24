@@ -60,7 +60,12 @@ def compute_work_rate(db: Session, org_id: int, user_id: int, from_date: date, t
     available_hours = available_days * work_hours_per_day
 
     total_hours = db.scalar(
-        select(func.coalesce(func.sum(TimeLog.hours), 0)).where(
+        select(func.coalesce(func.sum(TimeLog.hours), 0))
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
             TimeLog.user_id == user_id,
             TimeLog.log_date >= from_date,
             TimeLog.log_date <= to_date,
@@ -72,6 +77,8 @@ def compute_work_rate(db: Session, org_id: int, user_id: int, from_date: date, t
         .join(Task, TimeLog.task_id == Task.id)
         .join(ActivityType, Task.activity_type_id == ActivityType.id)
         .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
             TimeLog.user_id == user_id,
             TimeLog.log_date >= from_date,
             TimeLog.log_date <= to_date,
@@ -84,7 +91,13 @@ def compute_work_rate(db: Session, org_id: int, user_id: int, from_date: date, t
         .select_from(TimeLog)
         .join(Task, TimeLog.task_id == Task.id)
         .join(ActivityType, Task.activity_type_id == ActivityType.id)
-        .where(TimeLog.user_id == user_id, TimeLog.log_date >= from_date, TimeLog.log_date <= to_date)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= from_date,
+            TimeLog.log_date <= to_date,
+        )
         .group_by(ActivityType.name)
         .order_by(func.sum(TimeLog.hours).desc())
     ).all()
@@ -93,7 +106,13 @@ def compute_work_rate(db: Session, org_id: int, user_id: int, from_date: date, t
         select(Task.project_id, func.coalesce(func.sum(TimeLog.hours), 0))
         .select_from(TimeLog)
         .join(Task, TimeLog.task_id == Task.id)
-        .where(TimeLog.user_id == user_id, TimeLog.log_date >= from_date, TimeLog.log_date <= to_date)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= from_date,
+            TimeLog.log_date <= to_date,
+        )
         .group_by(Task.project_id)
         .order_by(func.sum(TimeLog.hours).desc())
     ).all()
@@ -126,6 +145,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
             Task.status != TaskStatus.CLOSED,
             Task.status != TaskStatus.STALLED,
             Task.start_date >= this_monday,
@@ -140,6 +160,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
             Task.status != TaskStatus.CLOSED,
             Task.status != TaskStatus.STALLED,
             Task.start_date < this_monday,
@@ -154,6 +175,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
             Task.status != TaskStatus.CLOSED,
             Task.status != TaskStatus.STALLED,
             Task.start_date.is_(None),
@@ -168,6 +190,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
             Task.status == TaskStatus.CLOSED,
             Task.closed_at.is_not(None),
             Task.closed_at >= datetime.combine(prev_monday, datetime.min.time()),
@@ -181,6 +204,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
             Task.status == TaskStatus.STALLED,
         )
         .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
@@ -354,6 +378,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
         .join(Project, Task.project_id == Project.id)
         .where(
             Task.org_id == org_id,
+            Task.is_archived.is_(False),
             TimeLog.user_id == user_id,
             TimeLog.log_date >= month_start,
             TimeLog.log_date <= today,
@@ -379,6 +404,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
         .where(
             Task.org_id == org_id,
             Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
             Task.status.not_in([TaskStatus.CLOSED, TaskStatus.STALLED]),
             Task.start_date.is_not(None),
             Task.end_date.is_not(None),
@@ -435,6 +461,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
             .where(
                 Task.org_id == org_id,
                 Task.assigned_to == user_id,
+                Task.is_archived.is_(False),
                 Task.created_at >= datetime.combine(week_start, datetime.min.time()),
                 Task.created_at <= datetime.combine(week_end, datetime.max.time()),
             )
@@ -445,6 +472,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
             .where(
                 Task.org_id == org_id,
                 Task.assigned_to == user_id,
+                Task.is_archived.is_(False),
                 Task.status == TaskStatus.CLOSED,
                 Task.closed_at.is_not(None),
                 Task.closed_at >= datetime.combine(week_start, datetime.min.time()),
@@ -469,6 +497,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
         .join(ActivityType, Task.activity_type_id == ActivityType.id)
         .where(
             Task.org_id == org_id,
+            Task.is_archived.is_(False),
             TimeLog.user_id == user_id,
             TimeLog.log_date >= month_start,
             TimeLog.log_date <= today,

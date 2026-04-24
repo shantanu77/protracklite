@@ -8,7 +8,7 @@ from datetime import date, datetime
 from email.message import EmailMessage
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
 from app.config import get_settings
 
@@ -22,7 +22,7 @@ if not settings.database_url.strip():
         get_settings.cache_clear()
         settings = get_settings()
 
-from app.database import SessionLocal
+from app.database import SessionLocal, engine
 from app.models import Organization, User
 from app.reports import compute_work_rate, current_week_bounds
 
@@ -50,6 +50,28 @@ def send_email(recipient: str, subject: str, body: str) -> None:
             server.starttls()
             server.login(settings.smtp_username, settings.smtp_password)
         server.send_message(message)
+
+
+def ensure_users_schema() -> None:
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    if "send_effort_reminder" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN send_effort_reminder BOOLEAN NOT NULL DEFAULT TRUE"))
+
+
+def ensure_tasks_schema() -> None:
+    inspector = inspect(engine)
+    if "tasks" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("tasks")}
+    if "is_archived" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE tasks ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"))
 
 
 def build_message(user: User, org: Organization, week_start: date, week_end: date, threshold: float) -> tuple[str, str, float, float, float] | None:
@@ -95,7 +117,11 @@ def run_reminders(target_emails: list[str] | None, org_slug: str | None, thresho
         stmt = (
             select(User, Organization)
             .join(Organization, User.org_id == Organization.id)
-            .where(User.is_active.is_(True), Organization.is_active.is_(True))
+            .where(
+                User.is_active.is_(True),
+                User.send_effort_reminder.is_(True),
+                Organization.is_active.is_(True),
+            )
             .order_by(User.email.asc())
         )
         if target_emails:
@@ -163,6 +189,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    ensure_tasks_schema()
+    ensure_users_schema()
     today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
     results = run_reminders(args.email, args.org_slug, args.threshold, args.dry_run, today)
 

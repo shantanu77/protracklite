@@ -50,6 +50,7 @@
           <th>Email</th>
           <th>Role</th>
           <th>Status</th>
+          <th>Reminder</th>
           <th>Created</th>
           <th></th>
         </tr>
@@ -70,6 +71,11 @@
               {% if person.is_active %}Active{% else %}Inactive{% endif %}
             </span>
           </td>
+          <td>
+            <span class="badge {% if person.send_effort_reminder %}success{% else %}danger{% endif %}">
+              {% if person.send_effort_reminder %}On{% else %}Off{% endif %}
+            </span>
+          </td>
           <td>{{ person.created_at.strftime('%d %b %Y') }}</td>
           <td>
             <div class="table-actions">
@@ -77,7 +83,7 @@
                 type="button"
                 class="button secondary small"
                 data-modal-open="user-edit-modal"
-                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "role": person.role.value, "is_active": person.is_active, "reset_password": false}|tojson|e }}'
+                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "reset_password": false}|tojson|e }}'
               >
                 Edit
               </button>
@@ -134,6 +140,7 @@
         </select>
       </label>
       <label class="checkbox"><input type="checkbox" name="is_active">Active</label>
+      <label class="checkbox"><input type="checkbox" name="send_effort_reminder">Send Effort Reminder</label>
       <label class="checkbox"><input type="checkbox" name="reset_password">Reset Password</label>
       <button type="submit">Save Changes</button>
     </form>

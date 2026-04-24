@@ -153,6 +153,21 @@ def task_tags(task: Task) -> list[str]:
 def task_tags_text(task: Task) -> str:
     return " ".join(task_tags(task))
 
+
+def ensure_users_schema() -> None:
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    ddl_by_column = {
+        "send_effort_reminder": "ALTER TABLE users ADD COLUMN send_effort_reminder BOOLEAN NOT NULL DEFAULT TRUE",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in ddl_by_column.items():
+            if column_name not in columns:
+                connection.execute(text(ddl))
+
+
 def ensure_org_settings_schema() -> None:
     inspector = inspect(engine)
     if "org_settings" not in inspector.get_table_names():
@@ -318,6 +333,7 @@ def ensure_query_indexes() -> None:
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_users_schema()
     ensure_org_settings_schema()
     ensure_tasks_schema()
     ensure_activity_types_schema()
@@ -1170,7 +1186,12 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
     ]
 
     month_logged_hours = db.scalar(
-        select(func.coalesce(func.sum(TimeLog.hours), 0)).where(
+        select(func.coalesce(func.sum(TimeLog.hours), 0))
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org.id,
+            Task.is_archived.is_(False),
             TimeLog.user_id == user.id,
             TimeLog.log_date >= month_start,
             TimeLog.log_date <= today,
@@ -1185,9 +1206,18 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
         )
         .select_from(User)
         .outerjoin(
+            Task,
+            and_(
+                Task.assigned_to == User.id,
+                Task.org_id == org.id,
+                Task.is_archived.is_(False),
+            ),
+        )
+        .outerjoin(
             TimeLog,
             and_(
                 TimeLog.user_id == User.id,
+                TimeLog.task_id == Task.id,
                 TimeLog.log_date >= month_start,
                 TimeLog.log_date <= today,
             ),
@@ -1291,13 +1321,21 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
 
 def task_tag_suggestions(db: Session, org_id: int, limit: int = 80) -> list[str]:
     values: set[str] = set()
-    for raw_tags in db.scalars(select(Task.tags_text).where(Task.org_id == org_id, Task.tags_text != "")).all():
+    for raw_tags in db.scalars(
+        select(Task.tags_text).where(Task.org_id == org_id, Task.is_archived.is_(False), Task.tags_text != "")
+    ).all():
         values.update(parse_task_tags(raw_tags))
     return sorted(values)[:limit]
 
 
 def next_dashboard_rank(db: Session, org_id: int, user_id: int) -> int:
-    current_max = db.scalar(select(func.max(Task.dashboard_rank)).where(Task.org_id == org_id, Task.assigned_to == user_id))
+    current_max = db.scalar(
+        select(func.max(Task.dashboard_rank)).where(
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
+        )
+    )
     return int(current_max or 0) + 1
 
 
@@ -1929,7 +1967,7 @@ def api_list_tasks(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    query = select(Task).where(Task.org_id == org.id, Task.assigned_to == user.id)
+    query = select(Task).where(Task.org_id == org.id, Task.assigned_to == user.id, Task.is_archived.is_(False))
     if status:
         query = query.where(Task.status == TaskStatus(status))
     if project_id:
@@ -2176,7 +2214,14 @@ def api_update_me(payload: dict, org_user: tuple[Organization, User] = Depends(g
 def api_public_tasks(user_id: int, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, _ = org_user
     tasks = db.scalars(
-        select(Task).where(Task.org_id == org.id, Task.assigned_to == user_id, Task.is_private.is_(False)).order_by(Task.created_at.desc())
+        select(Task)
+        .where(
+            Task.org_id == org.id,
+            Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
+            Task.is_private.is_(False),
+        )
+        .order_by(Task.created_at.desc())
     ).all()
     return [{"task_id": task.task_id, "name": task.name, "status": task.status.value, "logged_hours": float(task.logged_hours or 0)} for task in tasks]
 
@@ -2188,7 +2233,14 @@ def team_tasks_page(request: Request, org_slug: str, user_id: int, org_user: tup
     if not teammate or teammate.org_id != org.id:
         raise HTTPException(status_code=404, detail="User not found")
     tasks = db.scalars(
-        select(Task).where(Task.org_id == org.id, Task.assigned_to == teammate.id, Task.is_private.is_(False)).order_by(Task.created_at.desc())
+        select(Task)
+        .where(
+            Task.org_id == org.id,
+            Task.assigned_to == teammate.id,
+            Task.is_archived.is_(False),
+            Task.is_private.is_(False),
+        )
+        .order_by(Task.created_at.desc())
     ).all()
     return templates.TemplateResponse(
         "team_tasks.html",
@@ -2242,6 +2294,7 @@ async def monday_report_add_from_backlog(
         select(Task).where(
             Task.org_id == org.id,
             Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
             Task.status != TaskStatus.CLOSED,
             Task.status != TaskStatus.STALLED,
             Task.task_id.in_(selected_task_codes),
@@ -2303,6 +2356,7 @@ def api_closure_report(
         .where(
             Task.org_id == org.id,
             Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
             Task.status == TaskStatus.CLOSED,
             Task.closed_at >= datetime.combine(from_date, datetime.min.time()),
             Task.closed_at <= datetime.combine(to_date, datetime.max.time()),
@@ -2390,18 +2444,37 @@ def admin_dashboard_page(request: Request, org_user: tuple[Organization, User] =
     rows = []
     for member in team:
         rates = compute_work_rate(db, org.id, member.id, month_start, today)
-        open_tasks = db.scalar(select(func.count()).select_from(Task).where(Task.org_id == org.id, Task.assigned_to == member.id, Task.status != TaskStatus.CLOSED))
+        open_tasks = db.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.assigned_to == member.id,
+                Task.is_archived.is_(False),
+                Task.status != TaskStatus.CLOSED,
+            )
+        )
         closed_tasks = db.scalar(
-            select(func.count()).select_from(Task).where(Task.org_id == org.id, Task.assigned_to == member.id, Task.status == TaskStatus.CLOSED)
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.assigned_to == member.id,
+                Task.is_archived.is_(False),
+                Task.status == TaskStatus.CLOSED,
+            )
         )
         rows.append({"member": member, "rates": rates, "open_tasks": open_tasks, "closed_tasks": closed_tasks})
 
     summary = {
         "employees": len(team),
-        "tasks_created_month": db.scalar(select(func.count()).select_from(Task).where(Task.org_id == org.id, Task.created_at >= datetime.combine(month_start, datetime.min.time()))),
+        "tasks_created_month": db.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.is_archived.is_(False),
+                Task.created_at >= datetime.combine(month_start, datetime.min.time()),
+            )
+        ),
         "tasks_closed_month": db.scalar(
             select(func.count()).select_from(Task).where(
                 Task.org_id == org.id,
+                Task.is_archived.is_(False),
                 Task.status == TaskStatus.CLOSED,
                 Task.closed_at >= datetime.combine(month_start, datetime.min.time()),
             )
@@ -2449,6 +2522,7 @@ def admin_create_user(
         force_password_change=True,
         temp_password_expires=datetime.utcnow() + timedelta(hours=24),
         is_active=True,
+        send_effort_reminder=True,
     )
     db.add(new_user)
     db.commit()
@@ -2466,6 +2540,7 @@ def admin_update_user(
     full_name: str = Form(...),
     role: Role = Form(...),
     is_active: bool = Form(False),
+    send_effort_reminder: bool = Form(False),
     reset_password: str | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -2478,6 +2553,7 @@ def admin_update_user(
     target.full_name = full_name.strip()
     target.role = role
     target.is_active = is_active
+    target.send_effort_reminder = send_effort_reminder
     if reset_password:
         temp_password = generate_temp_password()
         target.password_hash = hash_password(temp_password)

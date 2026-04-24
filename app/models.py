@@ -69,6 +69,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(SqlEnum(Role), default=Role.EMPLOYEE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    send_effort_reminder: Mapped[bool] = mapped_column(Boolean, default=True)
     force_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
     temp_password_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
