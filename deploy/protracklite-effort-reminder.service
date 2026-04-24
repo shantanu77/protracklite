@@ -1,0 +1,10 @@
+[Unit]
+Description=ProtrackLite weekly effort reminder
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/protracklite
+EnvironmentFile=-/etc/protracklite.env
+ExecStart=/opt/protracklite/.venv/bin/python -m app.weekly_effort_reminder --threshold 85

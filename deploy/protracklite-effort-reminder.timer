@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ProtrackLite weekly effort reminder every Friday at 3 PM
+
+[Timer]
+OnCalendar=Fri 15:00
+Persistent=true
+Unit=protracklite-effort-reminder.service
+
+[Install]
+WantedBy=timers.target

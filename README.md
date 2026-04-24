@@ -38,6 +38,8 @@ The repo includes:
 
 - [deploy/nginx-protracklite.conf](/home/shantanu/ptlite/deploy/nginx-protracklite.conf)
 - [deploy/protracklite.service](/home/shantanu/ptlite/deploy/protracklite.service)
+- [deploy/protracklite-effort-reminder.service](/home/shantanu/ptlite/deploy/protracklite-effort-reminder.service)
+- [deploy/protracklite-effort-reminder.timer](/home/shantanu/ptlite/deploy/protracklite-effort-reminder.timer)
 - [deploy.sh](/home/shantanu/ptlite/deploy.sh)
 
 Use `/etc/protracklite.env` on the server for runtime settings. Do not keep production settings inside `/opt/protracklite`, because deploys refresh that directory. For MySQL, for example:
@@ -76,3 +78,20 @@ The script:
 - preserves production data because `git archive` does not include ignored files such as local `*.db`
 - reinstalls Python dependencies in `/opt/protracklite/.venv`
 - reloads systemd and restarts `protracklite`
+- installs and enables the Friday 3 PM weekly effort reminder timer
+
+## Weekly effort reminder
+
+The reminder runs through systemd every Friday at `15:00` server time and executes:
+
+```bash
+/opt/protracklite/.venv/bin/python -m app.weekly_effort_reminder --threshold 85
+```
+
+It emails active users whose current-week booked effort is below `85%` of their available weekly hours. If a user has no time logs for the week, the message explicitly says they have not booked any progress in that week.
+
+To preview the reminder for a single user without sending email:
+
+```bash
+python3 -m app.weekly_effort_reminder --dry-run --email shantanu.singh@solulever.com
+```
