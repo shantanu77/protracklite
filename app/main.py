@@ -1121,6 +1121,7 @@ def backlog_tasks_payload(db: Session, org: Organization, user: User) -> list[di
 def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
     today = date.today()
     month_start = today.replace(day=1)
+    week_start, _ = current_week_bounds(today)
     settings_obj = get_org_settings(db, org.id)
     default_log_hours = float(settings_obj.default_time_log_hours or Decimal("1.00"))
 
@@ -1197,6 +1198,7 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
             TimeLog.log_date <= today,
         )
     )
+    week_rates = compute_work_rate(db, org.id, user.id, week_start, today)
 
     monthly_ranking_rows = db.execute(
         select(
@@ -1238,8 +1240,8 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
         "default_log_hours": default_log_hours,
         "summary": {
             "today_total_hours": round(float(today_total_hours), 2),
-            "worked_task_count": len(worked_today),
-            "month_logged_hours": round(float(month_logged_hours or 0), 2),
+            "week_logged_hours": round(float(week_rates["total_logged_hours"] or 0), 2),
+            "week_booking_rate": round(float(week_rates["total_rate"] or 0), 2),
             "month_rank": month_rank,
             "team_size": len(monthly_ranking_rows),
         },
@@ -2867,26 +2869,66 @@ def admin_tasks_page(
     stalled_tasks = [task for task in tasks if task.status == TaskStatus.STALLED]
     completed_tasks = [task for task in tasks if task.status == TaskStatus.CLOSED]
     week_start, week_end = current_week_bounds(today)
+    previous_week_start, previous_week_end = previous_week_bounds(today)
+    month_start = today.replace(day=1)
     due_this_week = [
         task for task in open_tasks if task.end_date and week_start <= task.end_date <= week_end
     ]
 
     assignee_summary_map: dict[int, dict[str, Any]] = {}
-    for person in people:
+    task_ids = [task.id for task in tasks]
+    current_week_hours_by_user: dict[int, float] = {}
+    previous_week_hours_by_user: dict[int, float] = {}
+    month_hours_by_user: dict[int, float] = {}
+    if task_ids:
+        current_week_rows = db.execute(
+            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0))
+            .where(
+                TimeLog.task_id.in_(task_ids),
+                TimeLog.log_date >= week_start,
+                TimeLog.log_date <= today,
+            )
+            .group_by(TimeLog.user_id)
+        ).all()
+        previous_week_rows = db.execute(
+            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0))
+            .where(
+                TimeLog.task_id.in_(task_ids),
+                TimeLog.log_date >= previous_week_start,
+                TimeLog.log_date <= previous_week_end,
+            )
+            .group_by(TimeLog.user_id)
+        ).all()
+        month_rows = db.execute(
+            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0))
+            .where(
+                TimeLog.task_id.in_(task_ids),
+                TimeLog.log_date >= month_start,
+                TimeLog.log_date <= today,
+            )
+            .group_by(TimeLog.user_id)
+        ).all()
+        current_week_hours_by_user = {user_id: float(hours or 0) for user_id, hours in current_week_rows}
+        previous_week_hours_by_user = {user_id: float(hours or 0) for user_id, hours in previous_week_rows}
+        month_hours_by_user = {user_id: float(hours or 0) for user_id, hours in month_rows}
+
+    snapshot_people = [person for person in people if person.send_effort_reminder]
+    for person in snapshot_people:
         assignee_summary_map[person.id] = {
             "person": person,
             "total": 0,
             "open": 0,
             "overdue": 0,
             "completed": 0,
-            "logged_hours": 0.0,
+            "current_week_hours": current_week_hours_by_user.get(person.id, 0.0),
+            "previous_week_hours": previous_week_hours_by_user.get(person.id, 0.0),
+            "month_hours": month_hours_by_user.get(person.id, 0.0),
         }
     for task in tasks:
         summary = assignee_summary_map.get(task.assigned_to)
         if not summary:
             continue
         summary["total"] += 1
-        summary["logged_hours"] += float(task.logged_hours or 0)
         if task.status == TaskStatus.CLOSED:
             summary["completed"] += 1
         else:
@@ -2895,7 +2937,7 @@ def admin_tasks_page(
                 summary["overdue"] += 1
     assignee_summary = sorted(
         assignee_summary_map.values(),
-        key=lambda item: (item["logged_hours"], item["overdue"], item["open"], item["completed"]),
+        key=lambda item: (item["month_hours"], item["current_week_hours"], item["overdue"], item["open"], item["completed"]),
         reverse=True,
     )
 

@@ -14,12 +14,12 @@
     <strong>{{ "%.2f"|format(summary.today_total_hours) }}h</strong>
   </article>
   <article class="stat">
-    <span>Tasks Worked On</span>
-    <strong>{{ summary.worked_task_count }}</strong>
+    <span>Booked this week</span>
+    <strong>{{ "%.2f"|format(summary.week_logged_hours) }}h</strong>
   </article>
   <article class="stat">
-    <span>Booked This Month</span>
-    <strong>{{ "%.2f"|format(summary.month_logged_hours) }}h</strong>
+    <span>%Booking</span>
+    <strong>{{ "%.2f"|format(summary.week_booking_rate) }}%</strong>
   </article>
   <article class="stat">
     <span>Monthly Rank</span>

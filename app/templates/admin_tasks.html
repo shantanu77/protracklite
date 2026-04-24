@@ -42,7 +42,9 @@
           <th>Open</th>
           <th>Overdue</th>
           <th>Completed</th>
-          <th>Booked</th>
+          <th>Current Week</th>
+          <th>Previous Week</th>
+          <th>Month Total</th>
         </tr>
       </thead>
       <tbody>
@@ -52,10 +54,12 @@
           <td>{{ row.open }}</td>
           <td>{% if row.overdue %}<span class="badge danger">{{ row.overdue }}</span>{% else %}<span class="badge muted">0</span>{% endif %}</td>
           <td>{{ row.completed }}</td>
-          <td>{{ "%.2f"|format(row.logged_hours) }}h</td>
+          <td>{{ "%.2f"|format(row.current_week_hours) }}h</td>
+          <td>{{ "%.2f"|format(row.previous_week_hours) }}h</td>
+          <td>{{ "%.2f"|format(row.month_hours) }}h</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="empty">No assignees in the current task set.</td></tr>
+        <tr><td colspan="7" class="empty">No assignees in the current task set.</td></tr>
         {% endfor %}
       </tbody>
     </table>
