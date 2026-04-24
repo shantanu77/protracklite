@@ -1076,11 +1076,11 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
         )
         if in_this_week:
             groups["week"].append(summary)
-        if task.status == TaskStatus.CLOSED:
+        if task.status == TaskStatus.CLOSED or task.closed_at is not None:
             continue
         if task.start_date == today or task.end_date == today:
             groups["today"].append(summary)
-        elif task.end_date and task.end_date < today and task.status != TaskStatus.CLOSED:
+        elif task.end_date and task.end_date < today:
             groups["overdue"].append(summary)
         else:
             groups["pending"].append(summary)
