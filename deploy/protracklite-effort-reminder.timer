@@ -2,8 +2,7 @@
 Description=Run ProtrackLite weekly effort reminder every Friday at 3 PM
 
 [Timer]
-OnCalendar=Fri 15:00
-Timezone=Asia/Kolkata
+OnCalendar=Fri 09:30 UTC
 Persistent=true
 Unit=protracklite-effort-reminder.service
 
