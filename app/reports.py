@@ -220,6 +220,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         for task in [*this_week_tasks, *pending_tasks, *completed_tasks, *stalled_tasks]
     ]
     logs_by_task_id: dict[int, list[dict]] = defaultdict(list)
+    latest_log_moment_by_task_id: dict[int, datetime] = {}
     if report_task_ids:
         report_logs = db.scalars(
             select(TimeLog)
@@ -227,6 +228,10 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             .order_by(TimeLog.task_id.asc(), TimeLog.log_date.desc(), TimeLog.created_at.desc())
         ).all()
         for log in report_logs:
+            latest_log_moment_by_task_id.setdefault(
+                log.task_id,
+                datetime.combine(log.log_date, datetime.max.time()) if log.log_date else log.created_at,
+            )
             logs_by_task_id[log.task_id].append(
                 {
                     "date": log.log_date,
@@ -234,6 +239,26 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
                     "notes": log.notes or "",
                 }
             )
+
+    def sort_tasks_by_latest_log(tasks: list[Task]) -> list[Task]:
+        def ordering_value(value: datetime | None) -> float:
+            if not value:
+                return float("-inf")
+            return value.timestamp()
+
+        return sorted(
+            tasks,
+            key=lambda task: (
+                latest_log_moment_by_task_id.get(task.id) is None,
+                -ordering_value(latest_log_moment_by_task_id.get(task.id)),
+                -ordering_value(task.updated_at or task.created_at),
+            ),
+        )
+
+    this_week_tasks = sort_tasks_by_latest_log(this_week_tasks)
+    pending_tasks = sort_tasks_by_latest_log(pending_tasks)
+    completed_tasks = sort_tasks_by_latest_log(completed_tasks)
+    stalled_tasks = sort_tasks_by_latest_log(stalled_tasks)
 
     previous_week_booked_hours = last_week_rates["total_logged_hours"]
     previous_week_available_hours = last_week_rates["available_hours"]

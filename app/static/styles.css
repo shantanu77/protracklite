@@ -1094,6 +1094,13 @@ mark {
 
 .monday-task-card {
   gap: 0.85rem;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+
+.monday-task-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(29, 52, 66, 0.26);
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
 }
 
 .monday-task-main {

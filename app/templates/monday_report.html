@@ -130,17 +130,12 @@
 <div class="grid">
   <section class="panel">
     <div class="panel-head">
-      <div>
-        <h2>This Week Tasks</h2>
-        <p>Tasks assigned to you that start in the current week.</p>
-      </div>
-      <div class="page-head-actions">
-        <button type="button" class="button" data-modal-open="backlog-to-week-modal">Add From Backlog</button>
-      </div>
+      <h2>Completed Tasks</h2>
+      <p>Tasks closed in the previous week, with estimated versus actual effort.</p>
     </div>
-    {% for task in report.this_week_tasks %}
-    {{ render_task_card(task, "open") }}
-    {% else %}<p class="empty">No open tasks in this week.</p>{% endfor %}
+    {% for task in report.completed_tasks %}
+    {{ render_task_card(task, "completed") }}
+    {% else %}<p class="empty">No tasks were closed last week.</p>{% endfor %}
   </section>
   <section class="panel">
     <div class="panel-head">
@@ -153,12 +148,17 @@
   </section>
   <section class="panel">
     <div class="panel-head">
-      <h2>Completed Tasks</h2>
-      <p>Tasks closed in the previous week, with estimated versus actual effort.</p>
+      <div>
+        <h2>This Week Tasks</h2>
+        <p>Tasks assigned to you that start in the current week.</p>
+      </div>
+      <div class="page-head-actions">
+        <button type="button" class="button" data-modal-open="backlog-to-week-modal">Add From Backlog</button>
+      </div>
     </div>
-    {% for task in report.completed_tasks %}
-    {{ render_task_card(task, "completed") }}
-    {% else %}<p class="empty">No tasks were closed last week.</p>{% endfor %}
+    {% for task in report.this_week_tasks %}
+    {{ render_task_card(task, "open") }}
+    {% else %}<p class="empty">No open tasks in this week.</p>{% endfor %}
   </section>
   <section class="panel">
     <div class="panel-head">
