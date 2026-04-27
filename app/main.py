@@ -1979,25 +1979,53 @@ def api_list_tasks(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    query = select(Task).where(Task.org_id == org.id, Task.assigned_to == user.id, Task.is_archived.is_(False))
+    query = (
+        select(Task)
+        .join(Project, Task.project_id == Project.id)
+        .join(ActivityType, Task.activity_type_id == ActivityType.id, isouter=True)
+        .where(Task.org_id == org.id, Task.assigned_to == user.id, Task.is_archived.is_(False))
+    )
     if status:
         query = query.where(Task.status == TaskStatus(status))
     if project_id:
         query = query.where(Task.project_id == project_id)
     if q:
-        query = query.where(or_(Task.name.ilike(f"%{q}%"), Task.task_id.ilike(f"%{q}%"), Task.tags_text.ilike(f"%{q}%")))
-    tasks = db.scalars(query.order_by(Task.created_at.desc())).all()
+        query = query.where(
+            or_(
+                Task.name.ilike(f"%{q}%"),
+                Task.task_id.ilike(f"%{q}%"),
+                Task.tags_text.ilike(f"%{q}%"),
+                Project.code.ilike(f"%{q}%"),
+                Project.name.ilike(f"%{q}%"),
+                ActivityType.name.ilike(f"%{q}%"),
+            )
+        )
+    tasks = db.scalars(query.order_by(Task.updated_at.desc(), Task.id.desc())).all()
+    project_map = {project.id: project for project in all_org_projects(db, org.id)}
+    activity_type_map = {item.id: item for item in org_activity_types(db, org.id)}
+    today = date.today()
     return [
         {
             "task_id": task.task_id,
             "name": task.name,
             "status": task.status.value,
             "task_color": normalize_task_color(task.task_color),
+            "task_color_label": TASK_COLOR_MAP.get(normalize_task_color(task.task_color), "Green"),
             "tags": task_tags(task),
+            "tags_text": ", ".join(task_tags(task)),
             "logged_hours": float(task.logged_hours or 0),
             "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
             "stalled_reason": task.stalled_reason,
             "is_private": task.is_private,
+            "project_code": project_map.get(task.project_id).code if project_map.get(task.project_id) else "",
+            "project_name": project_map.get(task.project_id).name if project_map.get(task.project_id) else "",
+            "activity_type_name": activity_type_map.get(task.activity_type_id).name if activity_type_map.get(task.activity_type_id) else "",
+            "is_backlog": task.start_date is None and task.end_date is None and task.estimated_hours is None,
+            "start_date": task.start_date.isoformat() if task.start_date else None,
+            "end_date": task.end_date.isoformat() if task.end_date else None,
+            "updated_at_label": task.updated_at.strftime("%d %b %Y, %I:%M %p") if task.updated_at else "",
+            "completion_min_date": (task.start_date or task.created_at.date()).isoformat(),
+            "completion_max_date": today.isoformat(),
         }
         for task in tasks
     ]

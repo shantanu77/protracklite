@@ -252,32 +252,218 @@
 
   (() => {
     const searchInput = document.querySelector("[data-task-search-filter]");
-    const filter = document.querySelector("[data-task-status-filter]");
-    const cards = Array.from(document.querySelectorAll(".manage-task-card"));
+    const statusFilter = document.querySelector("[data-task-status-filter]");
+    const taskGrid = document.querySelector("[data-manage-task-grid]");
     const emptyState = document.querySelector("p[data-manage-task-empty]");
-    if (!filter || !searchInput || !cards.length || !emptyState) {
+    if (!searchInput || !statusFilter || !taskGrid || !emptyState) {
       return;
     }
 
-    function applyFilter() {
-      const selected = filter.value;
-      const searchTerm = searchInput.value.trim().toLowerCase();
-      let visibleCount = 0;
-      cards.forEach((card) => {
-        const matchesStatus = selected === "all" || card.dataset.taskStatus === selected;
-        const matchesSearch = !searchTerm || (card.dataset.taskSearch || "").includes(searchTerm);
-        const matches = matchesStatus && matchesSearch;
-        card.hidden = !matches;
-        if (matches) {
-          visibleCount += 1;
-        }
-      });
-      emptyState.hidden = visibleCount > 0;
+    let debounceId = null;
+    let activeController = null;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
     }
 
-    filter.addEventListener("change", applyFilter);
-    searchInput.addEventListener("input", applyFilter);
-    applyFilter();
+    function buildTaskCard(task) {
+      const statusClass = task.status === "started"
+        ? "success"
+        : task.status === "stalled"
+          ? "danger"
+          : task.status === "closed"
+            ? "muted"
+            : "warning";
+      const tagsHtml = (task.tags || []).map((tag) => `<span class="badge muted">#${escapeHtml(tag)}</span>`).join("");
+      const scheduleText = task.is_backlog
+        ? "Backlog"
+        : `${task.start_date ? `Start: ${escapeHtml(task.start_date)}` : "Start: Not set"}${task.end_date ? ` · End: ${escapeHtml(task.end_date)}` : " · End: Not set"}`;
+      const planText = task.estimated_hours !== null && task.estimated_hours !== undefined
+        ? ` · Plan: ${Number(task.estimated_hours).toFixed(2)}h`
+        : "";
+      const privateText = task.is_private ? " · Private" : "";
+      const completeButton = task.status !== "closed"
+        ? `<button
+            type="button"
+            class="button secondary"
+            data-modal-open="complete-task-modal"
+            data-modal-payload='${escapeHtml(JSON.stringify({
+              _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/complete`,
+              completion_date: "{{ today.isoformat() }}",
+              redirect_to: `/${"{{ org.slug }}"}/tasks/new`,
+              task_name_text: `${task.task_id} · ${task.name}`,
+              task_schedule_text: `Choose a completion date from ${task.completion_min_date} to ${task.completion_max_date}.`,
+              _fieldAttributes: {
+                completion_date: {
+                  min: task.completion_min_date,
+                  max: task.completion_max_date,
+                },
+              },
+            }))}'
+          >Mark Completed</button>`
+        : "";
+
+      return `<article class="task-card manage-task-card">
+        <div class="task-card-headline">
+          <span
+            class="task-color-trigger"
+            data-task-color-trigger
+            data-task-code="${escapeHtml(task.task_id)}"
+            data-task-color="${escapeHtml(task.task_color)}"
+            data-task-color-label="${escapeHtml(task.task_color_label)}"
+            role="button"
+            tabindex="0"
+            aria-label="Task color"
+          ></span>
+          <span class="chip">${escapeHtml(task.task_id)}</span>
+          <span class="badge ${statusClass}">${escapeHtml(task.status.replaceAll("_", " "))}</span>
+        </div>
+        <strong>${escapeHtml(task.name)}</strong>
+        <small>${escapeHtml(task.project_code)}${task.project_name ? ` · ${escapeHtml(task.project_name)}` : ""}${task.activity_type_name ? ` · ${escapeHtml(task.activity_type_name)}` : ""}</small>
+        <small>${scheduleText}${planText} · Logged: ${Number(task.logged_hours || 0).toFixed(2)}h${privateText}</small>
+        <small>Updated ${escapeHtml(task.updated_at_label)}</small>
+        ${tagsHtml ? `<div class="dashboard-task-badges">${tagsHtml}</div>` : ""}
+        <div class="manage-task-actions">
+          <a class="button secondary" href="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}">View</a>
+          <a class="button secondary" href="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}#edit-task">Edit</a>
+          <button
+            type="button"
+            class="button secondary"
+            data-modal-open="manage-task-log-modal"
+            data-modal-payload='${escapeHtml(JSON.stringify({
+              _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/time-log`,
+              log_date: "{{ today.isoformat() }}",
+              hours: "",
+              notes: "",
+              redirect_to: `/${"{{ org.slug }}"}/tasks/new`,
+              task_name_text: `${task.task_id} · ${task.name}`,
+            }))}'
+          >Log Hours</button>
+          ${completeButton}
+          <form method="post" action="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
+            <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/new">
+            <button type="submit" class="button danger">Archive</button>
+          </form>
+        </div>
+      </article>`;
+    }
+
+    function bindModalOpeners(scope) {
+      scope.querySelectorAll("[data-modal-open]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const modal = document.getElementById(button.dataset.modalOpen);
+          if (!modal) {
+            return;
+          }
+          const form = modal.querySelector("form");
+          if (form) {
+            form.reset();
+          }
+          const payloadRaw = button.dataset.modalPayload;
+          let payload = {};
+          if (payloadRaw) {
+            try {
+              payload = JSON.parse(payloadRaw);
+            } catch (error) {
+              console.error("Invalid modal payload", error);
+            }
+          }
+          if (form && payload._action) {
+            form.action = payload._action;
+          }
+          if (payload._fieldAttributes && form) {
+            Object.entries(payload._fieldAttributes).forEach(([fieldName, attributes]) => {
+              const field = form.querySelector(`[name="${fieldName}"]`);
+              if (!field || !attributes || typeof attributes !== "object") {
+                return;
+              }
+              Object.entries(attributes).forEach(([attributeName, attributeValue]) => {
+                if (attributeValue === null || attributeValue === undefined || attributeValue === "") {
+                  field.removeAttribute(attributeName);
+                } else {
+                  field.setAttribute(attributeName, String(attributeValue));
+                }
+              });
+            });
+          }
+          Object.entries(payload).forEach(([key, value]) => {
+            if (key === "_action" || key === "_fieldAttributes") {
+              return;
+            }
+            const field = modal.querySelector(`[name="${key}"]`);
+            if (field) {
+              if (field.type === "checkbox") {
+                field.checked = Boolean(value);
+              } else {
+                field.value = value ?? "";
+              }
+            }
+            const textNode = modal.querySelector(`[data-modal-text="${key}"]`);
+            if (textNode) {
+              textNode.textContent = value ?? "";
+            }
+          });
+          modal.classList.add("is-open");
+          modal.setAttribute("aria-hidden", "false");
+          document.body.classList.add("modal-open");
+        });
+      });
+    }
+
+    async function loadTasks() {
+      const params = new URLSearchParams();
+      const status = statusFilter.value;
+      const searchTerm = searchInput.value.trim();
+      if (status && status !== "all") {
+        params.set("status", status);
+      }
+      if (searchTerm) {
+        params.set("q", searchTerm);
+      }
+
+      if (activeController) {
+        activeController.abort();
+      }
+      activeController = new AbortController();
+
+      try {
+        taskGrid.setAttribute("aria-busy", "true");
+        const response = await fetch(`/api/v1/tasks/?${params.toString()}`, {
+          credentials: "same-origin",
+          signal: activeController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to load tasks: ${response.status}`);
+        }
+        const tasks = await response.json();
+        taskGrid.innerHTML = tasks.map(buildTaskCard).join("");
+        emptyState.hidden = tasks.length > 0;
+        bindModalOpeners(taskGrid);
+      } catch (error) {
+        if (error.name === "AbortError") {
+          return;
+        }
+        console.error(error);
+        taskGrid.innerHTML = "";
+        emptyState.hidden = false;
+        emptyState.textContent = "Unable to load tasks right now.";
+      } finally {
+        taskGrid.removeAttribute("aria-busy");
+      }
+    }
+
+    function scheduleLoad() {
+      window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(loadTasks, 220);
+    }
+
+    statusFilter.addEventListener("change", loadTasks);
+    searchInput.addEventListener("input", scheduleLoad);
   })();
 
   (() => {
