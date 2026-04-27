@@ -1293,7 +1293,7 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
     tasks = db.scalars(
         select(Task)
         .where(Task.org_id == org_id, Task.assigned_to == user_id, Task.is_archived.is_(False))
-        .order_by(Task.created_at.desc(), Task.id.desc())
+        .order_by(Task.updated_at.desc(), Task.id.desc())
     ).all()
     project_map = {project.id: project for project in all_org_projects(db, org_id)}
     activity_type_map = {item.id: item for item in org_activity_types(db, org_id)}
@@ -1316,6 +1316,10 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
             "logged_hours": float(task.logged_hours or 0),
             "is_private": task.is_private,
             "created_at": task.created_at,
+            "updated_at": task.updated_at,
+            "updated_at_label": task.updated_at.strftime("%d %b %Y, %I:%M %p") if task.updated_at else "",
+            "completion_min_date": (task.start_date or task.created_at.date()).isoformat(),
+            "completion_max_date": date.today().isoformat(),
         }
         for task in tasks
     ]
@@ -1737,7 +1741,13 @@ def download_task_calendar(org_slug: str, task_code: str, org_user: tuple[Organi
 
 
 @app.post("/{org_slug}/tasks/{task_code}/archive")
-def archive_task_page(org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+def archive_task_page(
+    org_slug: str,
+    task_code: str,
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
     org, user = org_user
     task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
     if user.role != Role.ADMIN:
@@ -1747,7 +1757,7 @@ def archive_task_page(org_slug: str, task_code: str, org_user: tuple[Organizatio
         raise HTTPException(status_code=404, detail="Task not found")
     task.is_archived = True
     db.commit()
-    return RedirectResponse(url=f"/{org_slug}/dashboard", status_code=303)
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
 
 
 @app.post("/{org_slug}/backlogs/{task_code}/delete")

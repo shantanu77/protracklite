@@ -288,6 +288,64 @@ textarea {
   gap: 0.75rem;
 }
 
+.manage-tasks-head {
+  align-items: end;
+}
+
+.manage-task-filter {
+  min-width: min(100%, 220px);
+}
+
+.manage-task-filter label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.manage-task-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.manage-task-card {
+  gap: 0.7rem;
+}
+
+.manage-task-card .task-card-headline {
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.manage-task-card strong {
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.manage-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.manage-task-actions .button,
+.manage-task-actions form {
+  margin: 0;
+}
+
+.manage-task-actions .button {
+  min-height: 40px;
+  padding: 0.62rem 0.85rem;
+  font-size: 0.84rem;
+}
+
+.manage-task-actions form {
+  display: inline-flex;
+}
+
 .eyebrow {
   margin-bottom: 0.35rem;
   color: var(--accent);
