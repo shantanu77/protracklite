@@ -86,22 +86,33 @@
     <div class="panel-head manage-tasks-head">
       <div>
         <h2>My Tasks</h2>
-        <p>Filter by status and manage tasks in a compact grid. Default order is latest updated first.</p>
+        <p>Search and filter by status, then manage tasks in a compact grid. Default order is latest updated first.</p>
       </div>
-      <div class="manage-task-filter">
-        <label>Status
-          <select data-task-status-filter>
-            <option value="all">All statuses</option>
-            {% for item in statuses %}
-            <option value="{{ item.value }}">{{ item.value|replace('_', ' ') }}</option>
-            {% endfor %}
-          </select>
-        </label>
+      <div class="manage-task-controls">
+        <div class="manage-task-filter">
+          <label>Search
+            <input type="search" placeholder="Search by task id, name, project, activity, tag" data-task-search-filter>
+          </label>
+        </div>
+        <div class="manage-task-filter">
+          <label>Status
+            <select data-task-status-filter>
+              <option value="all">All statuses</option>
+              {% for item in statuses %}
+              <option value="{{ item.value }}">{{ item.value|replace('_', ' ') }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
       </div>
     </div>
     <div class="manage-task-grid" data-manage-task-grid>
       {% for task in tasks %}
-      <article class="task-card manage-task-card" data-task-status="{{ task.status }}">
+      <article
+        class="task-card manage-task-card"
+        data-task-status="{{ task.status }}"
+        data-task-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ task.project_code ~ ' ' ~ task.project_name ~ ' ' ~ task.activity_type_name ~ ' ' ~ task.tags_text ~ ' ' ~ task.status)|lower }}"
+      >
         <div class="task-card-headline">
           <span
             class="task-color-trigger"
@@ -161,11 +172,11 @@
         </div>
       </article>
       {% else %}
-      <p class="empty" data-manage-task-empty>No tasks created yet.</p>
+      <p class="empty">No tasks created yet.</p>
       {% endfor %}
     </div>
     {% if tasks %}
-    <p class="empty" data-manage-task-empty hidden>No tasks match the selected status.</p>
+    <p class="empty" data-manage-task-empty hidden>No tasks match the current search or status filter.</p>
     {% endif %}
   </section>
 </div>
@@ -240,18 +251,22 @@
   })();
 
   (() => {
+    const searchInput = document.querySelector("[data-task-search-filter]");
     const filter = document.querySelector("[data-task-status-filter]");
     const cards = Array.from(document.querySelectorAll(".manage-task-card"));
-    const emptyState = document.querySelector("[data-manage-task-empty]");
-    if (!filter || !cards.length || !emptyState) {
+    const emptyState = document.querySelector("p[data-manage-task-empty]");
+    if (!filter || !searchInput || !cards.length || !emptyState) {
       return;
     }
 
     function applyFilter() {
       const selected = filter.value;
+      const searchTerm = searchInput.value.trim().toLowerCase();
       let visibleCount = 0;
       cards.forEach((card) => {
-        const matches = selected === "all" || card.dataset.taskStatus === selected;
+        const matchesStatus = selected === "all" || card.dataset.taskStatus === selected;
+        const matchesSearch = !searchTerm || (card.dataset.taskSearch || "").includes(searchTerm);
+        const matches = matchesStatus && matchesSearch;
         card.hidden = !matches;
         if (matches) {
           visibleCount += 1;
@@ -261,6 +276,7 @@
     }
 
     filter.addEventListener("change", applyFilter);
+    searchInput.addEventListener("input", applyFilter);
     applyFilter();
   })();
 
