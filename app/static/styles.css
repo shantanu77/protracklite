@@ -1033,16 +1033,18 @@ mark {
 }
 
 .monday-task-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: flex-start;
-  gap: 0.9rem;
+  display: block;
 }
 
 .monday-task-main > div:first-child {
   min-width: 0;
   display: grid;
-  gap: 0.32rem;
+  gap: 0.5rem;
+}
+
+.monday-task-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .monday-task-name {
@@ -1054,10 +1056,9 @@ mark {
 }
 
 .monday-expand-toggle {
-  width: fit-content;
-  max-width: 100%;
-  justify-self: end;
-  align-self: flex-start;
+  width: auto;
+  max-width: none;
+  margin-left: 0;
   cursor: pointer;
   white-space: nowrap;
 }

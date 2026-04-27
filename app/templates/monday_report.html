@@ -35,17 +35,19 @@
           {% if task.overdue_days %} · overdue by {{ task.overdue_days }} day{% if task.overdue_days != 1 %}s{% endif %}{% endif %}
           {% endif %}
         </small>
+        <div class="monday-task-actions">
+          <button
+            type="button"
+            class="dashboard-expand-toggle monday-expand-toggle"
+            data-monday-expand-toggle
+            data-expand-label="Details"
+            aria-expanded="false"
+            aria-controls="{{ detail_id }}"
+          >
+            Expand Details
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        class="dashboard-expand-toggle monday-expand-toggle"
-        data-monday-expand-toggle
-        data-expand-label="Details"
-        aria-expanded="false"
-        aria-controls="{{ detail_id }}"
-      >
-        Expand Details
-      </button>
     </div>
     <div class="monday-task-details" id="{{ detail_id }}" data-monday-expand-panel hidden>
       <div class="monday-task-detail-block">
