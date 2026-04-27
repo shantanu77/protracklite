@@ -138,6 +138,11 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
     two_week_cutoff = prev_monday - timedelta(days=7)
     null_end_date_last = case((Task.end_date.is_(None), 1), else_=0)
 
+    def format_short_date(value: date | None) -> str | None:
+        if not value:
+            return None
+        return value.strftime("%d %b %Y")
+
     last_week_rates = compute_work_rate(db, org_id, user_id, prev_monday, prev_sunday)
 
     this_week_tasks = db.scalars(
@@ -276,6 +281,8 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "description": task.description or "",
             "start_date": task.start_date,
             "end_date": task.end_date,
+            "start_date_label": format_short_date(task.start_date),
+            "end_date_label": format_short_date(task.end_date),
             "logged_hours": float(task.logged_hours or 0),
             "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
             "deadline_label": deadline_label,
@@ -311,6 +318,9 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "start_date": task.start_date,
             "end_date": task.end_date,
             "closed_at": task.closed_at.date() if task.closed_at else None,
+            "start_date_label": format_short_date(task.start_date),
+            "end_date_label": format_short_date(task.end_date),
+            "closed_at_label": format_short_date(task.closed_at.date() if task.closed_at else None),
             "logged_hours": logged_hours,
             "estimated_hours": estimated_hours,
             "effort_percent": effort_percent,

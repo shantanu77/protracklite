@@ -25,13 +25,13 @@
         <span class="monday-task-name">{{ task.name }}</span>
         <small>
           {% if card_kind == "completed" %}
-          Started {{ task.start_date }}
-          {% if task.end_date %} · end date {{ task.end_date }}{% endif %}
-          {% if task.closed_at %} · closed {{ task.closed_at }}{% endif %}
+          {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
+          {% if task.end_date_label %} · End: {{ task.end_date_label }}{% endif %}
+          {% if task.closed_at_label %} · Closed: {{ task.closed_at_label }}{% endif %}
           · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h
           {% else %}
-          Starts {{ task.start_date }}
-          {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+          {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
+          {% if task.end_date_label %} · End: {{ task.end_date_label }}{% else %} · End: Not set{% endif %}
           {% if task.overdue_days %} · overdue by {{ task.overdue_days }} day{% if task.overdue_days != 1 %}s{% endif %}{% endif %}
           {% endif %}
         </small>
@@ -68,7 +68,7 @@
           {% for log in task.time_logs %}
           <article class="dashboard-log-item">
             <div class="dashboard-log-meta">
-              <span>{{ log.date }}</span>
+              <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
               <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
             </div>
             <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
@@ -86,7 +86,7 @@
   <div>
     <p class="eyebrow">Weekly Planning</p>
     <h1>Monday Report</h1>
-    <p>{{ report.previous_week_start.strftime("%A, %Y-%m-%d") }} to {{ report.previous_week_end.strftime("%A, %Y-%m-%d") }}</p>
+    <p>{{ report.previous_week_start.strftime("%A, %d %b %Y") }} to {{ report.previous_week_end.strftime("%A, %d %b %Y") }}</p>
   </div>
 </section>
 <div class="stats">
@@ -174,7 +174,7 @@
     <div class="modal-head">
       <div>
         <h2 id="backlog-to-week-title">Add Backlog To This Week</h2>
-        <p>Select backlog tasks to schedule for {{ report.week_start }} to {{ report.week_end }}.</p>
+        <p>Select backlog tasks to schedule for {{ report.week_start.strftime("%d %b %Y") }} to {{ report.week_end.strftime("%d %b %Y") }}.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close backlog planner">×</button>
     </div>
@@ -203,8 +203,8 @@
               </td>
               <td class="backlog-date-cell">
                 <small>
-                  {% if task.start_date %}Starts {{ task.start_date }}{% else %}No start date{% endif %}
-                  {% if task.end_date %} · ends {{ task.end_date }}{% else %} · no end date{% endif %}
+                  {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
+                  {% if task.end_date_label %} · End: {{ task.end_date_label }}{% else %} · End: Not set{% endif %}
                 </small>
               </td>
               <td class="backlog-input-cell">
@@ -218,7 +218,7 @@
           </tbody>
         </table>
       </div>
-      <p class="empty">Selected tasks will be moved into this week with start date set to {{ report.week_start }}.</p>
+      <p class="empty">Selected tasks will be moved into this week with start date set to {{ report.week_start.strftime("%d %b %Y") }}.</p>
       {% else %}
       <p class="empty">No backlog items are available right now. A backlog task is any open, non-stalled task without start date, end date, or planned effort.</p>
       {% endif %}
@@ -237,9 +237,12 @@
         return;
       }
 
+      panel.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+      button.textContent = `Expand ${label}`;
+
       button.addEventListener("click", () => {
-        const isExpanded = button.getAttribute("aria-expanded") === "true";
-        const nextExpanded = !isExpanded;
+        const nextExpanded = button.getAttribute("aria-expanded") !== "true";
         panel.hidden = !nextExpanded;
         button.setAttribute("aria-expanded", String(nextExpanded));
         button.textContent = nextExpanded ? `Collapse ${label}` : `Expand ${label}`;
