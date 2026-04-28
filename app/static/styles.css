@@ -457,8 +457,25 @@ textarea {
   gap: 0.8rem;
 }
 
+.list-add-item-form {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 2;
+  padding: 0.55rem 0.65rem;
+}
+
+.list-quick-add-input {
+  min-height: 2.55rem;
+  border: 0;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.88);
+}
+
 .compact-list-items .list-item-card {
-  padding: 0.85rem 1rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
 }
 
 .list-item-checkbox {
@@ -466,26 +483,59 @@ textarea {
   align-items: flex-start;
 }
 
-.list-item-title {
+.compact-row {
+  border-radius: 14px;
+}
+
+.list-item-toggle-form {
+  margin: 0;
+}
+
+.list-item-toggle-form input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.list-item-main {
+  min-width: 0;
+}
+
+.list-item-inline-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
 }
 
-.compact-list-items .list-item-card p,
-.compact-list-items .list-item-card small {
-  font-size: 0.82rem;
-  line-height: 1.45;
+.list-item-inline-edit input {
+  min-height: 2rem;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.9rem;
 }
 
-.list-item-card.is-completed .list-item-title,
-.list-item-card.is-completed p,
-.list-item-card.is-completed small {
+.list-item-meta {
+  white-space: nowrap;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.list-item-card.is-completed .list-item-inline-button,
+.list-item-card.is-completed .list-item-meta {
   color: var(--muted);
   opacity: 0.82;
 }
 
-.list-item-card.is-completed .list-item-title {
+.list-item-card.is-completed .list-item-inline-button {
   text-decoration: line-through;
   text-decoration-thickness: 2px;
 }

@@ -1835,6 +1835,30 @@ async def add_list_item_page(
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 
 
+@app.post("/{org_slug}/lists/{list_id}/items/{item_id}/update")
+async def update_list_item_page(
+    org_slug: str,
+    list_id: int,
+    item_id: int,
+    item_title: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    item = db.scalar(select(WorkListItem).where(WorkListItem.id == item_id, WorkListItem.work_list_id == work_list.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="List item not found")
+    normalized_title = item_title.strip()[:300]
+    if not normalized_title:
+        raise HTTPException(status_code=400, detail="Item title is required")
+    item.title = normalized_title
+    db.commit()
+    return {"ok": True, "title": item.title}
+
+
 @app.post("/{org_slug}/lists/{list_id}/update")
 async def update_list_page(
     org_slug: str,

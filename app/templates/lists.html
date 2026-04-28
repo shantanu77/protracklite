@@ -89,40 +89,26 @@
   </form>
 
   <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
-    <div class="panel-head">
-      <div>
-        <h3>Add New List Item</h3>
-      </div>
-    </div>
-    <div class="list-item-entry-grid">
-      <label>Item<input name="item_title" required></label>
-      <label class="full">Notes<textarea name="item_notes" rows="2" placeholder="Optional details or context"></textarea></label>
-    </div>
-    <button type="submit">Add Item</button>
+    <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
   </form>
 
   <div class="list-item-stack compact-list-items">
     {% for item in selected_items %}
-    <article class="card list-item-card{% if item.is_completed %} is-completed{% endif %}">
-      <div class="list-item-head">
-        <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle">
-          <label class="checkbox list-item-checkbox">
-            <input type="checkbox" {% if item.is_completed %}checked{% endif %} onchange="this.form.submit()">
-            <span class="list-item-title">{{ item.title }}</span>
-          </label>
+    <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}">
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle" class="list-item-toggle-form">
+        <input type="checkbox" {% if item.is_completed %}checked{% endif %} onchange="this.form.submit()">
+      </form>
+      <div class="list-item-main">
+        <button type="button" class="list-item-inline-button" data-list-item-edit data-item-title="{{ item.title|e }}">{{ item.title }}</button>
+        <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/update" class="list-item-inline-edit" data-list-item-edit-form hidden>
+          <input name="item_title" value="{{ item.title }}" maxlength="300" required>
         </form>
-        {% if item.is_completed %}
-        <span class="badge muted">Done</span>
-        {% endif %}
       </div>
-      {% if item.notes %}
-      <p>{{ item.notes }}</p>
-      {% endif %}
-      <small>
+      <small class="list-item-meta">
         {% if item.is_completed and item.completed_at %}
-        Completed {{ item.completed_at.strftime("%d %b %Y, %I:%M %p") }}
+        {{ item.completed_at.strftime("%d %b %Y") }}
         {% else %}
-        Added {{ item.created_at.strftime("%d %b %Y, %I:%M %p") }}
+        {{ item.created_at.strftime("%d %b %Y") }}
         {% endif %}
       </small>
     </article>
@@ -174,6 +160,72 @@
       modal.classList.add("is-open");
       modal.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
+    });
+  })();
+</script>
+{% else %}
+<script>
+  (() => {
+    const editButtons = document.querySelectorAll("[data-list-item-edit]");
+    const submitInlineEdit = async (form, button, input) => {
+      const nextTitle = input.value.trim();
+      const previousTitle = button.dataset.itemTitle || button.textContent.trim();
+      if (!nextTitle) {
+        input.value = previousTitle;
+        form.hidden = true;
+        button.hidden = false;
+        return;
+      }
+      if (nextTitle === previousTitle) {
+        form.hidden = true;
+        button.hidden = false;
+        return;
+      }
+      const formData = new FormData(form);
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        window.location.reload();
+        return;
+      }
+      const payload = await response.json();
+      const resolvedTitle = String(payload.title || nextTitle);
+      button.textContent = resolvedTitle;
+      button.dataset.itemTitle = resolvedTitle;
+      input.value = resolvedTitle;
+      form.hidden = true;
+      button.hidden = false;
+    };
+
+    editButtons.forEach((button) => {
+      const container = button.closest(".list-item-main");
+      const form = container?.querySelector("[data-list-item-edit-form]");
+      const input = form?.querySelector("input[name='item_title']");
+      if (!container || !form || !input) {
+        return;
+      }
+      button.addEventListener("click", () => {
+        button.hidden = true;
+        form.hidden = false;
+        input.focus();
+        input.select();
+      });
+      input.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          await submitInlineEdit(form, button, input);
+        } else if (event.key === "Escape") {
+          input.value = button.dataset.itemTitle || button.textContent.trim();
+          form.hidden = true;
+          button.hidden = false;
+        }
+      });
+      input.addEventListener("blur", async () => {
+        await submitInlineEdit(form, button, input);
+      });
     });
   })();
 </script>
