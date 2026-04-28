@@ -150,7 +150,7 @@
           data-priority="{{ item_priority }}"
           aria-label="Cycle priority"
           title="Priority: {{ item_priority|title }}"
-        >↑</button>
+        >{% if item_priority == "high" %}⬆{% elif item_priority == "medium" %}➜{% elif item_priority == "stalled" %}✕{% else %}⬇{% endif %}</button>
       </div>
     </article>
     {% else %}
@@ -302,8 +302,15 @@
         }
         const payload = await response.json();
         const priority = String(payload.priority || "low");
+        const priorityIcons = {
+          low: "⬇",
+          high: "⬆",
+          medium: "➜",
+          stalled: "✕",
+        };
         button.dataset.priority = priority;
         button.className = `list-flag-button list-priority-button priority-${priority}`;
+        button.textContent = priorityIcons[priority] || "⬇";
         button.title = `Priority: ${String(payload.priority_label || priority)}`;
       });
     });
