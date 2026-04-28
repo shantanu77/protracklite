@@ -295,6 +295,21 @@ def ensure_activity_types_schema() -> None:
                 connection.execute(text(ddl))
 
 
+def ensure_work_lists_schema() -> None:
+    inspector = inspect(engine)
+    if "work_lists" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("work_lists")}
+    ddl_by_column = {
+        "sort_order": "ALTER TABLE work_lists ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in ddl_by_column.items():
+            if column_name not in columns:
+                connection.execute(text(ddl))
+        connection.execute(text("UPDATE work_lists SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"))
+
+
 def ensure_work_list_items_schema() -> None:
     inspector = inspect(engine)
     if "work_list_items" not in inspector.get_table_names():
@@ -361,6 +376,7 @@ def on_startup() -> None:
     ensure_org_settings_schema()
     ensure_tasks_schema()
     ensure_activity_types_schema()
+    ensure_work_lists_schema()
     ensure_work_list_items_schema()
     ensure_query_indexes()
     db = next(get_db())
@@ -1461,7 +1477,7 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
     lists = db.scalars(
         select(WorkList)
         .where(WorkList.org_id == org_id, WorkList.owner_user_id == user_id, WorkList.is_archived.is_(False))
-        .order_by(WorkList.updated_at.desc(), WorkList.id.desc())
+        .order_by(WorkList.sort_order.asc(), WorkList.updated_at.desc(), WorkList.id.desc())
     ).all()
     summaries = []
     for work_list in lists:
@@ -1475,6 +1491,7 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
                 "description": work_list.description or "",
                 "target_date": work_list.target_date,
                 "target_date_label": work_list.target_date.strftime("%d %b %Y") if work_list.target_date else "",
+                "sort_order": work_list.sort_order,
                 "total_items": total_items,
                 "completed_items": completed_items,
                 "progress_percent": progress_percent,
@@ -1785,6 +1802,7 @@ async def create_list_page(
         title=normalized_title,
         description=description.strip(),
         target_date=parse_optional_date(target_date),
+        sort_order=(max((item["sort_order"] for item in work_list_summaries(db, org.id, user.id)), default=0) + 1),
     )
     db.add(work_list)
     db.flush()
@@ -1813,6 +1831,7 @@ async def create_ai_list_page(
         title=normalize_list_title(str(parsed.get("title") or list_title or "AI List")),
         description=str(parsed.get("description") or "").strip(),
         target_date=parsed.get("target_date"),
+        sort_order=(max((item["sort_order"] for item in work_list_summaries(db, org.id, user.id)), default=0) + 1),
     )
     db.add(work_list)
     db.flush()
@@ -1992,6 +2011,38 @@ async def archive_list_page(
     work_list.is_archived = True
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/lists", status_code=303)
+
+
+@app.post("/{org_slug}/lists/reorder")
+async def reorder_lists_page(
+    org_slug: str,
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    payload = await request.json()
+    raw_ids = payload.get("list_ids") if isinstance(payload, dict) else None
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="list_ids is required")
+    requested_ids: list[int] = []
+    for raw in raw_ids:
+        try:
+            requested_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    owned_lists = db.scalars(
+        select(WorkList)
+        .where(WorkList.org_id == org.id, WorkList.owner_user_id == user.id, WorkList.is_archived.is_(False))
+        .order_by(WorkList.sort_order.asc(), WorkList.id.asc())
+    ).all()
+    list_map = {item.id: item for item in owned_lists}
+    ordered_ids = [item_id for item_id in requested_ids if item_id in list_map]
+    ordered_ids.extend(item.id for item in owned_lists if item.id not in ordered_ids)
+    for index, item_id in enumerate(ordered_ids, start=1):
+        list_map[item_id].sort_order = index
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/v1/lists")

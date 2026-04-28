@@ -34,20 +34,26 @@
       <div class="panel-head">
         <div>
           <h2>My Lists</h2>
-          <p>Open a list from the left menu to work through it.</p>
+          <p>Drag to reorder. The same order will appear under `Lists` in the sidebar after `Manage`.</p>
         </div>
       </div>
-      <div class="lists-summary-grid">
+      <div class="lists-summary-grid" data-list-sort-grid data-org-slug="{{ org.slug }}">
         {% for item in lists %}
-        <a class="card list-summary-card" href="/{{ org.slug }}/lists?list_id={{ item.id }}">
+        <article class="card list-summary-card sortable-list-card" draggable="true" data-list-card data-list-id="{{ item.id }}">
           <div class="list-summary-head">
-            <strong>{{ item.title }}</strong>
-            <span class="badge muted">{{ "%.0f"|format(item.progress_percent) }}%</span>
+            <div class="list-summary-title-wrap">
+              <span class="list-drag-handle" aria-hidden="true">⋮⋮</span>
+              <strong>{{ item.title }}</strong>
+            </div>
+            <div class="list-summary-actions">
+              <span class="badge muted">{{ "%.0f"|format(item.progress_percent) }}%</span>
+              <a class="button ghost small" href="/{{ org.slug }}/lists?list_id={{ item.id }}">Open</a>
+            </div>
           </div>
           <p>{{ item.description or "Checklist-style plan with no scheduling overhead." }}</p>
           <small>{{ item.completed_items }}/{{ item.total_items }} completed{% if item.target_date_label %} · target {{ item.target_date_label }}{% endif %}</small>
           <div class="list-progress-bar"><span style="width: {{ item.progress_percent }}%;"></span></div>
-        </a>
+        </article>
         {% else %}
         <p class="empty">No lists created yet.</p>
         {% endfor %}
@@ -202,6 +208,72 @@
       modal.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
     });
+
+    const sortGrid = document.querySelector("[data-list-sort-grid]");
+    if (sortGrid) {
+      const syncSidebarOrder = (listIds) => {
+        const sidebarContainer = document.querySelector("[data-sidebar-lists]");
+        if (!sidebarContainer) {
+          return;
+        }
+        const manageLink = sidebarContainer.querySelector('a[href="/{{ org.slug }}/lists"]');
+        const anchors = Array.from(sidebarContainer.querySelectorAll(".nav-sublink")).filter((link) => link !== manageLink);
+        const anchorMap = new Map(
+          anchors.map((link) => {
+            const href = link.getAttribute("href") || "";
+            const url = new URL(href, window.location.origin);
+            return [Number(url.searchParams.get("list_id")), link];
+          }),
+        );
+        listIds.forEach((listId) => {
+          const link = anchorMap.get(listId);
+          if (link) {
+            sidebarContainer.appendChild(link);
+          }
+        });
+      };
+
+      const saveOrder = async () => {
+        const listIds = Array.from(sortGrid.querySelectorAll("[data-list-card]")).map((card) => Number(card.dataset.listId));
+        const response = await fetch(`/${sortGrid.dataset.orgSlug}/lists/reorder`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ list_ids: listIds }),
+        });
+        if (response.ok) {
+          syncSidebarOrder(listIds);
+        }
+      };
+
+      let draggedCard = null;
+      sortGrid.querySelectorAll("[data-list-card]").forEach((card) => {
+        card.addEventListener("dragstart", () => {
+          draggedCard = card;
+          card.classList.add("is-dragging");
+        });
+        card.addEventListener("dragend", async () => {
+          card.classList.remove("is-dragging");
+          draggedCard = null;
+          await saveOrder();
+        });
+        card.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          if (!draggedCard || draggedCard === card) {
+            return;
+          }
+          const rect = card.getBoundingClientRect();
+          const insertAfter = event.clientY > rect.top + rect.height / 2;
+          if (insertAfter) {
+            card.after(draggedCard);
+          } else {
+            card.before(draggedCard);
+          }
+        });
+      });
+    }
   })();
 </script>
 {% else %}
