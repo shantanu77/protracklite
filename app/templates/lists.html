@@ -211,6 +211,19 @@
 
     const sortGrid = document.querySelector("[data-list-sort-grid]");
     if (sortGrid) {
+      const getDragAfterElement = (container, clientY) => {
+        const siblings = Array.from(container.querySelectorAll("[data-list-card]:not(.is-dragging)"));
+        let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+        siblings.forEach((child) => {
+          const rect = child.getBoundingClientRect();
+          const offset = clientY - rect.top - rect.height / 2;
+          if (offset < 0 && offset > closest.offset) {
+            closest = { offset, element: child };
+          }
+        });
+        return closest.element;
+      };
+
       const syncSidebarOrder = (listIds) => {
         const sidebarContainer = document.querySelector("[data-sidebar-lists]");
         if (!sidebarContainer) {
@@ -250,28 +263,39 @@
 
       let draggedCard = null;
       sortGrid.querySelectorAll("[data-list-card]").forEach((card) => {
-        card.addEventListener("dragstart", () => {
+        card.addEventListener("dragstart", (event) => {
           draggedCard = card;
           card.classList.add("is-dragging");
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", card.dataset.listId || "");
+          }
         });
-        card.addEventListener("dragend", async () => {
+        card.addEventListener("dragend", () => {
           card.classList.remove("is-dragging");
           draggedCard = null;
-          await saveOrder();
         });
-        card.addEventListener("dragover", (event) => {
-          event.preventDefault();
-          if (!draggedCard || draggedCard === card) {
-            return;
-          }
-          const rect = card.getBoundingClientRect();
-          const insertAfter = event.clientY > rect.top + rect.height / 2;
-          if (insertAfter) {
-            card.after(draggedCard);
-          } else {
-            card.before(draggedCard);
-          }
-        });
+      });
+
+      sortGrid.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        if (!draggedCard) {
+          return;
+        }
+        const afterElement = getDragAfterElement(sortGrid, event.clientY);
+        if (!afterElement) {
+          sortGrid.appendChild(draggedCard);
+        } else {
+          sortGrid.insertBefore(draggedCard, afterElement);
+        }
+      });
+
+      sortGrid.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        if (!draggedCard) {
+          return;
+        }
+        await saveOrder();
       });
     }
   })();
