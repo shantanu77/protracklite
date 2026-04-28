@@ -37,7 +37,7 @@ from app.models import (
     TimeLog,
     User,
 )
-from app.reports import compute_work_rate, current_week_bounds, monday_report, previous_week_bounds, reports_overview
+from app.reports import calendar_month_report, compute_work_rate, current_week_bounds, monday_report, previous_week_bounds, reports_overview
 from app.security import (
     create_access_token,
     create_refresh_token,
@@ -2368,6 +2368,37 @@ def reports_overview_page(request: Request, org_user: tuple[Organization, User] 
             "user": user,
             "report": report,
             "activity_category_labels": ACTIVITY_CATEGORY_LABELS,
+        },
+    )
+
+
+@app.get("/{org_slug}/reports/calendar", response_class=HTMLResponse)
+def reports_calendar_page(
+    request: Request,
+    month: str | None = None,
+    day: str | None = None,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    today = date.today()
+    try:
+        month_anchor = date.fromisoformat(f"{month}-01") if month else today.replace(day=1)
+    except ValueError:
+        month_anchor = today.replace(day=1)
+    try:
+        selected_day = date.fromisoformat(day) if day else None
+    except ValueError:
+        selected_day = None
+
+    report = calendar_month_report(db, org.id, user.id, month_anchor, selected_day)
+    return templates.TemplateResponse(
+        "reports_calendar.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "report": report,
         },
     )
 

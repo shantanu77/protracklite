@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import calendar
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from math import ceil
 from decimal import Decimal
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus, TimeLog
@@ -22,6 +23,12 @@ def previous_week_bounds(today: date | None = None) -> tuple[date, date]:
     monday, _ = current_week_bounds(today)
     prev_monday = monday - timedelta(days=7)
     return prev_monday, prev_monday + timedelta(days=6)
+
+
+def month_bounds(month_anchor: date) -> tuple[date, date]:
+    month_start = month_anchor.replace(day=1)
+    month_end = month_anchor.replace(day=calendar.monthrange(month_anchor.year, month_anchor.month)[1])
+    return month_start, month_end
 
 
 def leave_weight(leave_type: LeaveType) -> Decimal:
@@ -557,4 +564,160 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
         "week_end": this_sunday,
         "month_start": month_start,
         "today": today,
+    }
+
+
+def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: date, selected_day: date | None = None) -> dict:
+    today = date.today()
+    month_start, month_end = month_bounds(month_anchor)
+    selected_day = selected_day or (today if month_start <= today <= month_end else month_start)
+    if selected_day < month_start:
+        selected_day = month_start
+    if selected_day > month_end:
+        selected_day = month_end
+
+    month_log_rows = db.execute(
+        select(TimeLog, Task)
+        .join(Task, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= month_start,
+            TimeLog.log_date <= month_end,
+        )
+        .order_by(TimeLog.log_date.desc(), TimeLog.created_at.desc())
+    ).all()
+    log_task_ids = {task.id for _, task in month_log_rows}
+
+    task_query = select(Task).where(
+        Task.org_id == org_id,
+        Task.assigned_to == user_id,
+        Task.is_archived.is_(False),
+        or_(
+            Task.id.in_(log_task_ids) if log_task_ids else false(),
+            (
+                Task.start_date.is_not(None)
+                & (
+                    (
+                        Task.end_date.is_not(None)
+                        & (Task.start_date <= month_end)
+                        & (Task.end_date >= month_start)
+                    )
+                    | (Task.end_date.is_(None) & (Task.start_date >= month_start) & (Task.start_date <= month_end))
+                )
+            ),
+            Task.end_date.is_not(None) & (Task.end_date >= month_start) & (Task.end_date <= month_end),
+            (
+                Task.closed_at.is_not(None)
+                & (Task.closed_at >= datetime.combine(month_start, datetime.min.time()))
+                & (Task.closed_at <= datetime.combine(month_end, datetime.max.time()))
+            ),
+        ),
+    )
+    tasks = db.scalars(task_query.order_by(Task.updated_at.desc(), Task.id.desc())).all()
+
+    logs_by_task_id: dict[int, list[dict]] = defaultdict(list)
+    log_dates_by_task_id: dict[int, set[date]] = defaultdict(set)
+    for log, task in month_log_rows:
+        logs_by_task_id[task.id].append(
+            {
+                "date": log.log_date,
+                "hours": float(log.hours or 0),
+                "notes": log.notes or "",
+            }
+        )
+        log_dates_by_task_id[task.id].add(log.log_date)
+
+    project_map = {project.id: project for project in db.scalars(select(Project).where(Project.org_id == org_id)).all()}
+    activity_type_map = {item.id: item for item in db.scalars(select(ActivityType).where(ActivityType.org_id == org_id)).all()}
+
+    day_entries: dict[date, list[dict]] = defaultdict(list)
+
+    def task_day_matches(task: Task, day: date) -> list[str]:
+        reasons: list[str] = []
+        if task.start_date and task.start_date == day:
+            reasons.append("start")
+        if task.end_date and task.end_date == day:
+            reasons.append("deadline")
+        if task.start_date and task.end_date and task.start_date <= day <= task.end_date:
+            if "start" not in reasons and "deadline" not in reasons:
+                reasons.append("scheduled")
+        if day in log_dates_by_task_id.get(task.id, set()):
+            reasons.append("logged")
+        if task.closed_at and task.closed_at.date() == day:
+            reasons.append("closed")
+        return reasons
+
+    for task in tasks:
+        serialized = {
+            "task_id": task.task_id,
+            "name": task.name,
+            "status": task.status.value,
+            "project_code": project_map.get(task.project_id).code if project_map.get(task.project_id) else "",
+            "project_name": project_map.get(task.project_id).name if project_map.get(task.project_id) else "",
+            "activity_type_name": activity_type_map.get(task.activity_type_id).name if activity_type_map.get(task.activity_type_id) else "",
+            "start_date": task.start_date,
+            "end_date": task.end_date,
+            "closed_at": task.closed_at.date() if task.closed_at else None,
+            "logged_hours": float(task.logged_hours or 0),
+            "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
+            "logs": logs_by_task_id.get(task.id, []),
+            "is_backlog": task.start_date is None and task.end_date is None and task.estimated_hours is None,
+        }
+        for day in daterange(month_start, month_end):
+            reasons = task_day_matches(task, day)
+            if reasons:
+                day_entries[day].append(
+                    {
+                        **serialized,
+                        "day_reasons": reasons,
+                    }
+                )
+
+    for day in day_entries:
+        day_entries[day].sort(
+            key=lambda item: (
+                "logged" not in item["day_reasons"],
+                item["status"] == TaskStatus.CLOSED.value,
+                -(item["logs"][0]["hours"] if item["logs"] else 0),
+                item["task_id"],
+            )
+        )
+
+    month_weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(month_start.year, month_start.month)
+    day_cells = []
+    for week in month_weeks:
+        week_cells = []
+        for day in week:
+            entries = day_entries.get(day, [])
+            week_cells.append(
+                {
+                    "date": day,
+                    "in_month": day.month == month_start.month,
+                    "is_today": day == today,
+                    "is_selected": day == selected_day,
+                    "task_count": len(entries),
+                    "open_count": sum(1 for item in entries if item["status"] != TaskStatus.CLOSED.value),
+                    "logged_count": sum(1 for item in entries if "logged" in item["day_reasons"]),
+                    "sample_tasks": [item["task_id"] for item in entries[:2]],
+                }
+            )
+        day_cells.append(week_cells)
+
+    previous_month_anchor = (month_start - timedelta(days=1)).replace(day=1)
+    next_month_anchor = (month_end + timedelta(days=1)).replace(day=1)
+
+    return {
+        "month_anchor": month_start,
+        "month_start": month_start,
+        "month_end": month_end,
+        "selected_day": selected_day,
+        "previous_month": previous_month_anchor,
+        "next_month": next_month_anchor,
+        "weeks": day_cells,
+        "selected_day_tasks": day_entries.get(selected_day, []),
+        "selected_day_total": len(day_entries.get(selected_day, [])),
+        "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     }

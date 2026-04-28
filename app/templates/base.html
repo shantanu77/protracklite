@@ -41,6 +41,7 @@
             <div class="nav-section">Reports</div>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}>Work Rate</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/monday' %} primary{% endif %}" href="/{{ org.slug }}/reports/monday" {% if current_path == '/' ~ org.slug ~ '/reports/monday' %}aria-current="page"{% endif %}>Monday Report</a>
+            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/calendar' %} primary{% endif %}" href="/{{ org.slug }}/reports/calendar" {% if current_path == '/' ~ org.slug ~ '/reports/calendar' %}aria-current="page"{% endif %}>Calendar View</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}>My Reports</a>
           </div>
           {% if user.role.value == "admin" %}

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Calendar View</h1>
+    <p>Scan the month quickly, then click a day to see tasks tied to that date through schedule, logging, or closure.</p>
+  </div>
+  <div class="page-head-actions calendar-nav-actions">
+    <a class="button secondary" href="/{{ org.slug }}/reports/calendar?month={{ report.previous_month.strftime('%Y-%m') }}&day={{ report.previous_month.strftime('%Y-%m-01') }}">Previous Month</a>
+    <a class="button secondary" href="/{{ org.slug }}/reports/calendar?month={{ report.next_month.strftime('%Y-%m') }}&day={{ report.next_month.strftime('%Y-%m-01') }}">Next Month</a>
+  </div>
+</section>
+
+<section class="panel calendar-report-panel">
+  <div class="panel-head">
+    <div>
+      <h2>{{ report.month_anchor.strftime("%B %Y") }}</h2>
+      <p>Open count, logged count, and quick task references for each day.</p>
+    </div>
+  </div>
+  <div class="calendar-month-wrap">
+    <div class="calendar-month-grid">
+      {% for weekday in report.weekdays %}
+      <div class="calendar-weekday">{{ weekday }}</div>
+      {% endfor %}
+      {% for week in report.weeks %}
+        {% for cell in week %}
+        <a
+          class="calendar-day-card{% if not cell.in_month %} is-outside{% endif %}{% if cell.is_today %} is-today{% endif %}{% if cell.is_selected %} is-selected{% endif %}"
+          href="/{{ org.slug }}/reports/calendar?month={{ report.month_anchor.strftime('%Y-%m') }}&day={{ cell.date.isoformat() }}"
+        >
+          <div class="calendar-day-head">
+            <strong>{{ cell.date.day }}</strong>
+            {% if cell.task_count %}
+            <span class="calendar-task-count">{{ cell.task_count }}</span>
+            {% endif %}
+          </div>
+          <div class="calendar-day-metrics">
+            {% if cell.open_count %}
+            <span>Open {{ cell.open_count }}</span>
+            {% endif %}
+            {% if cell.logged_count %}
+            <span>Logged {{ cell.logged_count }}</span>
+            {% endif %}
+          </div>
+          <div class="calendar-day-samples">
+            {% for task_id in cell.sample_tasks %}
+            <span class="badge muted">{{ task_id }}</span>
+            {% endfor %}
+          </div>
+        </a>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="panel calendar-day-panel">
+  <div class="panel-head">
+    <div>
+      <h2>{{ report.selected_day.strftime("%A, %d %b %Y") }}</h2>
+      <p>{{ report.selected_day_total }} task{% if report.selected_day_total != 1 %}s{% endif %} connected to this day.</p>
+    </div>
+  </div>
+  <div class="calendar-day-task-list">
+    {% for task in report.selected_day_tasks %}
+    <article class="task-card calendar-task-card">
+      <div class="calendar-task-top">
+        <div>
+          <div class="task-card-headline">
+            <span class="chip">{{ task.task_id }}</span>
+            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% elif task.status == 'closed' %}muted{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
+          </div>
+          <strong>{{ task.name }}</strong>
+        </div>
+        <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}">Open Task</a>
+      </div>
+      <small>{{ task.project_code }}{% if task.project_name %} · {{ task.project_name }}{% endif %}{% if task.activity_type_name %} · {{ task.activity_type_name }}{% endif %}</small>
+      <small>
+        {% if task.is_backlog %}
+        Backlog
+        {% else %}
+        {% if task.start_date %}Start: {{ task.start_date.strftime("%d %b %Y") }}{% else %}Start: Not set{% endif %}
+        {% if task.end_date %} · End: {{ task.end_date.strftime("%d %b %Y") }}{% else %} · End: Not set{% endif %}
+        {% endif %}
+        {% if task.closed_at %} · Closed: {{ task.closed_at.strftime("%d %b %Y") }}{% endif %}
+        · Logged: {{ "%.2f"|format(task.logged_hours or 0) }}h
+      </small>
+      <div class="dashboard-task-badges">
+        {% for reason in task.day_reasons %}
+        <span class="badge muted">{{ reason|replace('_', ' ') }}</span>
+        {% endfor %}
+      </div>
+      {% if task.logs %}
+      <div class="calendar-task-logs">
+        {% for log in task.logs[:2] %}
+        <div class="calendar-task-log-row">
+          <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
+          <span>{{ "%.2f"|format(log.hours or 0) }}h</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </article>
+    {% else %}
+    <p class="empty">No tasks are related to this day.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
