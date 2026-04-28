@@ -382,6 +382,10 @@ textarea {
   gap: 1rem;
 }
 
+.manage-lists-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .lists-summary-grid,
 .list-item-stack {
   display: grid;
@@ -2973,6 +2977,10 @@ code {
   .lists-layout {
     grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.35fr);
     align-items: start;
+  }
+
+  .manage-lists-layout {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .project-card-grid {
