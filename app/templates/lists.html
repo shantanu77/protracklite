@@ -196,18 +196,17 @@
 <script>
   (() => {
     const shouldOpenAi = {{ "true" if open_ai else "false" }};
-    if (!shouldOpenAi) {
-      return;
+    if (shouldOpenAi) {
+      window.addEventListener("load", () => {
+        const modal = document.getElementById("list-ai-modal");
+        if (!modal) {
+          return;
+        }
+        modal.classList.add("is-open");
+        modal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("modal-open");
+      });
     }
-    window.addEventListener("load", () => {
-      const modal = document.getElementById("list-ai-modal");
-      if (!modal) {
-        return;
-      }
-      modal.classList.add("is-open");
-      modal.setAttribute("aria-hidden", "false");
-      document.body.classList.add("modal-open");
-    });
 
     const sortGrid = document.querySelector("[data-list-sort-grid]");
     if (sortGrid) {
