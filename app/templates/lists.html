@@ -63,8 +63,18 @@
   <div class="list-detail-top">
     <div>
       <p class="eyebrow">Selected List</p>
-      <h2>{{ selected_list.title }}</h2>
-      <p class="list-detail-copy">{{ selected_list.description or "Checklist-style plan for reminders, outcomes, and lightweight tracking." }}</p>
+      <button type="button" class="list-inline-display list-inline-title" data-list-meta-display data-meta-kind="title">{{ selected_list.title }}</button>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="list-inline-form" data-list-meta-form="title" hidden>
+        <input type="hidden" name="description" value="{{ selected_list.description or '' }}">
+        <input type="hidden" name="target_date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}">
+        <input name="title" value="{{ selected_list.title }}" maxlength="200" required>
+      </form>
+      <button type="button" class="list-inline-display list-inline-description{% if not selected_list.description %} is-empty{% endif %}" data-list-meta-display data-meta-kind="description">{{ selected_list.description or "Add description" }}</button>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="list-inline-form" data-list-meta-form="description" hidden>
+        <input type="hidden" name="title" value="{{ selected_list.title }}">
+        <input type="hidden" name="target_date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}">
+        <textarea name="description" rows="3" placeholder="What is this list for?">{{ selected_list.description or "" }}</textarea>
+      </form>
     </div>
     <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
       <button type="submit" class="button danger">Archive List</button>
@@ -74,19 +84,18 @@
   <div class="stats compact-stats">
     <div class="stat"><span>Progress</span><strong>{{ "%.0f"|format(progress_percent) }}%</strong></div>
     <div class="stat"><span>Completed</span><strong>{{ completed_items }}/{{ total_items }}</strong></div>
-    <div class="stat"><span>Target</span><strong>{{ selected_list.target_date.strftime("%d %b %Y") if selected_list.target_date else "Not set" }}</strong></div>
+    <div class="stat">
+      <span>Target</span>
+      <button type="button" class="list-inline-display list-inline-target" data-list-meta-display data-meta-kind="target">{{ selected_list.target_date.strftime("%d %b %Y") if selected_list.target_date else "Not set" }}</button>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="list-inline-form" data-list-meta-form="target" hidden>
+        <input type="hidden" name="title" value="{{ selected_list.title }}">
+        <input type="hidden" name="description" value="{{ selected_list.description or '' }}">
+        <input name="target_date" type="date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}">
+      </form>
+    </div>
     <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at.strftime("%d %b %Y") }}</strong></div>
   </div>
   <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
-
-  <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="panel list-meta-form">
-    <div class="list-meta-grid">
-      <label>Name<input name="title" value="{{ selected_list.title }}" required></label>
-      <label>Target Date<input name="target_date" type="date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}"></label>
-      <label class="full">Details<textarea name="description" rows="3" placeholder="What is this list for?">{{ selected_list.description or "" }}</textarea></label>
-    </div>
-    <button type="submit" class="button secondary">Update List Info</button>
-  </form>
 
   <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
     <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
@@ -167,6 +176,7 @@
 <script>
   (() => {
     const editButtons = document.querySelectorAll("[data-list-item-edit]");
+    const metaDisplays = document.querySelectorAll("[data-list-meta-display]");
     const submitInlineEdit = async (form, button, input) => {
       const nextTitle = input.value.trim();
       const previousTitle = button.dataset.itemTitle || button.textContent.trim();
@@ -225,6 +235,79 @@
       });
       input.addEventListener("blur", async () => {
         await submitInlineEdit(form, button, input);
+      });
+    });
+
+    const submitMetaEdit = async (form, display, field) => {
+      const formData = new FormData(form);
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        window.location.reload();
+        return;
+      }
+      const payload = await response.json();
+      const kind = form.dataset.listMetaForm;
+      if (kind === "title") {
+        const nextTitle = String(payload.title || "").trim() || "Untitled List";
+        display.textContent = nextTitle;
+        document.querySelectorAll("[data-list-meta-form='description'] input[name='title'], [data-list-meta-form='target'] input[name='title']").forEach((input) => {
+          input.value = nextTitle;
+        });
+      } else if (kind === "description") {
+        const nextDescription = String(payload.description || "").trim();
+        display.textContent = nextDescription || "Add description";
+        display.classList.toggle("is-empty", !nextDescription);
+        document.querySelectorAll("[data-list-meta-form='title'] input[name='description'], [data-list-meta-form='target'] input[name='description']").forEach((input) => {
+          input.value = nextDescription;
+        });
+      } else if (kind === "target") {
+        display.textContent = String(payload.target_date_label || "Not set");
+        document.querySelectorAll("[data-list-meta-form='title'] input[name='target_date'], [data-list-meta-form='description'] input[name='target_date']").forEach((input) => {
+          input.value = String(payload.target_date || "");
+        });
+      }
+      form.hidden = true;
+      display.hidden = false;
+    };
+
+    metaDisplays.forEach((display) => {
+      const kind = display.dataset.metaKind;
+      const form = document.querySelector(`[data-list-meta-form='${kind}']`);
+      const field = form?.querySelector("input[name='title'], textarea[name='description'], input[name='target_date']");
+      if (!form || !field) {
+        return;
+      }
+      display.addEventListener("click", () => {
+        display.hidden = true;
+        form.hidden = false;
+        field.focus();
+        if (field.select) {
+          field.select();
+        }
+      });
+      field.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter" && field.tagName !== "TEXTAREA") {
+          event.preventDefault();
+          await submitMetaEdit(form, display, field);
+        } else if (event.key === "Escape") {
+          form.hidden = true;
+          display.hidden = false;
+        }
+      });
+      if (field.tagName === "TEXTAREA") {
+        field.addEventListener("keydown", async (event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            await submitMetaEdit(form, display, field);
+          }
+        });
+      }
+      field.addEventListener("blur", async () => {
+        await submitMetaEdit(form, display, field);
       });
     });
   })();

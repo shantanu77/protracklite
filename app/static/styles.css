@@ -446,15 +446,45 @@ textarea {
   color: var(--muted);
 }
 
-.list-meta-form,
 .list-add-item-form {
   gap: 0.8rem;
 }
 
-.list-meta-grid,
-.list-item-entry-grid {
-  display: grid;
-  gap: 0.8rem;
+.list-inline-display {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: text;
+}
+
+.list-inline-title {
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.list-inline-description {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.list-inline-description.is-empty,
+.list-inline-target {
+  color: var(--muted);
+}
+
+.list-inline-form input,
+.list-inline-form textarea {
+  margin-top: 0.1rem;
+}
+
+.list-inline-form textarea {
+  min-height: 5.8rem;
 }
 
 .list-add-item-form {
@@ -476,6 +506,13 @@ textarea {
   align-items: center;
   gap: 0.55rem;
   padding: 0.55rem 0.7rem;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.compact-list-items .list-item-card:hover {
+  background: #f5f8f5;
+  border-color: rgba(47, 122, 82, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(47, 122, 82, 0.08);
 }
 
 .list-item-checkbox {

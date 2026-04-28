@@ -1880,7 +1880,13 @@ async def update_list_page(
     work_list.description = description.strip()
     work_list.target_date = parse_optional_date(target_date)
     db.commit()
-    return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
+    return {
+        "ok": True,
+        "title": work_list.title,
+        "description": work_list.description or "",
+        "target_date": work_list.target_date.isoformat() if work_list.target_date else "",
+        "target_date_label": work_list.target_date.strftime("%d %b %Y") if work_list.target_date else "Not set",
+    }
 
 
 @app.post("/{org_slug}/lists/{list_id}/items/{item_id}/toggle")
