@@ -1464,11 +1464,7 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
 
 def work_list_detail(db: Session, org_id: int, user_id: int, list_id: int | None) -> WorkList | None:
     if not list_id:
-        return db.scalar(
-            select(WorkList)
-            .where(WorkList.org_id == org_id, WorkList.owner_user_id == user_id, WorkList.is_archived.is_(False))
-            .order_by(WorkList.updated_at.desc(), WorkList.id.desc())
-        )
+        return None
     return db.scalar(
         select(WorkList).where(
             WorkList.id == list_id,
