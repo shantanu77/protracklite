@@ -1760,7 +1760,8 @@ def lists_page(
     selected_items = (
         sorted(
             list(selected.items),
-            key=lambda item: (item.is_completed, item.sort_order, item.created_at),
+            key=lambda item: ((item.updated_at or item.created_at), item.id),
+            reverse=True,
         )
         if selected
         else []
