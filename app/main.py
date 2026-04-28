@@ -36,6 +36,8 @@ from app.models import (
     TaskStatus,
     TimeLog,
     User,
+    WorkList,
+    WorkListItem,
 )
 from app.reports import calendar_month_report, compute_work_rate, current_week_bounds, monday_report, previous_week_bounds, reports_overview
 from app.security import (
@@ -897,6 +899,92 @@ def split_freeflow_task_input(raw_content: str) -> list[str]:
     return [chunk[:2000] for chunk in chunks if chunk]
 
 
+def split_freeflow_list_input(raw_content: str) -> list[str]:
+    return [item[:300] for item in split_freeflow_task_input(raw_content) if item.strip()]
+
+
+def extract_list_payload_locally(raw_content: str, fallback_title: str) -> dict[str, Any]:
+    items = split_freeflow_list_input(raw_content)
+    return {
+        "title": fallback_title.strip() or "Untitled List",
+        "description": "",
+        "target_date": None,
+        "items": [{"title": item, "notes": ""} for item in items],
+    }
+
+
+def extract_list_payload_with_openai(raw_content: str, fallback_title: str) -> dict[str, Any]:
+    items = split_freeflow_list_input(raw_content)
+    if not items:
+        return {"title": fallback_title.strip() or "Untitled List", "description": "", "target_date": None, "items": []}
+    if not settings.openai_api_key:
+        logger.warning("List AI fallback: OPENAI_API_KEY is not configured")
+        return extract_list_payload_locally(raw_content, fallback_title)
+    payload = {
+        "model": settings.openai_backlog_model,
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You turn free-form plans, pasted checklists, and reminder text into one clean checklist. "
+                    "Return JSON only with this exact shape: "
+                    "{\"title\":\"...\",\"description\":\"...\",\"target_date\":\"YYYY-MM-DD or null\",\"items\":[{\"title\":\"...\",\"notes\":\"...\"}]}. "
+                    "Create one list only. "
+                    "Each item must be concise, actionable, and checkable. "
+                    "Split combined actions into separate items. "
+                    "If the user pastes an existing list, preserve its intent while cleaning wording. "
+                    "If a time horizon like 30 days, 60 days, 90 days, next quarter, or by a specific date is explicit, set target_date when it can be inferred reliably; otherwise null. "
+                    "Do not add numbering in item titles. "
+                    "Keep item titles under 220 characters."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Preferred list title: {fallback_title or 'Untitled List'}\n"
+                    "Create one checklist from this content and return JSON only:\n"
+                    f"{raw_content.strip()}"
+                ),
+            },
+        ],
+    }
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        response.raise_for_status()
+        data = response.json()
+        parsed = parse_json_payload(data["choices"][0]["message"]["content"])
+        parsed_items = parsed.get("items", [])
+        normalized_items = []
+        for item in parsed_items:
+            title = str(item.get("title") or "").strip()[:300]
+            notes = str(item.get("notes") or "").strip()
+            if title:
+                normalized_items.append({"title": title, "notes": notes})
+        if normalized_items:
+            return {
+                "title": str(parsed.get("title") or fallback_title or "Untitled List").strip()[:200],
+                "description": str(parsed.get("description") or "").strip(),
+                "target_date": parse_optional_date(str(parsed.get("target_date") or "")),
+                "items": normalized_items,
+            }
+    except Exception as exc:
+        response_text = ""
+        if isinstance(exc, httpx.HTTPStatusError):
+            response_text = exc.response.text[:500]
+        logger.warning("List AI parsing failed, using local fallback: %s %s", exc.__class__.__name__, response_text)
+    return extract_list_payload_locally(raw_content, fallback_title)
+
+
 def resolve_default_task_targets(db: Session, org_id: int) -> tuple[Project, ActivityType]:
     settings_obj = get_org_settings(db, org_id)
     project = db.get(Project, settings_obj.default_project_id) if settings_obj.default_project_id else None
@@ -1325,6 +1413,51 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
     ]
 
 
+def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str, Any]]:
+    lists = db.scalars(
+        select(WorkList)
+        .where(WorkList.org_id == org_id, WorkList.owner_user_id == user_id, WorkList.is_archived.is_(False))
+        .order_by(WorkList.updated_at.desc(), WorkList.id.desc())
+    ).all()
+    summaries = []
+    for work_list in lists:
+        total_items = len(work_list.items)
+        completed_items = sum(1 for item in work_list.items if item.is_completed)
+        progress_percent = round((completed_items / total_items) * 100, 2) if total_items else 0
+        summaries.append(
+            {
+                "id": work_list.id,
+                "title": work_list.title,
+                "description": work_list.description or "",
+                "target_date": work_list.target_date,
+                "target_date_label": work_list.target_date.strftime("%d %b %Y") if work_list.target_date else "",
+                "total_items": total_items,
+                "completed_items": completed_items,
+                "progress_percent": progress_percent,
+                "updated_at": work_list.updated_at,
+                "updated_at_label": work_list.updated_at.strftime("%d %b %Y, %I:%M %p") if work_list.updated_at else "",
+            }
+        )
+    return summaries
+
+
+def work_list_detail(db: Session, org_id: int, user_id: int, list_id: int | None) -> WorkList | None:
+    if not list_id:
+        return db.scalar(
+            select(WorkList)
+            .where(WorkList.org_id == org_id, WorkList.owner_user_id == user_id, WorkList.is_archived.is_(False))
+            .order_by(WorkList.updated_at.desc(), WorkList.id.desc())
+        )
+    return db.scalar(
+        select(WorkList).where(
+            WorkList.id == list_id,
+            WorkList.org_id == org_id,
+            WorkList.owner_user_id == user_id,
+            WorkList.is_archived.is_(False),
+        )
+    )
+
+
 def task_tag_suggestions(db: Session, org_id: int, limit: int = 80) -> list[str]:
     values: set[str] = set()
     for raw_tags in db.scalars(
@@ -1551,6 +1684,170 @@ def backlog_management_page(request: Request, org_user: tuple[Organization, User
             "backlog_tasks": backlog_tasks_payload(db, org, user),
         },
     )
+
+
+@app.get("/{org_slug}/lists", response_class=HTMLResponse)
+def lists_page(
+    request: Request,
+    list_id: int | None = None,
+    created_list_id: int | None = None,
+    open_ai: int | None = None,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    summaries = work_list_summaries(db, org.id, user.id)
+    selected = work_list_detail(db, org.id, user.id, list_id or created_list_id)
+    if selected and not any(item["id"] == selected.id for item in summaries):
+        selected = None
+    selected_items = (
+        sorted(
+            list(selected.items),
+            key=lambda item: (item.is_completed, item.sort_order, item.created_at),
+        )
+        if selected
+        else []
+    )
+    return templates.TemplateResponse(
+        "lists.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "lists": summaries,
+            "selected_list": selected,
+            "selected_items": selected_items,
+            "open_ai": bool(open_ai),
+        },
+    )
+
+
+@app.post("/{org_slug}/lists")
+async def create_list_page(
+    org_slug: str,
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(""),
+    target_date: str = Form(""),
+    items_text: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    normalized_title = title.strip()[:200]
+    if not normalized_title:
+        raise HTTPException(status_code=400, detail="List title is required")
+    items = split_freeflow_list_input(items_text)
+    work_list = WorkList(
+        org_id=org.id,
+        owner_user_id=user.id,
+        title=normalized_title,
+        description=description.strip(),
+        target_date=parse_optional_date(target_date),
+    )
+    db.add(work_list)
+    db.flush()
+    for index, item_title in enumerate(items, start=1):
+        db.add(WorkListItem(work_list_id=work_list.id, title=item_title, sort_order=index))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
+
+
+@app.post("/{org_slug}/lists/ai")
+async def create_ai_list_page(
+    org_slug: str,
+    list_title: str = Form(""),
+    plan_text: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    raw_content = plan_text.strip()
+    if not raw_content:
+        return RedirectResponse(url=f"/{org_slug}/lists?open_ai=1", status_code=303)
+    parsed = extract_list_payload_with_openai(raw_content, list_title.strip() or "AI List")
+    work_list = WorkList(
+        org_id=org.id,
+        owner_user_id=user.id,
+        title=(parsed.get("title") or list_title or "AI List").strip()[:200],
+        description=str(parsed.get("description") or "").strip(),
+        target_date=parsed.get("target_date"),
+    )
+    db.add(work_list)
+    db.flush()
+    for index, item in enumerate(parsed.get("items") or [], start=1):
+        title = str(item.get("title") or "").strip()[:300]
+        if not title:
+            continue
+        db.add(
+            WorkListItem(
+                work_list_id=work_list.id,
+                title=title,
+                notes=str(item.get("notes") or "").strip(),
+                sort_order=index,
+            )
+        )
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
+
+
+@app.post("/{org_slug}/lists/{list_id}/items")
+async def add_list_item_page(
+    org_slug: str,
+    list_id: int,
+    item_title: str = Form(...),
+    item_notes: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    normalized_title = item_title.strip()[:300]
+    if not normalized_title:
+        raise HTTPException(status_code=400, detail="Item title is required")
+    next_order = len(work_list.items) + 1
+    db.add(WorkListItem(work_list_id=work_list.id, title=normalized_title, notes=item_notes.strip(), sort_order=next_order))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
+
+
+@app.post("/{org_slug}/lists/{list_id}/items/{item_id}/toggle")
+async def toggle_list_item_page(
+    org_slug: str,
+    list_id: int,
+    item_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    item = db.scalar(select(WorkListItem).where(WorkListItem.id == item_id, WorkListItem.work_list_id == work_list.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="List item not found")
+    item.is_completed = not item.is_completed
+    item.completed_at = datetime.utcnow() if item.is_completed else None
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
+
+
+@app.post("/{org_slug}/lists/{list_id}/archive")
+async def archive_list_page(
+    org_slug: str,
+    list_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    work_list.is_archived = True
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists", status_code=303)
 
 
 @app.get("/{org_slug}/tasks/new", response_class=HTMLResponse)

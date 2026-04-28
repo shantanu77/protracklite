@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Workspace</p>
+    <h1>Lists</h1>
+    <p>Track checklist-style plans, reminders, and outcome lists without turning them into full tasks.</p>
+  </div>
+  <div class="page-head-actions">
+    <button type="button" class="button secondary" data-modal-open="list-ai-modal">✦ Add List Using AI</button>
+  </div>
+</section>
+
+<section class="lists-layout">
+  <div class="stack">
+    <form method="post" action="/{{ org.slug }}/lists" class="panel form-grid">
+      <div class="panel-head full">
+        <div>
+          <h2>Create List</h2>
+          <p>Create a named checklist and optionally paste one item per line.</p>
+        </div>
+      </div>
+      <label>Name<input name="title" required></label>
+      <label>Target Date<input name="target_date" type="date"></label>
+      <label class="full">Description<textarea name="description" rows="4" placeholder="What is this list for?"></textarea></label>
+      <label class="full">Items<textarea name="items_text" rows="8" placeholder="Paste one item per line"></textarea></label>
+      <button type="submit">Create List</button>
+    </form>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>My Lists</h2>
+          <p>Open a list to tick items, add more, and track completion percentage.</p>
+        </div>
+      </div>
+      <div class="lists-summary-grid">
+        {% for item in lists %}
+        <a class="card list-summary-card{% if selected_list and selected_list.id == item.id %} is-active{% endif %}" href="/{{ org.slug }}/lists?list_id={{ item.id }}">
+          <div class="list-summary-head">
+            <strong>{{ item.title }}</strong>
+            <span class="badge muted">{{ "%.0f"|format(item.progress_percent) }}%</span>
+          </div>
+          <p>{{ item.description or "Checklist-style plan with no scheduling overhead." }}</p>
+          <small>{{ item.completed_items }}/{{ item.total_items }} completed{% if item.target_date_label %} · target {{ item.target_date_label }}{% endif %}</small>
+          <div class="list-progress-bar"><span style="width: {{ item.progress_percent }}%;"></span></div>
+        </a>
+        {% else %}
+        <p class="empty">No lists created yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <section class="panel list-detail-panel">
+    {% if selected_list %}
+    {% set total_items = selected_items|length %}
+    {% set completed_items = selected_items|selectattr('is_completed')|list|length %}
+    {% set progress_percent = ((completed_items / total_items) * 100) if total_items else 0 %}
+    <div class="panel-head">
+      <div>
+        <h2>{{ selected_list.title }}</h2>
+        <p>{{ selected_list.description or "Checklist-style plan for reminders, outcomes, and lightweight tracking." }}</p>
+      </div>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
+        <button type="submit" class="button danger">Archive List</button>
+      </form>
+    </div>
+
+    <div class="stats compact-stats">
+      <div class="stat"><span>Progress</span><strong>{{ "%.0f"|format(progress_percent) }}%</strong></div>
+      <div class="stat"><span>Completed</span><strong>{{ completed_items }}/{{ total_items }}</strong></div>
+      <div class="stat"><span>Target</span><strong>{{ selected_list.target_date.strftime("%d %b %Y") if selected_list.target_date else "Not set" }}</strong></div>
+      <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at.strftime("%d %b %Y") }}</strong></div>
+    </div>
+    <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
+
+    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="form-grid">
+      <label>New Item<input name="item_title" required></label>
+      <label class="full">Notes<textarea name="item_notes" rows="3" placeholder="Optional details or context"></textarea></label>
+      <button type="submit">Add Item</button>
+    </form>
+
+    <div class="list-item-stack">
+      {% for item in selected_items %}
+      <article class="card list-item-card{% if item.is_completed %} is-completed{% endif %}">
+        <div class="list-item-head">
+          <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle">
+            <label class="checkbox list-item-checkbox">
+              <input type="checkbox" {% if item.is_completed %}checked{% endif %} onchange="this.form.submit()">
+              <span class="list-item-title">{{ item.title }}</span>
+            </label>
+          </form>
+          {% if item.is_completed %}
+          <span class="badge muted">Done</span>
+          {% endif %}
+        </div>
+        {% if item.notes %}
+        <p>{{ item.notes }}</p>
+        {% endif %}
+        <small>
+          {% if item.is_completed and item.completed_at %}
+          Completed {{ item.completed_at.strftime("%d %b %Y, %I:%M %p") }}
+          {% else %}
+          Added {{ item.created_at.strftime("%d %b %Y, %I:%M %p") }}
+          {% endif %}
+        </small>
+      </article>
+      {% else %}
+      <p class="empty">This list has no items yet.</p>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="panel-head">
+      <div>
+        <h2>No List Selected</h2>
+        <p>Create a new list or open one from the left to start checking items off.</p>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+</section>
+
+<div class="modal-backdrop" id="list-ai-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="list-ai-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="list-ai-title">Add List Using AI</h2>
+        <p>Paste your 30/60/90-day plan, reminders, or a rough bullet list. AI will create one clean checklist in the backend.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close AI list modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/lists/ai" class="form-grid">
+      <label>Name<input name="list_title" placeholder="Optional title for the list"></label>
+      <label class="full">Plan Text<textarea name="plan_text" rows="12" placeholder="Paste a plan, a reminder dump, or one item per line." required></textarea></label>
+      <button type="submit">Create List With AI</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const shouldOpenAi = {{ "true" if open_ai else "false" }};
+    if (!shouldOpenAi) {
+      return;
+    }
+    window.addEventListener("load", () => {
+      const modal = document.getElementById("list-ai-modal");
+      if (!modal) {
+        return;
+      }
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+    });
+  })();
+</script>
+{% endblock %}
