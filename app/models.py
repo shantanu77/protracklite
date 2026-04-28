@@ -167,6 +167,8 @@ class WorkListItem(Base):
     work_list_id: Mapped[int] = mapped_column(ForeignKey("work_lists.id"), index=True)
     title: Mapped[str] = mapped_column(String(300))
     notes: Mapped[str] = mapped_column(Text, default="")
+    is_starred: Mapped[bool] = mapped_column(Boolean, default=False)
+    priority: Mapped[str] = mapped_column(String(20), default="low")
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     sort_order: Mapped[int] = mapped_column(default=0)

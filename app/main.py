@@ -76,6 +76,13 @@ ACTIVITY_CATEGORY_CHOICES = [
 ]
 ACTIVITY_CATEGORY_LABELS = dict(ACTIVITY_CATEGORY_CHOICES)
 DEFAULT_TASK_COLOR = "#22c55e"
+LIST_ITEM_PRIORITIES = ("low", "high", "medium", "stalled")
+LIST_ITEM_PRIORITY_LABELS = {
+    "low": "Low",
+    "high": "High",
+    "medium": "Medium",
+    "stalled": "Stalled",
+}
 TASK_COLOR_CHOICES = [
     ("#22c55e", "Green"),
     ("#16a34a", "Forest"),
@@ -288,6 +295,21 @@ def ensure_activity_types_schema() -> None:
                 connection.execute(text(ddl))
 
 
+def ensure_work_list_items_schema() -> None:
+    inspector = inspect(engine)
+    if "work_list_items" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("work_list_items")}
+    ddl_by_column = {
+        "is_starred": "ALTER TABLE work_list_items ADD COLUMN is_starred BOOLEAN NOT NULL DEFAULT FALSE",
+        "priority": "ALTER TABLE work_list_items ADD COLUMN priority VARCHAR(20) NOT NULL DEFAULT 'low'",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in ddl_by_column.items():
+            if column_name not in columns:
+                connection.execute(text(ddl))
+
+
 def ensure_query_indexes() -> None:
     inspector = inspect(engine)
     index_plan = {
@@ -339,6 +361,7 @@ def on_startup() -> None:
     ensure_org_settings_schema()
     ensure_tasks_schema()
     ensure_activity_types_schema()
+    ensure_work_list_items_schema()
     ensure_query_indexes()
     db = next(get_db())
     try:
@@ -1853,6 +1876,55 @@ async def update_list_item_page(
     item.title = normalized_title
     db.commit()
     return {"ok": True, "title": item.title}
+
+
+@app.post("/{org_slug}/lists/{list_id}/items/{item_id}/star")
+async def toggle_list_item_star_page(
+    org_slug: str,
+    list_id: int,
+    item_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    item = db.scalar(select(WorkListItem).where(WorkListItem.id == item_id, WorkListItem.work_list_id == work_list.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="List item not found")
+    item.is_starred = not bool(item.is_starred)
+    db.commit()
+    return {"ok": True, "is_starred": bool(item.is_starred)}
+
+
+@app.post("/{org_slug}/lists/{list_id}/items/{item_id}/priority")
+async def cycle_list_item_priority_page(
+    org_slug: str,
+    list_id: int,
+    item_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    item = db.scalar(select(WorkListItem).where(WorkListItem.id == item_id, WorkListItem.work_list_id == work_list.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="List item not found")
+    current = str(item.priority or "low").lower()
+    try:
+        next_index = (LIST_ITEM_PRIORITIES.index(current) + 1) % len(LIST_ITEM_PRIORITIES)
+    except ValueError:
+        next_index = 0
+    item.priority = LIST_ITEM_PRIORITIES[next_index]
+    db.commit()
+    return {
+        "ok": True,
+        "priority": item.priority,
+        "priority_label": LIST_ITEM_PRIORITY_LABELS.get(item.priority, item.priority.title()),
+    }
 
 
 @app.post("/{org_slug}/lists/{list_id}/update")

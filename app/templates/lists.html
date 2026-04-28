@@ -132,6 +132,26 @@
         {{ item.created_at.strftime("%d %b %Y") }}
         {% endif %}
       </small>
+      <div class="list-item-flags">
+        <button
+          type="button"
+          class="list-flag-button list-star-button{% if item.is_starred %} is-active{% endif %}"
+          data-list-item-star
+          data-action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/star"
+          aria-label="{% if item.is_starred %}Remove star{% else %}Add star{% endif %}"
+          title="{% if item.is_starred %}Starred{% else %}Star item{% endif %}"
+        >★</button>
+        {% set item_priority = item.priority or "low" %}
+        <button
+          type="button"
+          class="list-flag-button list-priority-button priority-{{ item_priority }}"
+          data-list-item-priority
+          data-action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/priority"
+          data-priority="{{ item_priority }}"
+          aria-label="Cycle priority"
+          title="Priority: {{ item_priority|title }}"
+        >↑</button>
+      </div>
     </article>
     {% else %}
     <p class="empty">This list has no items yet.</p>
@@ -189,6 +209,8 @@
   (() => {
     const editButtons = document.querySelectorAll("[data-list-item-edit]");
     const metaDisplays = document.querySelectorAll("[data-list-meta-display]");
+    const starButtons = document.querySelectorAll("[data-list-item-star]");
+    const priorityButtons = document.querySelectorAll("[data-list-item-priority]");
     const submitInlineEdit = async (form, button, input) => {
       const nextTitle = input.value.trim();
       const previousTitle = button.dataset.itemTitle || button.textContent.trim();
@@ -247,6 +269,42 @@
       });
       input.addEventListener("blur", async () => {
         await submitInlineEdit(form, button, input);
+      });
+    });
+
+    starButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const response = await fetch(button.dataset.action, {
+          method: "POST",
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          window.location.reload();
+          return;
+        }
+        const payload = await response.json();
+        const isStarred = Boolean(payload.is_starred);
+        button.classList.toggle("is-active", isStarred);
+        button.setAttribute("aria-label", isStarred ? "Remove star" : "Add star");
+        button.title = isStarred ? "Starred" : "Star item";
+      });
+    });
+
+    priorityButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const response = await fetch(button.dataset.action, {
+          method: "POST",
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          window.location.reload();
+          return;
+        }
+        const payload = await response.json();
+        const priority = String(payload.priority || "low");
+        button.dataset.priority = priority;
+        button.className = `list-flag-button list-priority-button priority-${priority}`;
+        button.title = `Priority: ${String(payload.priority_label || priority)}`;
       });
     });
 
