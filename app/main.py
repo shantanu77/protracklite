@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import and_, func, inspect, or_, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.database import Base, engine, get_db
@@ -357,6 +357,52 @@ def ensure_query_indexes() -> None:
         "time_logs": {
             "ix_time_logs_user_log_date": "CREATE INDEX ix_time_logs_user_log_date ON time_logs (user_id, log_date)",
             "ix_time_logs_task_log_date": "CREATE INDEX ix_time_logs_task_log_date ON time_logs (task_id, log_date)",
+        },
+        "work_lists": {
+            "ix_work_lists_owner_archived_sort_updated": (
+                "CREATE INDEX ix_work_lists_owner_archived_sort_updated "
+                "ON work_lists (org_id, owner_user_id, is_archived, sort_order, updated_at)"
+            ),
+        },
+        "work_list_items": {
+            "ix_work_list_items_list_created": (
+                "CREATE INDEX ix_work_list_items_list_created "
+                "ON work_list_items (work_list_id, created_at)"
+            ),
+            "ix_work_list_items_list_completed_created": (
+                "CREATE INDEX ix_work_list_items_list_completed_created "
+                "ON work_list_items (work_list_id, is_completed, created_at)"
+            ),
+        },
+        "users": {
+            "ix_users_org_active_full_name": (
+                "CREATE INDEX ix_users_org_active_full_name "
+                "ON users (org_id, is_active, full_name)"
+            ),
+        },
+        "projects": {
+            "ix_projects_org_active_name": (
+                "CREATE INDEX ix_projects_org_active_name "
+                "ON projects (org_id, is_active, name)"
+            ),
+        },
+        "activity_types": {
+            "ix_activity_types_org_active_name": (
+                "CREATE INDEX ix_activity_types_org_active_name "
+                "ON activity_types (org_id, is_active, name)"
+            ),
+        },
+        "holidays": {
+            "ix_holidays_org_holiday_date": (
+                "CREATE INDEX ix_holidays_org_holiday_date "
+                "ON holidays (org_id, holiday_date)"
+            ),
+        },
+        "leaves": {
+            "ix_leaves_user_leave_date": (
+                "CREATE INDEX ix_leaves_user_leave_date "
+                "ON leaves (user_id, leave_date)"
+            ),
         },
     }
     with engine.begin() as connection:
@@ -1473,9 +1519,20 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
     ]
 
 
+def next_work_list_sort_order(db: Session, org_id: int, user_id: int) -> int:
+    current_max = db.scalar(
+        select(func.max(WorkList.sort_order)).where(
+            WorkList.org_id == org_id,
+            WorkList.owner_user_id == user_id,
+        )
+    )
+    return int(current_max or 0) + 1
+
+
 def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str, Any]]:
     lists = db.scalars(
         select(WorkList)
+        .options(selectinload(WorkList.items))
         .where(WorkList.org_id == org_id, WorkList.owner_user_id == user_id, WorkList.is_archived.is_(False))
         .order_by(WorkList.sort_order.asc(), WorkList.updated_at.desc(), WorkList.id.desc())
     ).all()
@@ -1506,7 +1563,9 @@ def work_list_detail(db: Session, org_id: int, user_id: int, list_id: int | None
     if not list_id:
         return None
     return db.scalar(
-        select(WorkList).where(
+        select(WorkList)
+        .options(selectinload(WorkList.items))
+        .where(
             WorkList.id == list_id,
             WorkList.org_id == org_id,
             WorkList.owner_user_id == user_id,
@@ -1803,7 +1862,7 @@ async def create_list_page(
         title=normalized_title,
         description=description.strip(),
         target_date=parse_optional_date(target_date),
-        sort_order=(max((item["sort_order"] for item in work_list_summaries(db, org.id, user.id)), default=0) + 1),
+        sort_order=next_work_list_sort_order(db, org.id, user.id),
     )
     db.add(work_list)
     db.flush()
@@ -1832,7 +1891,7 @@ async def create_ai_list_page(
         title=normalize_list_title(str(parsed.get("title") or list_title or "AI List")),
         description=str(parsed.get("description") or "").strip(),
         target_date=parsed.get("target_date"),
-        sort_order=(max((item["sort_order"] for item in work_list_summaries(db, org.id, user.id)), default=0) + 1),
+        sort_order=next_work_list_sort_order(db, org.id, user.id),
     )
     db.add(work_list)
     db.flush()
