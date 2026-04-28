@@ -35,8 +35,10 @@
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/lists' %} primary{% endif %}" href="/{{ org.slug }}/lists" {% if current_path == '/' ~ org.slug ~ '/lists' %}aria-current="page"{% endif %}>Lists</a>
-            <div class="nav-sublink-list" data-sidebar-lists data-org-slug="{{ org.slug }}" {% if current_path != '/' ~ org.slug ~ '/lists' %}hidden{% endif %}></div>
+            <div class="nav-section nav-subsection">Lists</div>
+            <div class="nav-sublink-list" data-sidebar-lists data-org-slug="{{ org.slug }}">
+              <a class="nav-sublink{% if current_path == '/' ~ org.slug ~ '/lists' and not request.query_params.get('list_id') and not request.query_params.get('created_list_id') %} active{% endif %}" href="/{{ org.slug }}/lists">Manage</a>
+            </div>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
           </div>
           <div class="nav-group">
@@ -921,7 +923,8 @@
           }
           const currentUrl = new URL(window.location.href);
           const selectedListId = currentUrl.searchParams.get("list_id") || currentUrl.searchParams.get("created_list_id") || "";
-          sidebarListsContainer.innerHTML = lists.slice(0, 8).map((item) => {
+          const manageMarkup = sidebarListsContainer.innerHTML;
+          const listMarkup = lists.slice(0, 8).map((item) => {
             const isActive = String(item.id) === selectedListId;
             const safeTitle = String(item.title || "")
               .replaceAll("&", "&amp;")
@@ -929,10 +932,10 @@
               .replaceAll(">", "&gt;");
             return `<a class="nav-sublink${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}">${safeTitle}</a>`;
           }).join("");
-          sidebarListsContainer.hidden = false;
+          sidebarListsContainer.innerHTML = `${manageMarkup}${listMarkup}`;
         })
         .catch(() => {
-          sidebarListsContainer.hidden = true;
+          sidebarListsContainer.innerHTML = sidebarListsContainer.innerHTML;
         });
     }
   })();

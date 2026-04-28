@@ -228,6 +228,10 @@ textarea {
   padding: 0 0.35rem 0.25rem;
 }
 
+.nav-subsection {
+  padding-top: 0.3rem;
+}
+
 .nav-link {
   display: block;
   padding: 0.8rem 0.95rem;
@@ -249,7 +253,7 @@ textarea {
 .nav-sublink-list {
   display: grid;
   gap: 0.2rem;
-  margin: -0.05rem 0 0.2rem;
+  margin: -0.05rem 0 0.35rem;
   padding-left: 0.7rem;
 }
 
