@@ -1760,7 +1760,7 @@ def lists_page(
     selected_items = (
         sorted(
             list(selected.items),
-            key=lambda item: ((item.updated_at or item.created_at), item.id),
+            key=lambda item: ((item.created_at or item.updated_at), item.id),
             reverse=True,
         )
         if selected
@@ -1995,7 +1995,12 @@ async def toggle_list_item_page(
     item.is_completed = not item.is_completed
     item.completed_at = datetime.utcnow() if item.is_completed else None
     db.commit()
-    return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
+    return {
+        "ok": True,
+        "is_completed": bool(item.is_completed),
+        "completed_at_label": item.completed_at.strftime("%d %b %Y") if item.completed_at else "",
+        "created_at_label": item.created_at.strftime("%d %b %Y"),
+    }
 
 
 @app.post("/{org_slug}/lists/{list_id}/archive")
