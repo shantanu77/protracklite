@@ -68,12 +68,20 @@
         <input type="hidden" name="description" value="{{ selected_list.description or '' }}">
         <input type="hidden" name="target_date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}">
         <input name="title" value="{{ selected_list.title }}" maxlength="200" required>
+        <div class="list-inline-actions">
+          <button type="submit" class="button secondary small">Save</button>
+          <button type="button" class="button ghost small" data-list-meta-cancel>Cancel</button>
+        </div>
       </form>
       <button type="button" class="list-inline-display list-inline-description{% if not selected_list.description %} is-empty{% endif %}" data-list-meta-display data-meta-kind="description">{{ selected_list.description or "Add description" }}</button>
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="list-inline-form" data-list-meta-form="description" hidden>
         <input type="hidden" name="title" value="{{ selected_list.title }}">
         <input type="hidden" name="target_date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}">
         <textarea name="description" rows="3" placeholder="What is this list for?">{{ selected_list.description or "" }}</textarea>
+        <div class="list-inline-actions">
+          <button type="submit" class="button secondary small">Save</button>
+          <button type="button" class="button ghost small" data-list-meta-cancel>Cancel</button>
+        </div>
       </form>
     </div>
     <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
@@ -91,6 +99,10 @@
         <input type="hidden" name="title" value="{{ selected_list.title }}">
         <input type="hidden" name="description" value="{{ selected_list.description or '' }}">
         <input name="target_date" type="date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}">
+        <div class="list-inline-actions">
+          <button type="submit" class="button secondary small">Save</button>
+          <button type="button" class="button ghost small" data-list-meta-cancel>Cancel</button>
+        </div>
       </form>
     </div>
     <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at.strftime("%d %b %Y") }}</strong></div>
@@ -306,8 +318,15 @@
           }
         });
       }
-      field.addEventListener("blur", async () => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
         await submitMetaEdit(form, display, field);
+      });
+      form.querySelectorAll("[data-list-meta-cancel]").forEach((cancelButton) => {
+        cancelButton.addEventListener("click", () => {
+          form.hidden = true;
+          display.hidden = false;
+        });
       });
     });
   })();

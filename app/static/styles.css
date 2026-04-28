@@ -458,6 +458,14 @@ textarea {
   background: transparent;
   text-align: left;
   cursor: text;
+  box-shadow: none;
+}
+
+.list-inline-display:hover,
+.list-inline-display:focus-visible {
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
 }
 
 .list-inline-title {
@@ -481,6 +489,12 @@ textarea {
 .list-inline-form input,
 .list-inline-form textarea {
   margin-top: 0.1rem;
+}
+
+.list-inline-actions {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
 }
 
 .list-inline-form textarea {
@@ -510,9 +524,15 @@ textarea {
 }
 
 .compact-list-items .list-item-card:hover {
-  background: #f5f8f5;
-  border-color: rgba(47, 122, 82, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(47, 122, 82, 0.08);
+  background: rgba(47, 122, 82, 0.04);
+  border-color: rgba(47, 122, 82, 0.12);
+  box-shadow: none;
+}
+
+.compact-list-items .list-item-card:hover .list-item-inline-button,
+.compact-list-items .list-item-card:hover .list-item-meta {
+  color: inherit;
+  opacity: 1;
 }
 
 .list-item-checkbox {
@@ -552,6 +572,14 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: text;
+  box-shadow: none;
+}
+
+.list-item-inline-button:hover,
+.list-item-inline-button:focus-visible {
+  background: transparent;
+  color: var(--text);
+  box-shadow: none;
 }
 
 .list-item-inline-edit input {
