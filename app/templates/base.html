@@ -36,6 +36,7 @@
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/lists' %} primary{% endif %}" href="/{{ org.slug }}/lists" {% if current_path == '/' ~ org.slug ~ '/lists' %}aria-current="page"{% endif %}>Lists</a>
+            <div class="nav-sublink-list" data-sidebar-lists data-org-slug="{{ org.slug }}" {% if current_path != '/' ~ org.slug ~ '/lists' %}hidden{% endif %}></div>
             <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
           </div>
           <div class="nav-group">
@@ -905,6 +906,35 @@
       event.preventDefault();
       openQuickTaskModal();
     });
+
+    const sidebarListsContainer = document.querySelector("[data-sidebar-lists]");
+    if (sidebarListsContainer) {
+      const orgSlug = sidebarListsContainer.dataset.orgSlug;
+      fetch("/api/v1/lists", {
+        credentials: "same-origin",
+      })
+        .then((response) => response.ok ? response.json() : [])
+        .then((lists) => {
+          if (!Array.isArray(lists) || !lists.length) {
+            sidebarListsContainer.hidden = true;
+            return;
+          }
+          const currentUrl = new URL(window.location.href);
+          const selectedListId = currentUrl.searchParams.get("list_id") || currentUrl.searchParams.get("created_list_id") || "";
+          sidebarListsContainer.innerHTML = lists.slice(0, 8).map((item) => {
+            const isActive = String(item.id) === selectedListId;
+            const safeTitle = String(item.title || "")
+              .replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;");
+            return `<a class="nav-sublink${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}">${safeTitle}</a>`;
+          }).join("");
+          sidebarListsContainer.hidden = false;
+        })
+        .catch(() => {
+          sidebarListsContainer.hidden = true;
+        });
+    }
   })();
   </script>
 </body>

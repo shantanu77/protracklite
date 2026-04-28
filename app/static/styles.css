@@ -246,6 +246,27 @@ textarea {
   color: #ffffff;
 }
 
+.nav-sublink-list {
+  display: grid;
+  gap: 0.2rem;
+  margin: -0.05rem 0 0.2rem;
+  padding-left: 0.7rem;
+}
+
+.nav-sublink {
+  display: block;
+  padding: 0.45rem 0.8rem;
+  border-radius: 12px;
+  font-size: 0.84rem;
+  color: rgba(238, 243, 246, 0.7);
+}
+
+.nav-sublink:hover,
+.nav-sublink.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
 .logout-form {
   margin: 0;
 }
@@ -420,10 +441,12 @@ textarea {
 .list-item-card.is-completed p,
 .list-item-card.is-completed small {
   color: var(--muted);
+  opacity: 0.82;
 }
 
 .list-item-card.is-completed .list-item-title {
   text-decoration: line-through;
+  text-decoration-thickness: 2px;
 }
 
 .eyebrow {

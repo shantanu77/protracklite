@@ -903,10 +903,30 @@ def split_freeflow_list_input(raw_content: str) -> list[str]:
     return [item[:300] for item in split_freeflow_task_input(raw_content) if item.strip()]
 
 
+def normalize_list_title(raw_title: str, limit: int = 26) -> str:
+    cleaned = re.sub(r"\s+", " ", str(raw_title or "").strip())
+    if not cleaned:
+        return "Untitled List"
+    if len(cleaned) <= limit:
+        return cleaned
+    words = cleaned.split()
+    compact_words: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > limit:
+            break
+        compact_words.append(word)
+        current = candidate
+    if compact_words:
+        return " ".join(compact_words)
+    return cleaned[: limit - 1].rstrip(" ,:-") + "…"
+
+
 def extract_list_payload_locally(raw_content: str, fallback_title: str) -> dict[str, Any]:
     items = split_freeflow_list_input(raw_content)
     return {
-        "title": fallback_title.strip() or "Untitled List",
+        "title": normalize_list_title(fallback_title),
         "description": "",
         "target_date": None,
         "items": [{"title": item, "notes": ""} for item in items],
@@ -932,6 +952,7 @@ def extract_list_payload_with_openai(raw_content: str, fallback_title: str) -> d
                     "Return JSON only with this exact shape: "
                     "{\"title\":\"...\",\"description\":\"...\",\"target_date\":\"YYYY-MM-DD or null\",\"items\":[{\"title\":\"...\",\"notes\":\"...\"}]}. "
                     "Create one list only. "
+                    f"The list title must be smart, meaningful, and at most 26 characters. "
                     "Each item must be concise, actionable, and checkable. "
                     "Split combined actions into separate items. "
                     "If the user pastes an existing list, preserve its intent while cleaning wording. "
@@ -972,7 +993,7 @@ def extract_list_payload_with_openai(raw_content: str, fallback_title: str) -> d
                 normalized_items.append({"title": title, "notes": notes})
         if normalized_items:
             return {
-                "title": str(parsed.get("title") or fallback_title or "Untitled List").strip()[:200],
+                "title": normalize_list_title(str(parsed.get("title") or fallback_title or "Untitled List")),
                 "description": str(parsed.get("description") or "").strip(),
                 "target_date": parse_optional_date(str(parsed.get("target_date") or "")),
                 "items": normalized_items,
@@ -1769,7 +1790,7 @@ async def create_ai_list_page(
     work_list = WorkList(
         org_id=org.id,
         owner_user_id=user.id,
-        title=(parsed.get("title") or list_title or "AI List").strip()[:200],
+        title=normalize_list_title(str(parsed.get("title") or list_title or "AI List")),
         description=str(parsed.get("description") or "").strip(),
         target_date=parsed.get("target_date"),
     )
@@ -1848,6 +1869,15 @@ async def archive_list_page(
     work_list.is_archived = True
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/lists", status_code=303)
+
+
+@app.get("/api/v1/lists")
+def api_list_summaries(
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    return work_list_summaries(db, org.id, user.id)
 
 
 @app.get("/{org_slug}/tasks/new", response_class=HTMLResponse)
