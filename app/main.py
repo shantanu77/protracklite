@@ -1739,6 +1739,7 @@ def lists_page(
             "selected_list": selected,
             "selected_items": selected_items,
             "open_ai": bool(open_ai),
+            "manage_mode": selected is None,
         },
     )
 
@@ -1830,6 +1831,30 @@ async def add_list_item_page(
         raise HTTPException(status_code=400, detail="Item title is required")
     next_order = len(work_list.items) + 1
     db.add(WorkListItem(work_list_id=work_list.id, title=normalized_title, notes=item_notes.strip(), sort_order=next_order))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
+
+
+@app.post("/{org_slug}/lists/{list_id}/update")
+async def update_list_page(
+    org_slug: str,
+    list_id: int,
+    title: str = Form(...),
+    description: str = Form(""),
+    target_date: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    normalized_title = title.strip()[:200]
+    if not normalized_title:
+        raise HTTPException(status_code=400, detail="List title is required")
+    work_list.title = normalized_title
+    work_list.description = description.strip()
+    work_list.target_date = parse_optional_date(target_date)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 

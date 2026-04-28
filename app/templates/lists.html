@@ -6,17 +6,20 @@
     <h1>Lists</h1>
     <p>Track checklist-style plans, reminders, and outcome lists without turning them into full tasks.</p>
   </div>
+  {% if manage_mode %}
   <div class="page-head-actions">
     <button type="button" class="button secondary" data-modal-open="list-ai-modal">✦ Add List Using AI</button>
   </div>
+  {% endif %}
 </section>
 
+{% if manage_mode %}
 <section class="lists-layout">
   <div class="stack">
     <form method="post" action="/{{ org.slug }}/lists" class="panel form-grid">
       <div class="panel-head full">
         <div>
-          <h2>Create List</h2>
+          <h2>Manage Lists</h2>
           <p>Create a named checklist and optionally paste one item per line.</p>
         </div>
       </div>
@@ -31,12 +34,12 @@
       <div class="panel-head">
         <div>
           <h2>My Lists</h2>
-          <p>Open a list to tick items, add more, and track completion percentage.</p>
+          <p>Open a list from the left menu to work through it.</p>
         </div>
       </div>
       <div class="lists-summary-grid">
         {% for item in lists %}
-        <a class="card list-summary-card{% if selected_list and selected_list.id == item.id %} is-active{% endif %}" href="/{{ org.slug }}/lists?list_id={{ item.id }}">
+        <a class="card list-summary-card" href="/{{ org.slug }}/lists?list_id={{ item.id }}">
           <div class="list-summary-head">
             <strong>{{ item.title }}</strong>
             <span class="badge muted">{{ "%.0f"|format(item.progress_percent) }}%</span>
@@ -51,76 +54,95 @@
       </div>
     </section>
   </div>
-
-  <section class="panel list-detail-panel">
-    {% if selected_list %}
-    {% set total_items = selected_items|length %}
-    {% set completed_items = selected_items|selectattr('is_completed')|list|length %}
-    {% set progress_percent = ((completed_items / total_items) * 100) if total_items else 0 %}
-    <div class="panel-head">
-      <div>
-        <h2>{{ selected_list.title }}</h2>
-        <p>{{ selected_list.description or "Checklist-style plan for reminders, outcomes, and lightweight tracking." }}</p>
-      </div>
-      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
-        <button type="submit" class="button danger">Archive List</button>
-      </form>
-    </div>
-
-    <div class="stats compact-stats">
-      <div class="stat"><span>Progress</span><strong>{{ "%.0f"|format(progress_percent) }}%</strong></div>
-      <div class="stat"><span>Completed</span><strong>{{ completed_items }}/{{ total_items }}</strong></div>
-      <div class="stat"><span>Target</span><strong>{{ selected_list.target_date.strftime("%d %b %Y") if selected_list.target_date else "Not set" }}</strong></div>
-      <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at.strftime("%d %b %Y") }}</strong></div>
-    </div>
-    <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
-
-    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="form-grid">
-      <label>New Item<input name="item_title" required></label>
-      <label class="full">Notes<textarea name="item_notes" rows="3" placeholder="Optional details or context"></textarea></label>
-      <button type="submit">Add Item</button>
-    </form>
-
-    <div class="list-item-stack">
-      {% for item in selected_items %}
-      <article class="card list-item-card{% if item.is_completed %} is-completed{% endif %}">
-        <div class="list-item-head">
-          <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle">
-            <label class="checkbox list-item-checkbox">
-              <input type="checkbox" {% if item.is_completed %}checked{% endif %} onchange="this.form.submit()">
-              <span class="list-item-title">{{ item.title }}</span>
-            </label>
-          </form>
-          {% if item.is_completed %}
-          <span class="badge muted">Done</span>
-          {% endif %}
-        </div>
-        {% if item.notes %}
-        <p>{{ item.notes }}</p>
-        {% endif %}
-        <small>
-          {% if item.is_completed and item.completed_at %}
-          Completed {{ item.completed_at.strftime("%d %b %Y, %I:%M %p") }}
-          {% else %}
-          Added {{ item.created_at.strftime("%d %b %Y, %I:%M %p") }}
-          {% endif %}
-        </small>
-      </article>
-      {% else %}
-      <p class="empty">This list has no items yet.</p>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="panel-head">
-      <div>
-        <h2>No List Selected</h2>
-        <p>Create a new list or open one from the left to start checking items off.</p>
-      </div>
-    </div>
-    {% endif %}
-  </section>
 </section>
+{% elif selected_list %}
+{% set total_items = selected_items|length %}
+{% set completed_items = selected_items|selectattr('is_completed')|list|length %}
+{% set progress_percent = ((completed_items / total_items) * 100) if total_items else 0 %}
+<section class="panel list-detail-panel compact-list-detail">
+  <div class="list-detail-top">
+    <div>
+      <p class="eyebrow">Selected List</p>
+      <h2>{{ selected_list.title }}</h2>
+      <p class="list-detail-copy">{{ selected_list.description or "Checklist-style plan for reminders, outcomes, and lightweight tracking." }}</p>
+    </div>
+    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
+      <button type="submit" class="button danger">Archive List</button>
+    </form>
+  </div>
 
+  <div class="stats compact-stats">
+    <div class="stat"><span>Progress</span><strong>{{ "%.0f"|format(progress_percent) }}%</strong></div>
+    <div class="stat"><span>Completed</span><strong>{{ completed_items }}/{{ total_items }}</strong></div>
+    <div class="stat"><span>Target</span><strong>{{ selected_list.target_date.strftime("%d %b %Y") if selected_list.target_date else "Not set" }}</strong></div>
+    <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at.strftime("%d %b %Y") }}</strong></div>
+  </div>
+  <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
+
+  <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="panel list-meta-form">
+    <div class="list-meta-grid">
+      <label>Name<input name="title" value="{{ selected_list.title }}" required></label>
+      <label>Target Date<input name="target_date" type="date" value="{{ selected_list.target_date.isoformat() if selected_list.target_date else '' }}"></label>
+      <label class="full">Details<textarea name="description" rows="3" placeholder="What is this list for?">{{ selected_list.description or "" }}</textarea></label>
+    </div>
+    <button type="submit" class="button secondary">Update List Info</button>
+  </form>
+
+  <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
+    <div class="panel-head">
+      <div>
+        <h3>Add New List Item</h3>
+      </div>
+    </div>
+    <div class="list-item-entry-grid">
+      <label>Item<input name="item_title" required></label>
+      <label class="full">Notes<textarea name="item_notes" rows="2" placeholder="Optional details or context"></textarea></label>
+    </div>
+    <button type="submit">Add Item</button>
+  </form>
+
+  <div class="list-item-stack compact-list-items">
+    {% for item in selected_items %}
+    <article class="card list-item-card{% if item.is_completed %} is-completed{% endif %}">
+      <div class="list-item-head">
+        <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle">
+          <label class="checkbox list-item-checkbox">
+            <input type="checkbox" {% if item.is_completed %}checked{% endif %} onchange="this.form.submit()">
+            <span class="list-item-title">{{ item.title }}</span>
+          </label>
+        </form>
+        {% if item.is_completed %}
+        <span class="badge muted">Done</span>
+        {% endif %}
+      </div>
+      {% if item.notes %}
+      <p>{{ item.notes }}</p>
+      {% endif %}
+      <small>
+        {% if item.is_completed and item.completed_at %}
+        Completed {{ item.completed_at.strftime("%d %b %Y, %I:%M %p") }}
+        {% else %}
+        Added {{ item.created_at.strftime("%d %b %Y, %I:%M %p") }}
+        {% endif %}
+      </small>
+    </article>
+    {% else %}
+    <p class="empty">This list has no items yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="panel list-detail-panel">
+  <div class="panel-head">
+    <div>
+      <h2>No List Selected</h2>
+      <p>Choose a list from the left menu or use Manage to create one.</p>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if manage_mode %}
 <div class="modal-backdrop" id="list-ai-modal" data-modal aria-hidden="true">
   <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="list-ai-title">
     <div class="modal-head">
@@ -155,4 +177,5 @@
     });
   })();
 </script>
+{% endif %}
 {% endblock %}
