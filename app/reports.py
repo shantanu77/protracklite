@@ -580,9 +580,9 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
 def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None) -> dict:
     today = today or date.today()
     month_start = today.replace(day=1)
-    this_monday, _ = current_week_bounds(today)
-    previous_monday = this_monday - timedelta(days=7)
-    previous_sunday = previous_monday + timedelta(days=6)
+    recent_window_start = max(month_start, today - timedelta(days=6))
+    previous_window_end = recent_window_start - timedelta(days=1)
+    previous_window_start = max(month_start, previous_window_end - timedelta(days=6)) if previous_window_end >= month_start else None
 
     team = db.scalars(
         select(User)
@@ -732,7 +732,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         for row in open_task_rows
     }
 
-    current_week_rows = db.execute(
+    current_window_rows = db.execute(
         select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0).label("hours"))
         .select_from(TimeLog)
         .join(Task, TimeLog.task_id == Task.id)
@@ -740,27 +740,47 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
             Task.org_id == org_id,
             Task.is_archived.is_(False),
             TimeLog.user_id.in_(member_ids),
-            TimeLog.log_date >= this_monday,
+            TimeLog.log_date >= recent_window_start,
             TimeLog.log_date <= today,
         )
         .group_by(TimeLog.user_id)
     ).all()
-    current_week_hours_by_user = {row.user_id: float(row.hours or 0) for row in current_week_rows}
+    current_window_hours_by_user = {row.user_id: float(row.hours or 0) for row in current_window_rows}
 
-    previous_week_rows = db.execute(
-        select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0).label("hours"))
-        .select_from(TimeLog)
-        .join(Task, TimeLog.task_id == Task.id)
-        .where(
-            Task.org_id == org_id,
-            Task.is_archived.is_(False),
-            TimeLog.user_id.in_(member_ids),
-            TimeLog.log_date >= previous_monday,
-            TimeLog.log_date <= previous_sunday,
-        )
-        .group_by(TimeLog.user_id)
-    ).all()
-    previous_week_hours_by_user = {row.user_id: float(row.hours or 0) for row in previous_week_rows}
+    previous_window_hours_by_user: dict[int, float] = {}
+    if previous_window_start and previous_window_end >= previous_window_start:
+        previous_window_rows = db.execute(
+            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0).label("hours"))
+            .select_from(TimeLog)
+            .join(Task, TimeLog.task_id == Task.id)
+            .where(
+                Task.org_id == org_id,
+                Task.is_archived.is_(False),
+                TimeLog.user_id.in_(member_ids),
+                TimeLog.log_date >= previous_window_start,
+                TimeLog.log_date <= previous_window_end,
+            )
+            .group_by(TimeLog.user_id)
+        ).all()
+        previous_window_hours_by_user = {row.user_id: float(row.hours or 0) for row in previous_window_rows}
+
+    def compact_name(full_name: str) -> str:
+        parts = [part for part in full_name.strip().split() if part]
+        if not parts:
+            return ""
+        if len(parts) == 1:
+            return parts[0].title()
+        return f"{parts[0].title()} {parts[-1][0].upper()}."
+
+    compact_names_by_user = {member.id: compact_name(member.full_name) for member in team}
+    compact_name_counts: dict[str, int] = defaultdict(int)
+    for value in compact_names_by_user.values():
+        compact_name_counts[value] += 1
+    short_names_by_user = {}
+    for member in team:
+        compact_value = compact_names_by_user[member.id]
+        first_name = (member.full_name.strip().split() or [""])[0].title()
+        short_names_by_user[member.id] = compact_value if compact_name_counts[compact_value] == 1 else first_name
 
     for member in team:
         rates = compute_work_rate(db, org_id, member.id, month_start, today)
@@ -776,13 +796,14 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         utilization_rate = round((logged_hours / available_hours * 100) if available_hours else 0, 2)
         chargeable_share = round((chargeable_hours / logged_hours * 100) if logged_hours else 0, 2)
         on_time_rate = round((on_time_tasks / completed_tasks * 100) if completed_tasks else 0, 2)
-        current_week_hours = float(current_week_hours_by_user.get(member.id, 0))
-        previous_week_hours = float(previous_week_hours_by_user.get(member.id, 0))
-        momentum_delta = round(current_week_hours - previous_week_hours, 2)
+        current_window_hours = float(current_window_hours_by_user.get(member.id, 0))
+        previous_window_hours = float(previous_window_hours_by_user.get(member.id, 0))
+        momentum_delta = round(current_window_hours - previous_window_hours, 2)
         leaderboard_rows.append(
             {
                 "member_id": member.id,
                 "name": member.full_name,
+                "short_name": short_names_by_user.get(member.id, member.full_name),
                 "logged_hours": round(logged_hours, 2),
                 "chargeable_hours": round(chargeable_hours, 2),
                 "active_days": active_days,
@@ -794,11 +815,40 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
                 "chargeable_share": chargeable_share,
                 "open_tasks": int(open_stats.get("open_tasks", 0)),
                 "overdue_tasks": int(open_stats.get("overdue_tasks", 0)),
-                "current_week_hours": round(current_week_hours, 2),
-                "previous_week_hours": round(previous_week_hours, 2),
+                "current_window_hours": round(current_window_hours, 2),
+                "previous_window_hours": round(previous_window_hours, 2),
                 "momentum_delta": momentum_delta,
             }
         )
+
+    leaderboard_rows = [
+        row
+        for row in leaderboard_rows
+        if row["logged_hours"] > 0 or row["completed_tasks"] > 0 or row["current_window_hours"] > 0 or row["previous_window_hours"] > 0
+    ]
+
+    if not leaderboard_rows:
+        return {
+            "today": today,
+            "month_start": month_start,
+            "leaders": [],
+            "awards": [],
+            "summary": {
+                "active_people": 0,
+                "hours_logged": 0.0,
+                "tasks_completed": 0,
+                "active_log_days": 0,
+            },
+            "charts": {
+                "hours": [],
+                "delivery": [],
+                "performance": [],
+            },
+            "leaderboard": [],
+            "recent_window_start": recent_window_start,
+            "previous_window_start": previous_window_start,
+            "previous_window_end": previous_window_end,
+        }
 
     def normalized(value: float, max_value: float) -> float:
         return (value / max_value) if max_value > 0 else 0.0
@@ -882,7 +932,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         build_award("Closer Cup", "Most tasks completed this month", "completed_tasks", "", "coral"),
         build_award("Chargeable Ace", "Highest chargeable hours delivered", "chargeable_hours", "h", "mint"),
         build_award("Consistency Star", "Most active booking days", "active_days", " days", "sky"),
-        build_award("Momentum Rocket", "Strongest week-over-week lift", "momentum_delta", "h", "sun"),
+        build_award("Momentum Rocket", "Strongest recent lift inside this month", "momentum_delta", "h", "sun"),
     ]
     awards = [award for award in awards if award]
 
@@ -893,33 +943,34 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         "active_log_days": sum(row["active_days"] for row in leaderboard_rows),
     }
 
+    chart_rows = leaderboard_rows[:6]
     charts = {
         "hours": [
             {
-                "name": row["name"],
+                "name": row["short_name"],
                 "logged_hours": row["logged_hours"],
                 "chargeable_hours": row["chargeable_hours"],
             }
-            for row in leaderboard_rows[:8]
+            for row in chart_rows
         ],
         "delivery": [
             {
-                "name": row["name"],
+                "name": row["short_name"],
                 "completed_tasks": row["completed_tasks"],
                 "active_days": row["active_days"],
                 "on_time_rate": row["on_time_rate"],
             }
-            for row in leaderboard_rows[:8]
+            for row in chart_rows
         ],
         "performance": [
             {
-                "name": row["name"],
+                "name": row["short_name"],
                 "utilization_rate": row["utilization_rate"],
                 "completed_tasks": row["completed_tasks"],
                 "logged_hours": row["logged_hours"],
                 "score": row["score"],
             }
-            for row in leaderboard_rows
+            for row in chart_rows
         ],
     }
 
@@ -931,6 +982,9 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         "summary": summary,
         "charts": charts,
         "leaderboard": leaderboard_rows,
+        "recent_window_start": recent_window_start,
+        "previous_window_start": previous_window_start,
+        "previous_window_end": previous_window_end,
     }
 
 

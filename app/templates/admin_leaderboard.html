@@ -16,7 +16,7 @@
   </div>
   <div class="leaderboard-summary-grid">
     <article class="leaderboard-summary-card">
-      <span>Active People</span>
+      <span>Active Contributors</span>
       <strong>{{ report.summary.active_people }}</strong>
     </article>
     <article class="leaderboard-summary-card">
@@ -90,7 +90,7 @@
   <section class="panel leaderboard-chart-panel">
     <div class="panel-head">
       <h2>Delivery Pulse</h2>
-      <p>Completed tasks, active days, and on-time delivery pressure.</p>
+      <p>Completed tasks, active days, and on-time delivery pressure for the top 6 contributors.</p>
     </div>
     <div class="chart-canvas leaderboard-chart" id="leaderboard-delivery-chart" aria-label="Leaderboard delivery chart"></div>
   </section>
@@ -98,7 +98,7 @@
   <section class="panel leaderboard-chart-panel report-span-3">
     <div class="panel-head">
       <h2>Competition Map</h2>
-      <p>Utilization on the x-axis, task completion on the y-axis, bubble size based on booked hours.</p>
+      <p>Utilization on the x-axis, task completion on the y-axis, bubble size based on booked hours for the top 6 contributors.</p>
     </div>
     <div class="chart-canvas leaderboard-chart wide" id="leaderboard-performance-chart" aria-label="Leaderboard performance chart"></div>
   </section>
@@ -136,7 +136,7 @@
           <td>
             <div class="leaderboard-player">
               <strong>{{ row.name }}</strong>
-              <span>{{ row.current_week_hours }}h this week / {{ row.previous_week_hours }}h last week</span>
+              <span>{{ row.current_window_hours }}h recent window / {{ row.previous_window_hours }}h prior window</span>
             </div>
           </td>
           <td>{{ "%.1f"|format(row.score) }}</td>
