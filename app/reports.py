@@ -407,26 +407,36 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
     week_rates = compute_work_rate(db, org_id, user_id, this_monday, today)
     month_rates = compute_work_rate(db, org_id, user_id, month_start, today)
 
+    top_task_hours = (
+        select(
+            TimeLog.task_id.label("task_pk"),
+            func.coalesce(func.sum(TimeLog.hours), 0).label("hours"),
+        )
+        .where(
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= month_start,
+            TimeLog.log_date <= today,
+        )
+        .group_by(TimeLog.task_id)
+        .subquery()
+    )
+
     top_task_rows = db.execute(
         select(
             Task.task_id,
             Task.name,
             Task.status,
             Project.code,
-            func.coalesce(func.sum(TimeLog.hours), 0).label("hours"),
+            top_task_hours.c.hours,
         )
-        .select_from(TimeLog)
-        .join(Task, TimeLog.task_id == Task.id)
+        .select_from(top_task_hours)
+        .join(Task, top_task_hours.c.task_pk == Task.id)
         .join(Project, Task.project_id == Project.id)
         .where(
             Task.org_id == org_id,
             Task.is_archived.is_(False),
-            TimeLog.user_id == user_id,
-            TimeLog.log_date >= month_start,
-            TimeLog.log_date <= today,
         )
-        .group_by(Task.id, Task.task_id, Task.name, Task.status, Project.code)
-        .order_by(func.sum(TimeLog.hours).desc(), Task.updated_at.desc())
+        .order_by(top_task_hours.c.hours.desc(), Task.updated_at.desc())
         .limit(5)
     ).all()
     top_tasks = [
