@@ -503,6 +503,22 @@ textarea {
   gap: 1rem;
 }
 
+.list-add-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.list-add-item-actions > .button {
+  align-self: center;
+}
+
+.list-add-item-actions .list-add-item-form {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
 .compact-list-detail {
   gap: 0.85rem;
 }

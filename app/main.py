@@ -1933,6 +1933,34 @@ async def add_list_item_page(
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 
 
+@app.post("/{org_slug}/lists/{list_id}/items/bulk")
+async def add_bulk_list_items_page(
+    org_slug: str,
+    list_id: int,
+    items_text: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    items = split_freeflow_list_input(items_text)
+    if not items:
+        return RedirectResponse(url=f"/{org_slug}/lists?list_id={list_id}", status_code=303)
+    next_order = len(work_list.items) + 1
+    for offset, item_title in enumerate(items):
+        db.add(
+            WorkListItem(
+                work_list_id=work_list.id,
+                title=item_title,
+                sort_order=next_order + offset,
+            )
+        )
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
+
+
 @app.post("/{org_slug}/lists/{list_id}/items/{item_id}/update")
 async def update_list_item_page(
     org_slug: str,

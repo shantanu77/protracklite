@@ -115,9 +115,12 @@
   </div>
   <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
 
-  <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
-    <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
-  </form>
+  <div class="list-add-item-actions">
+    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
+      <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
+    </form>
+    <button type="button" class="button secondary" data-modal-open="list-bulk-add-modal">Bulk Add</button>
+  </div>
 
   <div class="list-item-stack compact-list-items">
     {% for item in selected_items %}
@@ -162,6 +165,22 @@
     {% else %}
     <p class="empty">This list has no items yet.</p>
     {% endfor %}
+  </div>
+
+  <div class="modal-backdrop" id="list-bulk-add-modal" data-modal aria-hidden="true">
+    <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="list-bulk-add-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="list-bulk-add-title">Bulk Add List Items</h2>
+          <p>Paste one item per line. Each line will be added as a new checklist item.</p>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close bulk add list items modal">×</button>
+      </div>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/bulk" class="form-grid">
+        <label class="full">Items<textarea name="items_text" rows="12" placeholder="First item&#10;Second item&#10;Third item" required></textarea></label>
+        <button type="submit">Add Items</button>
+      </form>
+    </div>
   </div>
 </section>
 {% else %}
