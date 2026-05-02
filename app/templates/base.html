@@ -30,34 +30,49 @@
         </div>
         {% set current_path = request.url.path if request else "" %}
         <nav class="nav-drawer">
-          <div class="nav-group">
-            <div class="nav-section">Workspace</div>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
-            <div class="nav-section nav-subsection">Lists</div>
-            <div class="nav-sublink-list" data-sidebar-lists data-org-slug="{{ org.slug }}">
-              <a class="nav-sublink{% if current_path == '/' ~ org.slug ~ '/lists' and not request.query_params.get('list_id') and not request.query_params.get('created_list_id') %} active{% endif %}" href="/{{ org.slug }}/lists">Manage</a>
+          <div class="nav-group is-expanded" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="true">
+              <span class="nav-section">Workspace</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
+              <div class="nav-section nav-subsection">Lists</div>
+              <div class="nav-sublink-list" data-sidebar-lists data-org-slug="{{ org.slug }}">
+                <a class="nav-sublink{% if current_path == '/' ~ org.slug ~ '/lists' and not request.query_params.get('list_id') and not request.query_params.get('created_list_id') %} active{% endif %}" href="/{{ org.slug }}/lists">Manage</a>
+              </div>
             </div>
           </div>
-          <div class="nav-group">
-            <div class="nav-section">Reports</div>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}>Work Rate</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/monday' %} primary{% endif %}" href="/{{ org.slug }}/reports/monday" {% if current_path == '/' ~ org.slug ~ '/reports/monday' %}aria-current="page"{% endif %}>Monday Report</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/calendar' %} primary{% endif %}" href="/{{ org.slug }}/reports/calendar" {% if current_path == '/' ~ org.slug ~ '/reports/calendar' %}aria-current="page"{% endif %}>Calendar View</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}>My Reports</a>
+          <div class="nav-group is-expanded" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="true">
+              <span class="nav-section">Reports</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}>Work Rate</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/monday' %} primary{% endif %}" href="/{{ org.slug }}/reports/monday" {% if current_path == '/' ~ org.slug ~ '/reports/monday' %}aria-current="page"{% endif %}>Monday Report</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/calendar' %} primary{% endif %}" href="/{{ org.slug }}/reports/calendar" {% if current_path == '/' ~ org.slug ~ '/reports/calendar' %}aria-current="page"{% endif %}>Calendar View</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}>My Reports</a>
+            </div>
           </div>
           {% if user.role.value == "admin" %}
-          <div class="nav-group">
-            <div class="nav-section">Admin</div>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/admin/dashboard" {% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %}aria-current="page"{% endif %}>Overview</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/users' %} primary{% endif %}" href="/{{ org.slug }}/admin/users" {% if current_path == '/' ~ org.slug ~ '/admin/users' %}aria-current="page"{% endif %}>Users</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/projects' %} primary{% endif %}" href="/{{ org.slug }}/admin/projects" {% if current_path == '/' ~ org.slug ~ '/admin/projects' %}aria-current="page"{% endif %}>Projects</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %} primary{% endif %}" href="/{{ org.slug }}/admin/activity-types" {% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %}aria-current="page"{% endif %}>Activity Types</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/tasks' %} primary{% endif %}" href="/{{ org.slug }}/admin/tasks" {% if current_path == '/' ~ org.slug ~ '/admin/tasks' %}aria-current="page"{% endif %}>Tasks</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/holidays' %} primary{% endif %}" href="/{{ org.slug }}/admin/holidays" {% if current_path == '/' ~ org.slug ~ '/admin/holidays' %}aria-current="page"{% endif %}>Holidays</a>
-            <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/settings' %} primary{% endif %}" href="/{{ org.slug }}/admin/settings" {% if current_path == '/' ~ org.slug ~ '/admin/settings' %}aria-current="page"{% endif %}>Settings</a>
+          <div class="nav-group is-expanded" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="true">
+              <span class="nav-section">Admin</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/admin/dashboard" {% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %}aria-current="page"{% endif %}>Overview</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/users' %} primary{% endif %}" href="/{{ org.slug }}/admin/users" {% if current_path == '/' ~ org.slug ~ '/admin/users' %}aria-current="page"{% endif %}>Users</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/projects' %} primary{% endif %}" href="/{{ org.slug }}/admin/projects" {% if current_path == '/' ~ org.slug ~ '/admin/projects' %}aria-current="page"{% endif %}>Projects</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %} primary{% endif %}" href="/{{ org.slug }}/admin/activity-types" {% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %}aria-current="page"{% endif %}>Activity Types</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/tasks' %} primary{% endif %}" href="/{{ org.slug }}/admin/tasks" {% if current_path == '/' ~ org.slug ~ '/admin/tasks' %}aria-current="page"{% endif %}>Tasks</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/holidays' %} primary{% endif %}" href="/{{ org.slug }}/admin/holidays" {% if current_path == '/' ~ org.slug ~ '/admin/holidays' %}aria-current="page"{% endif %}>Holidays</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/settings' %} primary{% endif %}" href="/{{ org.slug }}/admin/settings" {% if current_path == '/' ~ org.slug ~ '/admin/settings' %}aria-current="page"{% endif %}>Settings</a>
+            </div>
           </div>
           {% endif %}
           <form class="logout-form" method="post" action="/{{ org.slug }}/logout">
@@ -907,6 +922,19 @@
       }
       event.preventDefault();
       openQuickTaskModal();
+    });
+
+    const sidebarGroups = document.querySelectorAll("[data-nav-group]");
+    sidebarGroups.forEach((group) => {
+      const toggle = group.querySelector(".nav-section-toggle");
+      if (!toggle) {
+        return;
+      }
+      toggle.addEventListener("click", () => {
+        const nextExpanded = !group.classList.contains("is-expanded");
+        group.classList.toggle("is-expanded", nextExpanded);
+        toggle.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+      });
     });
 
     const sidebarListsContainer = document.querySelector("[data-sidebar-lists]");

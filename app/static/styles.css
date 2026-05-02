@@ -219,17 +219,58 @@ textarea {
   gap: 0.35rem;
 }
 
+.nav-group-body {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.nav-group:not(.is-expanded) .nav-group-body {
+  display: none;
+}
+
+.nav-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.35rem 0.25rem;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+  box-shadow: none;
+}
+
+.nav-section-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .nav-section {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--sidebar-muted);
-  padding: 0 0.35rem 0.25rem;
+  padding: 0;
+}
+
+.nav-section-caret {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-right: 2px solid rgba(238, 243, 246, 0.7);
+  border-bottom: 2px solid rgba(238, 243, 246, 0.7);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+}
+
+.nav-group:not(.is-expanded) .nav-section-caret {
+  transform: rotate(-45deg);
 }
 
 .nav-subsection {
   padding-top: 0.3rem;
+  padding-left: 0.35rem;
 }
 
 .nav-link {
@@ -3162,6 +3203,9 @@ code {
     gap: 1rem;
     padding-top: 1rem;
     align-content: start;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 0.35rem;
   }
 
   .logout-form {
