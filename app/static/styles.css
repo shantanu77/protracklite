@@ -229,7 +229,8 @@ textarea {
   gap: 0.35rem;
 }
 
-.nav-group:not(.is-expanded) .nav-group-body {
+.nav-group:not(.is-expanded) .nav-group-body,
+.nav-subgroup:not(.is-expanded) .nav-group-body {
   display: none;
 }
 
@@ -274,7 +275,8 @@ textarea {
   transition: transform 0.18s ease;
 }
 
-.nav-group:not(.is-expanded) .nav-section-caret {
+.nav-group:not(.is-expanded) .nav-section-caret,
+.nav-subgroup:not(.is-expanded) .nav-section-caret {
   transform: rotate(-45deg);
 }
 
