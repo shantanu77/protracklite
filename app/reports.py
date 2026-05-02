@@ -937,13 +937,28 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
     awards = [award for award in awards if award]
 
     summary = {
-        "active_people": len(team),
+        "active_people": len(leaderboard_rows),
         "hours_logged": round(sum(row["logged_hours"] for row in leaderboard_rows), 2),
         "tasks_completed": sum(row["completed_tasks"] for row in leaderboard_rows),
         "active_log_days": sum(row["active_days"] for row in leaderboard_rows),
     }
 
-    chart_rows = leaderboard_rows[:6]
+    hour_chart_rows = sorted(
+        [row for row in leaderboard_rows if row["logged_hours"] > 0 or row["chargeable_hours"] > 0],
+        key=lambda row: (row["logged_hours"], row["chargeable_hours"], row["score"]),
+        reverse=True,
+    )[:6]
+    delivery_chart_rows = sorted(
+        [row for row in leaderboard_rows if row["completed_tasks"] > 0 or row["active_days"] > 0],
+        key=lambda row: (row["completed_tasks"], row["active_days"], row["on_time_rate"], row["score"]),
+        reverse=True,
+    )[:6]
+    performance_chart_rows = sorted(
+        [row for row in leaderboard_rows if row["logged_hours"] > 0 or row["completed_tasks"] > 0],
+        key=lambda row: (row["score"], row["logged_hours"], row["completed_tasks"]),
+        reverse=True,
+    )[:6]
+
     charts = {
         "hours": [
             {
@@ -951,7 +966,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
                 "logged_hours": row["logged_hours"],
                 "chargeable_hours": row["chargeable_hours"],
             }
-            for row in chart_rows
+            for row in hour_chart_rows
         ],
         "delivery": [
             {
@@ -960,7 +975,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
                 "active_days": row["active_days"],
                 "on_time_rate": row["on_time_rate"],
             }
-            for row in chart_rows
+            for row in delivery_chart_rows
         ],
         "performance": [
             {
@@ -970,7 +985,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
                 "logged_hours": row["logged_hours"],
                 "score": row["score"],
             }
-            for row in chart_rows
+            for row in performance_chart_rows
         ],
     }
 
