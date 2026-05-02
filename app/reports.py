@@ -579,10 +579,11 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
 
 def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None) -> dict:
     today = today or date.today()
-    month_start = today.replace(day=1)
-    recent_window_start = max(month_start, today - timedelta(days=6))
-    previous_window_end = recent_window_start - timedelta(days=1)
-    previous_window_start = max(month_start, previous_window_end - timedelta(days=6)) if previous_window_end >= month_start else None
+    current_week_start, _ = current_week_bounds(today)
+    period_start = current_week_start - timedelta(days=21)
+    recent_window_start = current_week_start
+    previous_window_end = current_week_start - timedelta(days=1)
+    previous_window_start = current_week_start - timedelta(days=7)
 
     team = db.scalars(
         select(User)
@@ -595,7 +596,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
     if not member_ids:
         return {
             "today": today,
-            "month_start": month_start,
+            "period_start": period_start,
             "leaders": [],
             "awards": [],
             "summary": {
@@ -624,7 +625,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
             Task.org_id == org_id,
             Task.is_archived.is_(False),
             TimeLog.user_id.in_(member_ids),
-            TimeLog.log_date >= month_start,
+            TimeLog.log_date >= period_start,
             TimeLog.log_date <= today,
         )
         .group_by(TimeLog.user_id)
@@ -646,7 +647,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
             Task.org_id == org_id,
             Task.is_archived.is_(False),
             TimeLog.user_id.in_(member_ids),
-            TimeLog.log_date >= month_start,
+            TimeLog.log_date >= period_start,
             TimeLog.log_date <= today,
             ActivityType.is_chargeable.is_(True),
         )
@@ -682,7 +683,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
             Task.assigned_to.in_(member_ids),
             Task.status == TaskStatus.CLOSED,
             Task.closed_at.is_not(None),
-            Task.closed_at >= datetime.combine(month_start, datetime.min.time()),
+            Task.closed_at >= datetime.combine(period_start, datetime.min.time()),
             Task.closed_at <= datetime.combine(today, datetime.max.time()),
         )
         .group_by(Task.assigned_to)
@@ -783,7 +784,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         short_names_by_user[member.id] = compact_value if compact_name_counts[compact_value] == 1 else first_name
 
     for member in team:
-        rates = compute_work_rate(db, org_id, member.id, month_start, today)
+        rates = compute_work_rate(db, org_id, member.id, period_start, today)
         month_stats = month_stats_by_user.get(member.id, {})
         completed_stats = completed_stats_by_user.get(member.id, {})
         open_stats = open_stats_by_user.get(member.id, {})
@@ -830,7 +831,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
     if not leaderboard_rows:
         return {
             "today": today,
-            "month_start": month_start,
+            "period_start": period_start,
             "leaders": [],
             "awards": [],
             "summary": {
@@ -928,11 +929,11 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
         }
 
     awards = [
-        build_award("Hours Crown", "Most effort booked this month", "logged_hours", "h", "gold"),
-        build_award("Closer Cup", "Most tasks completed this month", "completed_tasks", "", "coral"),
+        build_award("Hours Crown", "Most effort booked in the last 4 weeks", "logged_hours", "h", "gold"),
+        build_award("Closer Cup", "Most tasks completed in the last 4 weeks", "completed_tasks", "", "coral"),
         build_award("Chargeable Ace", "Highest chargeable hours delivered", "chargeable_hours", "h", "mint"),
         build_award("Consistency Star", "Most active booking days", "active_days", " days", "sky"),
-        build_award("Momentum Rocket", "Strongest recent lift inside this month", "momentum_delta", "h", "sun"),
+        build_award("Momentum Rocket", "Strongest current-week lift over previous week", "momentum_delta", "h", "sun"),
     ]
     awards = [award for award in awards if award]
 
@@ -991,7 +992,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
 
     return {
         "today": today,
-        "month_start": month_start,
+        "period_start": period_start,
         "leaders": leaders,
         "awards": awards,
         "summary": summary,

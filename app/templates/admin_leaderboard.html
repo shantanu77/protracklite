@@ -4,13 +4,13 @@
   <div>
     <p class="eyebrow">Admin Report</p>
     <h1>Leaderboard Arena</h1>
-    <p>Competitive monthly view of team effort, delivery, consistency, and momentum from {{ report.month_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
+    <p>Competitive 4-week view of team effort, delivery, consistency, and momentum from {{ report.period_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
   </div>
 </section>
 
 <section class="leaderboard-hero">
   <div class="leaderboard-hero-copy">
-    <span class="leaderboard-kicker">Monthly Team Championship</span>
+    <span class="leaderboard-kicker">Rolling 4-Week Championship</span>
     <h2>Recognition-first reporting for the whole org.</h2>
     <p>Spotlight the people moving work forward with booked hours, finished tasks, chargeable effort, and consistency in one leaderboard.</p>
   </div>
@@ -82,7 +82,7 @@
   <section class="panel leaderboard-chart-panel report-span-2">
     <div class="panel-head">
       <h2>Hours Duel</h2>
-      <p>Logged hours versus chargeable hours for the strongest performers this month.</p>
+      <p>Logged hours versus chargeable hours for the strongest performers across the current week and 3 previous weeks.</p>
     </div>
     <div class="chart-canvas leaderboard-chart" id="leaderboard-hours-chart" aria-label="Leaderboard hours chart"></div>
   </section>
