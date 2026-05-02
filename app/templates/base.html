@@ -73,6 +73,7 @@
             </button>
             <div class="nav-group-body">
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/admin/dashboard" {% if current_path == '/' ~ org.slug ~ '/admin/dashboard' %}aria-current="page"{% endif %}>Overview</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/leaderboard' %} primary{% endif %}" href="/{{ org.slug }}/admin/leaderboard" {% if current_path == '/' ~ org.slug ~ '/admin/leaderboard' %}aria-current="page"{% endif %}>Leaderboard</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/users' %} primary{% endif %}" href="/{{ org.slug }}/admin/users" {% if current_path == '/' ~ org.slug ~ '/admin/users' %}aria-current="page"{% endif %}>Users</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/projects' %} primary{% endif %}" href="/{{ org.slug }}/admin/projects" {% if current_path == '/' ~ org.slug ~ '/admin/projects' %}aria-current="page"{% endif %}>Projects</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %} primary{% endif %}" href="/{{ org.slug }}/admin/activity-types" {% if current_path == '/' ~ org.slug ~ '/admin/activity-types' %}aria-current="page"{% endif %}>Activity Types</a>

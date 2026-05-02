@@ -39,7 +39,15 @@ from app.models import (
     WorkList,
     WorkListItem,
 )
-from app.reports import calendar_month_report, compute_work_rate, current_week_bounds, monday_report, previous_week_bounds, reports_overview
+from app.reports import (
+    admin_leaderboard_report,
+    calendar_month_report,
+    compute_work_rate,
+    current_week_bounds,
+    monday_report,
+    previous_week_bounds,
+    reports_overview,
+)
 from app.security import (
     create_access_token,
     create_refresh_token,
@@ -3154,6 +3162,22 @@ def admin_dashboard_page(request: Request, org_user: tuple[Organization, User] =
             "summary": summary,
             "rows": rows,
             "settings": get_org_settings(db, org.id),
+        },
+    )
+
+
+@app.get("/{org_slug}/admin/leaderboard", response_class=HTMLResponse)
+def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
+    must_be_admin(user)
+    report = admin_leaderboard_report(db, org.id)
+    return templates.TemplateResponse(
+        "admin_leaderboard.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "report": report,
         },
     )
 

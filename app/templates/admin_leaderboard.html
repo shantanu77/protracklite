@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head leaderboard-page-head">
+  <div>
+    <p class="eyebrow">Admin Report</p>
+    <h1>Leaderboard Arena</h1>
+    <p>Competitive monthly view of team effort, delivery, consistency, and momentum from {{ report.month_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
+  </div>
+</section>
+
+<section class="leaderboard-hero">
+  <div class="leaderboard-hero-copy">
+    <span class="leaderboard-kicker">Monthly Team Championship</span>
+    <h2>Recognition-first reporting for the whole org.</h2>
+    <p>Spotlight the people moving work forward with booked hours, finished tasks, chargeable effort, and consistency in one leaderboard.</p>
+  </div>
+  <div class="leaderboard-summary-grid">
+    <article class="leaderboard-summary-card">
+      <span>Active People</span>
+      <strong>{{ report.summary.active_people }}</strong>
+    </article>
+    <article class="leaderboard-summary-card">
+      <span>Total Logged</span>
+      <strong>{{ "%.2f"|format(report.summary.hours_logged) }}h</strong>
+    </article>
+    <article class="leaderboard-summary-card">
+      <span>Tasks Completed</span>
+      <strong>{{ report.summary.tasks_completed }}</strong>
+    </article>
+    <article class="leaderboard-summary-card">
+      <span>Booking Days</span>
+      <strong>{{ report.summary.active_log_days }}</strong>
+    </article>
+  </div>
+</section>
+
+<section class="leaderboard-podium">
+  {% for leader in report.leaders %}
+  <article class="leaderboard-podium-card rank-{{ leader.rank }}">
+    <div class="leaderboard-medal">
+      <span class="leaderboard-medal-badge">{{ leader.medal }}</span>
+      <span class="leaderboard-rank">#{{ leader.rank }}</span>
+    </div>
+    <div class="leaderboard-podium-copy">
+      <h2>{{ leader.name }}</h2>
+      <div class="leaderboard-stars" aria-label="{{ leader.star_count }} star rating">
+        {% for _ in range(leader.star_count) %}<span class="filled">&#9733;</span>{% endfor %}
+        {% for _ in range(5 - leader.star_count) %}<span>&#9734;</span>{% endfor %}
+      </div>
+      <p>Performance score {{ "%.1f"|format(leader.score) }}</p>
+    </div>
+    <div class="leaderboard-podium-metrics">
+      {% for item in leader.spotlight %}
+      <span>{{ item }}</span>
+      {% endfor %}
+    </div>
+  </article>
+  {% else %}
+  <article class="panel"><p class="empty">No leaderboard data available yet.</p></article>
+  {% endfor %}
+</section>
+
+<section class="leaderboard-awards">
+  {% for award in report.awards %}
+  <article class="leaderboard-award-card tone-{{ award.tone }}">
+    <div class="leaderboard-award-icon" aria-hidden="true">
+      <svg viewBox="0 0 64 64" fill="none">
+        <path d="M32 6l7.4 14.99L56 23.4 44 35.1l2.83 16.5L32 44.2 17.17 51.6 20 35.1 8 23.4l16.6-2.41L32 6z" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div>
+      <span class="leaderboard-award-title">{{ award.title }}</span>
+      <strong>{{ award.winner }}</strong>
+      <p>{{ award.subtitle }}</p>
+    </div>
+    <span class="leaderboard-award-metric">{{ award.metric_text }}</span>
+  </article>
+  {% endfor %}
+</section>
+
+<div class="grid leaderboard-chart-grid">
+  <section class="panel leaderboard-chart-panel report-span-2">
+    <div class="panel-head">
+      <h2>Hours Duel</h2>
+      <p>Logged hours versus chargeable hours for the strongest performers this month.</p>
+    </div>
+    <div class="chart-canvas leaderboard-chart" id="leaderboard-hours-chart" aria-label="Leaderboard hours chart"></div>
+  </section>
+
+  <section class="panel leaderboard-chart-panel">
+    <div class="panel-head">
+      <h2>Delivery Pulse</h2>
+      <p>Completed tasks, active days, and on-time delivery pressure.</p>
+    </div>
+    <div class="chart-canvas leaderboard-chart" id="leaderboard-delivery-chart" aria-label="Leaderboard delivery chart"></div>
+  </section>
+
+  <section class="panel leaderboard-chart-panel report-span-3">
+    <div class="panel-head">
+      <h2>Competition Map</h2>
+      <p>Utilization on the x-axis, task completion on the y-axis, bubble size based on booked hours.</p>
+    </div>
+    <div class="chart-canvas leaderboard-chart wide" id="leaderboard-performance-chart" aria-label="Leaderboard performance chart"></div>
+  </section>
+</div>
+
+<section class="panel leaderboard-table-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Full Ranking Table</h2>
+      <p>All competitive metrics, with recognition tied to both output and consistency.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="leaderboard-table">
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Player</th>
+          <th>Score</th>
+          <th>Stars</th>
+          <th>Logged</th>
+          <th>Completed</th>
+          <th>On Time</th>
+          <th>Utilization</th>
+          <th>Chargeable</th>
+          <th>Active Days</th>
+          <th>Momentum</th>
+          <th>Overdue Open</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report.leaderboard %}
+        <tr>
+          <td><span class="leaderboard-rank-pill">#{{ row.rank }}</span></td>
+          <td>
+            <div class="leaderboard-player">
+              <strong>{{ row.name }}</strong>
+              <span>{{ row.current_week_hours }}h this week / {{ row.previous_week_hours }}h last week</span>
+            </div>
+          </td>
+          <td>{{ "%.1f"|format(row.score) }}</td>
+          <td>
+            <div class="leaderboard-stars small" aria-label="{{ row.star_count }} star rating">
+              {% for _ in range(row.star_count) %}<span class="filled">&#9733;</span>{% endfor %}
+              {% for _ in range(5 - row.star_count) %}<span>&#9734;</span>{% endfor %}
+            </div>
+          </td>
+          <td>{{ "%.2f"|format(row.logged_hours) }}h</td>
+          <td>{{ row.completed_tasks }}</td>
+          <td>{{ "%.1f"|format(row.on_time_rate) }}%</td>
+          <td>{{ "%.1f"|format(row.utilization_rate) }}%</td>
+          <td>{{ "%.2f"|format(row.chargeable_hours) }}h</td>
+          <td>{{ row.active_days }}</td>
+          <td>
+            {% if row.momentum_delta > 0 %}
+            <span class="badge success">+{{ "%.2f"|format(row.momentum_delta) }}h</span>
+            {% elif row.momentum_delta < 0 %}
+            <span class="badge danger">{{ "%.2f"|format(row.momentum_delta) }}h</span>
+            {% else %}
+            <span class="badge muted">0.00h</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.overdue_tasks %}
+            <span class="badge danger">{{ row.overdue_tasks }}</span>
+            {% else %}
+            <span class="badge muted">0</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="empty">No leaderboard rows available.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+  (() => {
+    const hoursData = {{ report.charts.hours|tojson }};
+    const deliveryData = {{ report.charts.delivery|tojson }};
+    const performanceData = {{ report.charts.performance|tojson }};
+    const textColor = "#5f6b76";
+    const splitLine = "rgba(18, 38, 49, 0.1)";
+
+    function makeChart(id, optionFactory) {
+      const node = document.getElementById(id);
+      if (!node || typeof echarts === "undefined") {
+        return;
+      }
+      const chart = echarts.init(node);
+      chart.setOption(optionFactory());
+      window.addEventListener("resize", () => chart.resize());
+    }
+
+    makeChart("leaderboard-hours-chart", () => ({
+      tooltip: { trigger: "axis" },
+      legend: { bottom: 0, textStyle: { color: textColor } },
+      grid: { left: 48, right: 24, top: 20, bottom: 52 },
+      xAxis: {
+        type: "category",
+        data: hoursData.map((row) => row.name),
+        axisLabel: { color: textColor, interval: 0, rotate: 20 },
+        axisLine: { lineStyle: { color: splitLine } },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: { color: textColor },
+        splitLine: { lineStyle: { color: splitLine } },
+      },
+      series: [
+        {
+          name: "Logged Hours",
+          type: "bar",
+          barWidth: 18,
+          itemStyle: { color: "#f97316", borderRadius: [8, 8, 0, 0] },
+          data: hoursData.map((row) => row.logged_hours),
+        },
+        {
+          name: "Chargeable Hours",
+          type: "bar",
+          barWidth: 18,
+          itemStyle: { color: "#0f766e", borderRadius: [8, 8, 0, 0] },
+          data: hoursData.map((row) => row.chargeable_hours),
+        },
+      ],
+    }));
+
+    makeChart("leaderboard-delivery-chart", () => ({
+      tooltip: { trigger: "axis" },
+      legend: { bottom: 0, textStyle: { color: textColor } },
+      grid: { left: 48, right: 24, top: 20, bottom: 56 },
+      xAxis: {
+        type: "category",
+        data: deliveryData.map((row) => row.name),
+        axisLabel: { color: textColor, interval: 0, rotate: 20 },
+        axisLine: { lineStyle: { color: splitLine } },
+      },
+      yAxis: [
+        {
+          type: "value",
+          axisLabel: { color: textColor },
+          splitLine: { lineStyle: { color: splitLine } },
+        },
+        {
+          type: "value",
+          axisLabel: { color: textColor, formatter: "{value}%" },
+          splitLine: { show: false },
+        },
+      ],
+      series: [
+        {
+          name: "Completed Tasks",
+          type: "bar",
+          itemStyle: { color: "#1d4ed8", borderRadius: [10, 10, 0, 0] },
+          data: deliveryData.map((row) => row.completed_tasks),
+        },
+        {
+          name: "Active Days",
+          type: "bar",
+          itemStyle: { color: "#14b8a6", borderRadius: [10, 10, 0, 0] },
+          data: deliveryData.map((row) => row.active_days),
+        },
+        {
+          name: "On Time %",
+          type: "line",
+          yAxisIndex: 1,
+          smooth: true,
+          symbolSize: 10,
+          lineStyle: { width: 3, color: "#f59e0b" },
+          itemStyle: { color: "#f59e0b" },
+          data: deliveryData.map((row) => row.on_time_rate),
+        },
+      ],
+    }));
+
+    makeChart("leaderboard-performance-chart", () => ({
+      tooltip: {
+        formatter(params) {
+          const row = performanceData[params.dataIndex];
+          return `${row.name}<br>Utilization: ${row.utilization_rate}%<br>Completed: ${row.completed_tasks}<br>Logged: ${row.logged_hours}h<br>Score: ${row.score}`;
+        },
+      },
+      grid: { left: 56, right: 24, top: 20, bottom: 32 },
+      xAxis: {
+        type: "value",
+        name: "Utilization %",
+        nameTextStyle: { color: textColor },
+        axisLabel: { color: textColor },
+        splitLine: { lineStyle: { color: splitLine } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Completed Tasks",
+        nameTextStyle: { color: textColor },
+        axisLabel: { color: textColor },
+        splitLine: { lineStyle: { color: splitLine } },
+      },
+      series: [
+        {
+          type: "scatter",
+          data: performanceData.map((row) => [
+            row.utilization_rate,
+            row.completed_tasks,
+            Math.max(16, row.logged_hours * 2.4),
+          ]),
+          symbolSize(value) {
+            return value[2];
+          },
+          label: {
+            show: true,
+            formatter(params) {
+              return performanceData[params.dataIndex].name;
+            },
+            color: "#1f2933",
+            fontSize: 11,
+          },
+          itemStyle: {
+            color: "#fb7185",
+            shadowBlur: 18,
+            shadowColor: "rgba(251, 113, 133, 0.25)",
+          },
+        },
+      ],
+    }));
+  })();
+</script>
+{% endblock %}

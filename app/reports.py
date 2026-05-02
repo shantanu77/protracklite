@@ -9,7 +9,7 @@ from decimal import Decimal
 from sqlalchemy import case, false, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus, TimeLog
+from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus, TimeLog, User
 
 
 def current_week_bounds(today: date | None = None) -> tuple[date, date]:
@@ -574,6 +574,363 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
         "week_end": this_sunday,
         "month_start": month_start,
         "today": today,
+    }
+
+
+def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None) -> dict:
+    today = today or date.today()
+    month_start = today.replace(day=1)
+    this_monday, _ = current_week_bounds(today)
+    previous_monday = this_monday - timedelta(days=7)
+    previous_sunday = previous_monday + timedelta(days=6)
+
+    team = db.scalars(
+        select(User)
+        .where(User.org_id == org_id, User.is_active.is_(True))
+        .order_by(User.full_name.asc())
+    ).all()
+    member_ids = [member.id for member in team]
+
+    leaderboard_rows: list[dict] = []
+    if not member_ids:
+        return {
+            "today": today,
+            "month_start": month_start,
+            "leaders": [],
+            "awards": [],
+            "summary": {
+                "active_people": 0,
+                "hours_logged": 0.0,
+                "tasks_completed": 0,
+                "active_log_days": 0,
+            },
+            "charts": {
+                "hours": [],
+                "delivery": [],
+                "performance": [],
+            },
+            "leaderboard": leaderboard_rows,
+        }
+
+    month_time_rows = db.execute(
+        select(
+            TimeLog.user_id,
+            func.coalesce(func.sum(TimeLog.hours), 0).label("logged_hours"),
+            func.count(func.distinct(TimeLog.log_date)).label("active_days"),
+        )
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id.in_(member_ids),
+            TimeLog.log_date >= month_start,
+            TimeLog.log_date <= today,
+        )
+        .group_by(TimeLog.user_id)
+    ).all()
+    month_stats_by_user = {
+        row.user_id: {
+            "logged_hours": float(row.logged_hours or 0),
+            "active_days": int(row.active_days or 0),
+        }
+        for row in month_time_rows
+    }
+
+    month_chargeable_rows = db.execute(
+        select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0).label("chargeable_hours"))
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .join(ActivityType, Task.activity_type_id == ActivityType.id)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id.in_(member_ids),
+            TimeLog.log_date >= month_start,
+            TimeLog.log_date <= today,
+            ActivityType.is_chargeable.is_(True),
+        )
+        .group_by(TimeLog.user_id)
+    ).all()
+    chargeable_hours_by_user = {
+        row.user_id: float(row.chargeable_hours or 0)
+        for row in month_chargeable_rows
+    }
+
+    closed_task_rows = db.execute(
+        select(
+            Task.assigned_to.label("user_id"),
+            func.count(Task.id).label("completed_tasks"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            Task.end_date.is_not(None)
+                            & Task.closed_at.is_not(None)
+                            & (func.date(Task.closed_at) <= Task.end_date),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("on_time_tasks"),
+        )
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            Task.assigned_to.in_(member_ids),
+            Task.status == TaskStatus.CLOSED,
+            Task.closed_at.is_not(None),
+            Task.closed_at >= datetime.combine(month_start, datetime.min.time()),
+            Task.closed_at <= datetime.combine(today, datetime.max.time()),
+        )
+        .group_by(Task.assigned_to)
+    ).all()
+    completed_stats_by_user = {
+        row.user_id: {
+            "completed_tasks": int(row.completed_tasks or 0),
+            "on_time_tasks": int(row.on_time_tasks or 0),
+        }
+        for row in closed_task_rows
+    }
+
+    open_task_rows = db.execute(
+        select(
+            Task.assigned_to.label("user_id"),
+            func.coalesce(
+                func.sum(case((Task.status != TaskStatus.CLOSED, 1), else_=0)),
+                0,
+            ).label("open_tasks"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            (Task.status != TaskStatus.CLOSED)
+                            & Task.end_date.is_not(None)
+                            & (Task.end_date < today),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("overdue_tasks"),
+        )
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            Task.assigned_to.in_(member_ids),
+        )
+        .group_by(Task.assigned_to)
+    ).all()
+    open_stats_by_user = {
+        row.user_id: {
+            "open_tasks": int(row.open_tasks or 0),
+            "overdue_tasks": int(row.overdue_tasks or 0),
+        }
+        for row in open_task_rows
+    }
+
+    current_week_rows = db.execute(
+        select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0).label("hours"))
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id.in_(member_ids),
+            TimeLog.log_date >= this_monday,
+            TimeLog.log_date <= today,
+        )
+        .group_by(TimeLog.user_id)
+    ).all()
+    current_week_hours_by_user = {row.user_id: float(row.hours or 0) for row in current_week_rows}
+
+    previous_week_rows = db.execute(
+        select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0).label("hours"))
+        .select_from(TimeLog)
+        .join(Task, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            TimeLog.user_id.in_(member_ids),
+            TimeLog.log_date >= previous_monday,
+            TimeLog.log_date <= previous_sunday,
+        )
+        .group_by(TimeLog.user_id)
+    ).all()
+    previous_week_hours_by_user = {row.user_id: float(row.hours or 0) for row in previous_week_rows}
+
+    for member in team:
+        rates = compute_work_rate(db, org_id, member.id, month_start, today)
+        month_stats = month_stats_by_user.get(member.id, {})
+        completed_stats = completed_stats_by_user.get(member.id, {})
+        open_stats = open_stats_by_user.get(member.id, {})
+        logged_hours = float(month_stats.get("logged_hours", 0))
+        completed_tasks = int(completed_stats.get("completed_tasks", 0))
+        on_time_tasks = int(completed_stats.get("on_time_tasks", 0))
+        active_days = int(month_stats.get("active_days", 0))
+        chargeable_hours = float(chargeable_hours_by_user.get(member.id, 0))
+        available_hours = float(rates["available_hours"] or 0)
+        utilization_rate = round((logged_hours / available_hours * 100) if available_hours else 0, 2)
+        chargeable_share = round((chargeable_hours / logged_hours * 100) if logged_hours else 0, 2)
+        on_time_rate = round((on_time_tasks / completed_tasks * 100) if completed_tasks else 0, 2)
+        current_week_hours = float(current_week_hours_by_user.get(member.id, 0))
+        previous_week_hours = float(previous_week_hours_by_user.get(member.id, 0))
+        momentum_delta = round(current_week_hours - previous_week_hours, 2)
+        leaderboard_rows.append(
+            {
+                "member_id": member.id,
+                "name": member.full_name,
+                "logged_hours": round(logged_hours, 2),
+                "chargeable_hours": round(chargeable_hours, 2),
+                "active_days": active_days,
+                "completed_tasks": completed_tasks,
+                "on_time_tasks": on_time_tasks,
+                "on_time_rate": on_time_rate,
+                "available_hours": round(available_hours, 2),
+                "utilization_rate": utilization_rate,
+                "chargeable_share": chargeable_share,
+                "open_tasks": int(open_stats.get("open_tasks", 0)),
+                "overdue_tasks": int(open_stats.get("overdue_tasks", 0)),
+                "current_week_hours": round(current_week_hours, 2),
+                "previous_week_hours": round(previous_week_hours, 2),
+                "momentum_delta": momentum_delta,
+            }
+        )
+
+    def normalized(value: float, max_value: float) -> float:
+        return (value / max_value) if max_value > 0 else 0.0
+
+    max_logged = max((row["logged_hours"] for row in leaderboard_rows), default=0.0)
+    max_completed = max((row["completed_tasks"] for row in leaderboard_rows), default=0)
+    max_active_days = max((row["active_days"] for row in leaderboard_rows), default=0)
+    max_utilization = max((row["utilization_rate"] for row in leaderboard_rows), default=0.0)
+    max_chargeable = max((row["chargeable_hours"] for row in leaderboard_rows), default=0.0)
+
+    for row in leaderboard_rows:
+        score = (
+            normalized(row["logged_hours"], max_logged) * 0.35
+            + normalized(row["completed_tasks"], max_completed) * 0.25
+            + normalized(row["active_days"], max_active_days) * 0.15
+            + normalized(row["utilization_rate"], max_utilization) * 0.15
+            + normalized(row["chargeable_hours"], max_chargeable) * 0.05
+            + (row["on_time_rate"] / 100.0) * 0.05
+        )
+        row["score"] = round(score * 100, 1)
+        row["star_count"] = max(1, min(5, ceil(row["score"] / 20)))
+
+    leaderboard_rows.sort(
+        key=lambda row: (
+            row["score"],
+            row["logged_hours"],
+            row["completed_tasks"],
+            row["active_days"],
+            row["chargeable_hours"],
+        ),
+        reverse=True,
+    )
+
+    for index, row in enumerate(leaderboard_rows, start=1):
+        row["rank"] = index
+
+    medal_labels = ["Gold", "Silver", "Bronze"]
+    leaders = []
+    for index, row in enumerate(leaderboard_rows[:3]):
+        leaders.append(
+            {
+                **row,
+                "medal": medal_labels[index],
+                "spotlight": [
+                    f"{row['logged_hours']:.2f}h booked",
+                    f"{row['completed_tasks']} tasks completed",
+                    f"{row['utilization_rate']:.1f}% utilization",
+                ],
+            }
+        )
+
+    def build_award(title: str, subtitle: str, metric_key: str, suffix: str, tone: str) -> dict | None:
+        if not leaderboard_rows:
+            return None
+        winner = max(
+            leaderboard_rows,
+            key=lambda row: (
+                row[metric_key],
+                row["score"],
+                row["logged_hours"],
+                row["completed_tasks"],
+            ),
+        )
+        if winner[metric_key] <= 0:
+            return None
+        metric_value = winner[metric_key]
+        if isinstance(metric_value, float):
+            metric_text = f"{metric_value:.2f}{suffix}"
+        else:
+            metric_text = f"{metric_value}{suffix}"
+        return {
+            "title": title,
+            "subtitle": subtitle,
+            "winner": winner["name"],
+            "metric_text": metric_text,
+            "tone": tone,
+        }
+
+    awards = [
+        build_award("Hours Crown", "Most effort booked this month", "logged_hours", "h", "gold"),
+        build_award("Closer Cup", "Most tasks completed this month", "completed_tasks", "", "coral"),
+        build_award("Chargeable Ace", "Highest chargeable hours delivered", "chargeable_hours", "h", "mint"),
+        build_award("Consistency Star", "Most active booking days", "active_days", " days", "sky"),
+        build_award("Momentum Rocket", "Strongest week-over-week lift", "momentum_delta", "h", "sun"),
+    ]
+    awards = [award for award in awards if award]
+
+    summary = {
+        "active_people": len(team),
+        "hours_logged": round(sum(row["logged_hours"] for row in leaderboard_rows), 2),
+        "tasks_completed": sum(row["completed_tasks"] for row in leaderboard_rows),
+        "active_log_days": sum(row["active_days"] for row in leaderboard_rows),
+    }
+
+    charts = {
+        "hours": [
+            {
+                "name": row["name"],
+                "logged_hours": row["logged_hours"],
+                "chargeable_hours": row["chargeable_hours"],
+            }
+            for row in leaderboard_rows[:8]
+        ],
+        "delivery": [
+            {
+                "name": row["name"],
+                "completed_tasks": row["completed_tasks"],
+                "active_days": row["active_days"],
+                "on_time_rate": row["on_time_rate"],
+            }
+            for row in leaderboard_rows[:8]
+        ],
+        "performance": [
+            {
+                "name": row["name"],
+                "utilization_rate": row["utilization_rate"],
+                "completed_tasks": row["completed_tasks"],
+                "logged_hours": row["logged_hours"],
+                "score": row["score"],
+            }
+            for row in leaderboard_rows
+        ],
+    }
+
+    return {
+        "today": today,
+        "month_start": month_start,
+        "leaders": leaders,
+        "awards": awards,
+        "summary": summary,
+        "charts": charts,
+        "leaderboard": leaderboard_rows,
     }
 
 
