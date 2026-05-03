@@ -44,8 +44,15 @@ def daterange(start_date: date, end_date: date):
         cursor += timedelta(days=1)
 
 
-def compute_work_rate(db: Session, org_id: int, user_id: int, from_date: date, to_date: date) -> dict:
-    settings = db.scalar(select(OrgSettings).where(OrgSettings.org_id == org_id))
+def compute_work_rate(
+    db: Session,
+    org_id: int,
+    user_id: int,
+    from_date: date,
+    to_date: date,
+    settings: OrgSettings | None = None,
+) -> dict:
+    settings = settings or db.scalar(select(OrgSettings).where(OrgSettings.org_id == org_id))
     weekend_days = set((settings.weekend_days if settings else [5, 6]) or [5, 6])
     work_hours_per_day = Decimal(str(settings.work_hours_per_day if settings else "8.00"))
 

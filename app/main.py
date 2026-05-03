@@ -357,6 +357,10 @@ def ensure_query_indexes() -> None:
                 "CREATE INDEX ix_tasks_org_assignee_archived_end "
                 "ON tasks (org_id, assigned_to, is_archived, end_date)"
             ),
+            "ix_tasks_org_assignee_archived_end_rank_created": (
+                "CREATE INDEX ix_tasks_org_assignee_archived_end_rank_created "
+                "ON tasks (org_id, assigned_to, is_archived, end_date, dashboard_rank, created_at)"
+            ),
             "ix_tasks_org_archived_created": (
                 "CREATE INDEX ix_tasks_org_archived_created "
                 "ON tasks (org_id, is_archived, created_at)"
@@ -365,6 +369,10 @@ def ensure_query_indexes() -> None:
         "time_logs": {
             "ix_time_logs_user_log_date": "CREATE INDEX ix_time_logs_user_log_date ON time_logs (user_id, log_date)",
             "ix_time_logs_task_log_date": "CREATE INDEX ix_time_logs_task_log_date ON time_logs (task_id, log_date)",
+            "ix_time_logs_user_log_date_task_created": (
+                "CREATE INDEX ix_time_logs_user_log_date_task_created "
+                "ON time_logs (user_id, log_date, task_id, created_at)"
+            ),
         },
         "work_lists": {
             "ix_work_lists_owner_archived_sort_updated": (
@@ -1388,54 +1396,48 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
         ).all()
     ]
 
-    month_logged_hours = db.scalar(
-        select(func.coalesce(func.sum(TimeLog.hours), 0))
+    week_rates = compute_work_rate(db, org.id, user.id, week_start, today, settings=settings_obj)
+
+    monthly_hours_by_user = (
+        select(
+            TimeLog.user_id.label("user_id"),
+            func.coalesce(func.sum(TimeLog.hours), 0).label("month_hours"),
+        )
         .select_from(TimeLog)
         .join(Task, TimeLog.task_id == Task.id)
         .where(
             Task.org_id == org.id,
+            Task.assigned_to == TimeLog.user_id,
             Task.is_archived.is_(False),
-            TimeLog.user_id == user.id,
             TimeLog.log_date >= month_start,
             TimeLog.log_date <= today,
         )
+        .group_by(TimeLog.user_id)
+        .subquery()
     )
-    week_rates = compute_work_rate(db, org.id, user.id, week_start, today)
-
-    monthly_ranking_rows = db.execute(
+    monthly_rankings = (
         select(
-            User.id,
-            User.full_name,
-            func.coalesce(func.sum(TimeLog.hours), 0).label("month_hours"),
+            User.id.label("user_id"),
+            func.dense_rank()
+            .over(
+                order_by=(
+                    func.coalesce(monthly_hours_by_user.c.month_hours, 0).desc(),
+                    User.full_name.asc(),
+                )
+            )
+            .label("month_rank"),
+            func.count().over().label("team_size"),
         )
         .select_from(User)
-        .outerjoin(
-            Task,
-            and_(
-                Task.assigned_to == User.id,
-                Task.org_id == org.id,
-                Task.is_archived.is_(False),
-            ),
-        )
-        .outerjoin(
-            TimeLog,
-            and_(
-                TimeLog.user_id == User.id,
-                TimeLog.task_id == Task.id,
-                TimeLog.log_date >= month_start,
-                TimeLog.log_date <= today,
-            ),
-        )
+        .outerjoin(monthly_hours_by_user, monthly_hours_by_user.c.user_id == User.id)
         .where(User.org_id == org.id, User.is_active.is_(True))
-        .group_by(User.id, User.full_name)
-        .order_by(func.coalesce(func.sum(TimeLog.hours), 0).desc(), User.full_name.asc())
-    ).all()
-
-    month_rank = None
-    for index, row in enumerate(monthly_ranking_rows, start=1):
-        if row.id == user.id:
-            month_rank = index
-            break
+        .subquery()
+    )
+    monthly_rank_row = db.execute(
+        select(monthly_rankings.c.month_rank, monthly_rankings.c.team_size).where(monthly_rankings.c.user_id == user.id)
+    ).one_or_none()
+    month_rank = int(monthly_rank_row.month_rank) if monthly_rank_row else None
+    team_size = int(monthly_rank_row.team_size) if monthly_rank_row else 0
 
     return {
         "today": today,
@@ -1445,7 +1447,7 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
             "week_logged_hours": round(float(week_rates["total_logged_hours"] or 0), 2),
             "week_booking_rate": round(float(week_rates["total_rate"] or 0), 2),
             "month_rank": month_rank,
-            "team_size": len(monthly_ranking_rows),
+            "team_size": team_size,
         },
         "worked_today": worked_today,
         "tasks_needing_action": tasks_needing_action,
