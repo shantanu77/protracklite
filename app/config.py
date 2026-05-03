@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "ProtrackLite"
     app_env: str = "development"
+    app_timezone: str = "Asia/Kolkata"
     secret_key: str = "change-this-in-production"
     jwt_algorithm: str = "HS256"
     access_token_ttl_minutes: int = 10080

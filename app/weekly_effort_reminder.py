@@ -25,6 +25,7 @@ if not settings.database_url.strip():
 from app.database import SessionLocal, engine
 from app.models import Organization, User
 from app.reports import compute_work_rate, current_week_bounds
+from app.time_utils import local_today
 
 
 @dataclass
@@ -191,7 +192,7 @@ def main() -> int:
     args = parse_args()
     ensure_tasks_schema()
     ensure_users_schema()
-    today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
+    today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else local_today()
     results = run_reminders(args.email, args.org_slug, args.threshold, args.dry_run, today)
 
     if args.email and not results:

@@ -10,10 +10,11 @@ from sqlalchemy import case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus, TimeLog, User
+from app.time_utils import local_now, local_today
 
 
 def current_week_bounds(today: date | None = None) -> tuple[date, date]:
-    today = today or date.today()
+    today = today or local_today()
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
     return monday, sunday
@@ -146,7 +147,7 @@ def compute_work_rate(
 
 
 def monday_report(db: Session, org_id: int, user_id: int, today: date | None = None) -> dict:
-    today = today or date.today()
+    today = today or local_today()
     this_monday, this_sunday = current_week_bounds(today)
     prev_monday, prev_sunday = previous_week_bounds(today)
     two_week_cutoff = prev_monday - timedelta(days=7)
@@ -393,8 +394,8 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
 
 
 def reports_overview(db: Session, org_id: int, user_id: int, today: date | None = None) -> dict:
-    today = today or date.today()
-    now = datetime.now()
+    today = today or local_today()
+    now = local_now()
     this_monday, this_sunday = current_week_bounds(today)
     month_start = today.replace(day=1)
 
@@ -585,7 +586,7 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
 
 
 def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None) -> dict:
-    today = today or date.today()
+    today = today or local_today()
     current_week_start, _ = current_week_bounds(today)
     period_start = current_week_start - timedelta(days=21)
     recent_window_start = current_week_start
@@ -1012,7 +1013,7 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
 
 
 def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: date, selected_day: date | None = None) -> dict:
-    today = date.today()
+    today = local_today()
     month_start, month_end = month_bounds(month_anchor)
     selected_day = selected_day or (today if month_start <= today <= month_end else month_start)
     if selected_day < month_start:
