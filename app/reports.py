@@ -276,13 +276,13 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
 
     previous_week_booked_hours = last_week_rates["total_logged_hours"]
     previous_week_available_hours = last_week_rates["available_hours"]
-    previous_week_target_hours = round(min(35.0, previous_week_available_hours), 2)
+    previous_week_target_hours = round(previous_week_available_hours, 2)
     previous_week_effort_rate = last_week_rates["total_rate"]
 
     booking_health_tone = "success"
-    if previous_week_effort_rate < 80 or previous_week_booked_hours < previous_week_target_hours:
+    if previous_week_effort_rate < 80:
         booking_health_tone = "danger"
-    elif previous_week_effort_rate < 90:
+    elif previous_week_effort_rate < 100:
         booking_health_tone = "warning"
 
     pending_from_last_week_count = sum(1 for task in pending_tasks if task.start_date and prev_monday <= task.start_date <= prev_sunday)
@@ -291,7 +291,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
 
     booking_summary = (
         f"Last week: {previous_week_booked_hours:.2f}h booked against "
-        f"{previous_week_target_hours:.2f}h target, {pending_from_last_week_count} task"
+        f"{previous_week_target_hours:.2f}h available, {pending_from_last_week_count} task"
         f"{'' if pending_from_last_week_count == 1 else 's'} carried from last week, "
         f"{pending_more_than_two_weeks_count} older than 2 weeks."
     )

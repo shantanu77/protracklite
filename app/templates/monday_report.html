@@ -99,7 +99,7 @@
   <div class="stat {{ report.previous_week_booking_tone }}">
     <span>Booked Hours</span>
     <strong>{{ "%.2f"|format(report.previous_week_effort_hours) }}h</strong>
-    <small>Target {{ "%.2f"|format(report.previous_week_target_hours) }}h</small>
+    <small>Available {{ "%.2f"|format(report.previous_week_target_hours) }}h</small>
   </div>
   <div class="stat {{ report.previous_week_booking_tone }}">
     <span>Booked %</span>
@@ -122,7 +122,7 @@
 <section class="panel monday-summary-panel">
   <p>
     Last week: {{ "%.2f"|format(report.previous_week_effort_hours) }}h booked against
-    {{ "%.2f"|format(report.previous_week_target_hours) }}h target,
+    {{ "%.2f"|format(report.previous_week_target_hours) }}h available,
     {{ report.pending_from_last_week_count }} task{% if report.pending_from_last_week_count != 1 %}s{% endif %} carried from last week,
     <strong>{{ report.pending_more_than_two_weeks_count }} older than 2 weeks.</strong>
   </p>
