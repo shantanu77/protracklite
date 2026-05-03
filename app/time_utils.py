@@ -13,7 +13,7 @@ def app_timezone() -> ZoneInfo:
 
 
 def local_now() -> datetime:
-    return datetime.now(app_timezone())
+    return datetime.now(app_timezone()).replace(tzinfo=None)
 
 
 def local_today() -> date:
