@@ -185,7 +185,6 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             Task.status != TaskStatus.STALLED,
             Task.start_date < this_monday,
             Task.start_date.is_not(None),
-            Task.end_date.is_not(None),
         )
         .order_by(Task.start_date.asc(), null_end_date_last.asc(), Task.end_date.asc(), Task.created_at.asc())
     ).all()
@@ -230,10 +229,34 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
     ).all()
 
-    report_task_ids = [
-        task.id
-        for task in [*this_week_tasks, *pending_tasks, *completed_tasks, *stalled_tasks]
-    ]
+    last_week_logs = db.scalars(
+        select(TimeLog)
+        .where(
+            TimeLog.user_id == user_id,
+            TimeLog.log_date >= prev_monday,
+            TimeLog.log_date <= prev_sunday,
+        )
+        .order_by(TimeLog.task_id.asc(), TimeLog.log_date.desc(), TimeLog.created_at.desc())
+    ).all()
+    report_hours_by_task_id: dict[int, float] = defaultdict(float)
+    report_logs_by_task_id: dict[int, list[dict]] = defaultdict(list)
+    worked_last_week_task_ids: list[int] = []
+    seen_worked_task_ids: set[int] = set()
+    for log in last_week_logs:
+        report_hours_by_task_id[log.task_id] += float(log.hours or 0)
+        report_logs_by_task_id[log.task_id].append(
+            {
+                "date": log.log_date,
+                "hours": float(log.hours or 0),
+                "notes": log.notes or "",
+            }
+        )
+        if log.task_id not in seen_worked_task_ids:
+            worked_last_week_task_ids.append(log.task_id)
+            seen_worked_task_ids.add(log.task_id)
+
+    report_task_ids = {task.id for task in [*this_week_tasks, *pending_tasks, *completed_tasks, *stalled_tasks]}
+    report_task_ids.update(worked_last_week_task_ids)
     logs_by_task_id: dict[int, list[dict]] = defaultdict(list)
     latest_log_moment_by_task_id: dict[int, datetime] = {}
     if report_task_ids:
@@ -324,12 +347,14 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "start_date_label": format_short_date(task.start_date),
             "end_date_label": format_short_date(task.end_date),
             "logged_hours": float(task.logged_hours or 0),
+            "report_hours": round(report_hours_by_task_id.get(task.id, 0.0), 2),
             "estimated_hours": float(task.estimated_hours) if task.estimated_hours is not None else None,
             "deadline_label": deadline_label,
             "deadline_tone": deadline_tone,
             "overdue_days": overdue_days,
             "stalled_reason": task.stalled_reason or "",
             "time_logs": logs_by_task_id.get(task.id, []),
+            "report_time_logs": report_logs_by_task_id.get(task.id, []),
         }
 
     def serialize_completed_task(task: Task) -> dict:
@@ -362,12 +387,31 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             "end_date_label": format_short_date(task.end_date),
             "closed_at_label": format_short_date(task.closed_at.date() if task.closed_at else None),
             "logged_hours": logged_hours,
+            "report_hours": round(report_hours_by_task_id.get(task.id, 0.0), 2),
             "estimated_hours": estimated_hours,
             "effort_percent": effort_percent,
             "effort_label": effort_label,
             "effort_tone": effort_tone,
             "time_logs": logs_by_task_id.get(task.id, []),
+            "report_time_logs": report_logs_by_task_id.get(task.id, []),
         }
+
+    task_lookup = {
+        task.id: task
+        for task in [*this_week_tasks, *pending_tasks, *completed_tasks, *stalled_tasks]
+    }
+    missing_worked_task_ids = [task_id for task_id in worked_last_week_task_ids if task_id not in task_lookup]
+    if missing_worked_task_ids:
+        missing_tasks = db.scalars(select(Task).where(Task.id.in_(missing_worked_task_ids))).all()
+        for task in missing_tasks:
+            task_lookup[task.id] = task
+
+    worked_last_week_tasks = [
+        serialize_completed_task(task_lookup[task_id]) if task_lookup[task_id].status == TaskStatus.CLOSED else serialize_open_task(task_lookup[task_id])
+        for task_id in worked_last_week_task_ids
+        if task_id in task_lookup
+    ]
+    worked_last_week_tasks.sort(key=lambda task: (-task["report_hours"], task["task_id"]))
 
     return {
         "week_start": this_monday,
@@ -384,6 +428,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         "pending_more_than_two_weeks_count": pending_more_than_two_weeks_count,
         "total_open_task_count": total_open_task_count,
         "booking_summary": booking_summary,
+        "worked_last_week_tasks": worked_last_week_tasks,
         "this_week_tasks": [serialize_open_task(task) for task in this_week_tasks],
         "pending_tasks": [serialize_open_task(task) for task in pending_tasks],
         "backlog_tasks": [serialize_open_task(task) for task in backlog_tasks],

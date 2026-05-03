@@ -8,15 +8,15 @@
           <strong>{{ task.task_id }}</strong>
           <div class="report-row-badges">
             {% if card_kind == "completed" %}
-            <span class="report-hours-pill emphasis">{{ "%.2f"|format(task.logged_hours or 0) }}h actual</span>
+            <span class="report-hours-pill emphasis">{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
             <span class="badge success">closed</span>
             <span class="deadline-pill {{ task.effort_tone }}">{{ task.effort_label }}</span>
             {% elif card_kind == "stalled" %}
-            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="report-hours-pill">{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
             <span class="badge danger">stalled</span>
             <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
             {% else %}
-            <span class="report-hours-pill">{{ "%.2f"|format(task.logged_hours or 0) }}h logged</span>
+            <span class="report-hours-pill">{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
             <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
             <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
             {% endif %}
@@ -28,7 +28,7 @@
           {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
           {% if task.end_date_label %} · End: {{ task.end_date_label }}{% endif %}
           {% if task.closed_at_label %} · Closed: {{ task.closed_at_label }}{% endif %}
-          · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h
+          · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h · total actual {{ "%.2f"|format(task.logged_hours or 0) }}h
           {% else %}
           {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
           {% if task.end_date_label %} · End: {{ task.end_date_label }}{% else %} · End: Not set{% endif %}
@@ -65,9 +65,9 @@
       </div>
       {% endif %}
       <div class="monday-task-detail-block">
-        <span class="monday-task-detail-label">Booked Hour Log</span>
+        <span class="monday-task-detail-label">Booked Hour Log (Last Week)</span>
         <div class="dashboard-log-list">
-          {% for log in task.time_logs %}
+          {% for log in task.report_time_logs %}
           <article class="dashboard-log-item">
             <div class="dashboard-log-meta">
               <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
@@ -128,6 +128,15 @@
   </p>
 </section>
 <div class="grid">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Worked Last Week</h2>
+      <p>Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.</p>
+    </div>
+    {% for task in report.worked_last_week_tasks %}
+    {{ render_task_card(task, "completed" if task.status == "closed" else "open") }}
+    {% else %}<p class="empty">No effort was booked last week.</p>{% endfor %}
+  </section>
   <section class="panel">
     <div class="panel-head">
       <h2>Completed Tasks</h2>
