@@ -1248,11 +1248,7 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
             Task.org_id == org.id,
             Task.assigned_to == user.id,
             Task.is_archived.is_(False),
-            or_(
-                Task.status != TaskStatus.CLOSED,
-                Task.start_date.between(monday, sunday),
-                Task.end_date.between(monday, sunday),
-            ),
+            Task.status != TaskStatus.CLOSED,
         )
         .order_by(Task.dashboard_rank.asc(), Task.start_date.asc(), Task.created_at.desc())
     ).all()
@@ -1278,16 +1274,9 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
         in_this_week = (
             (task.start_date and monday <= task.start_date <= sunday)
             or (task.end_date and monday <= task.end_date <= sunday)
-            or (
-                task.status == TaskStatus.CLOSED
-                and task.closed_at is not None
-                and datetime.combine(monday, datetime.min.time()) <= task.closed_at <= datetime.combine(sunday, datetime.max.time())
-            )
         )
         if in_this_week:
             groups["week"].append(summary)
-        if task.status == TaskStatus.CLOSED or task.closed_at is not None:
-            continue
         if task.start_date == today or task.end_date == today:
             groups["today"].append(summary)
         elif task.end_date and task.end_date < today:

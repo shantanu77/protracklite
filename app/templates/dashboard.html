@@ -85,12 +85,11 @@
     <div class="panel-head">
       <div>
         <h2>This Week</h2>
-        <p>All tasks targeted for this week, including completed work.</p>
+        <p>Open tasks targeted for this week.</p>
       </div>
-      <label class="checkbox"><input type="checkbox" data-dashboard-week-toggle="completed" checked>Show Completed</label>
     </div>
     {% for task in groups.week %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-completed="{{ 'true' if task.status == 'closed' else 'false' }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -300,7 +299,7 @@
       <p>Tasks completed in the current week.</p>
     </div>
     {% for task in groups.completed %}
-    <div class="task-card deadline-card upcoming dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card upcoming dashboard-task-card dashboard-task-card-completed" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -464,9 +463,6 @@
   })();
 
   (() => {
-    const storageKey = "ptlite-dashboard-week-show-completed";
-    const weekCompletedToggle = document.querySelector("[data-dashboard-week-toggle=\"completed\"]");
-    const weekTasks = Array.from(document.querySelectorAll("[data-dashboard-week-task]"));
     const weekEmptyState = document.querySelector("[data-dashboard-week-empty]");
     const dashboardSearchInput = document.querySelector("[data-dashboard-search-input]");
     const dashboardColorFilter = document.querySelector("[data-dashboard-color-filter]");
@@ -479,15 +475,6 @@
     const dashboardSearchHint = document.querySelector("[data-dashboard-search-hint]");
     const taskCards = Array.from(document.querySelectorAll("[data-dashboard-task-card]"));
     const taskLogCache = new Map();
-    if (!weekCompletedToggle) {
-      return;
-    }
-
-    const savedPreference = localStorage.getItem(storageKey);
-    if (savedPreference !== null) {
-      weekCompletedToggle.checked = savedPreference !== "false";
-    }
-
     function escapeHtml(value) {
       return String(value)
         .replaceAll("&", "&amp;")
@@ -678,9 +665,7 @@
         const matchesSearch = !searchTerm || getCombinedSearchText(taskCard).includes(searchTerm);
         const matchesColor = !colorFilter || (taskCard.dataset.taskColor || "").toLowerCase() === colorFilter;
         const isWeekTask = taskCard.hasAttribute("data-dashboard-week-task");
-        const isCompleted = taskCard.dataset.taskCompleted === "true";
-        const matchesWeekCompletion = !isWeekTask || weekCompletedToggle.checked || !isCompleted;
-        const shouldShow = matchesSearch && matchesColor && matchesWeekCompletion;
+        const shouldShow = matchesSearch && matchesColor;
         taskCard.style.display = shouldShow ? "" : "none";
         if (shouldShow && isWeekTask) {
           visibleTaskCount += 1;
@@ -702,7 +687,6 @@
         }
       }
       applyHighlights(searchTerm);
-      localStorage.setItem(storageKey, String(weekCompletedToggle.checked));
     }
 
     taskCards.forEach((taskCard) => {
@@ -715,7 +699,6 @@
       });
     });
 
-    weekCompletedToggle.addEventListener("change", syncWeekCompletedVisibility);
     dashboardSearchInput?.addEventListener("input", () => {
       ensureLogsLoadedForSearch();
       syncWeekCompletedVisibility();

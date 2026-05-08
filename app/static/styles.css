@@ -1389,6 +1389,18 @@ label:not(.checkbox) textarea {
   color: var(--muted);
 }
 
+.dashboard-task-card-completed {
+  border-color: rgba(31, 122, 82, 0.2);
+  background: linear-gradient(180deg, rgba(238, 249, 242, 0.98), rgba(255, 255, 255, 1));
+  box-shadow: inset 4px 0 0 rgba(31, 122, 82, 0.72);
+}
+
+.dashboard-task-card-completed .chip,
+.dashboard-task-card-completed strong,
+.dashboard-task-card-completed small {
+  color: #1c5f41;
+}
+
 .today-task-complete-icon {
   width: 2.5rem;
   min-width: 2.5rem;
