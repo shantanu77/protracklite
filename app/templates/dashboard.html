@@ -80,6 +80,62 @@
   </div>
 </section>
 
+<section class="panel dashboard-leave-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Week Leave</h2>
+      <p>Mark leave days for {{ week_start.strftime("%d %b") }} to {{ week_end.strftime("%d %b %Y") }} so lower booked hours are visible to everyone.</p>
+    </div>
+  </div>
+  <div class="dashboard-leave-layout">
+    <form class="dashboard-leave-form" data-dashboard-leave-form>
+      <label>
+        Date
+        <input type="date" name="leave_date" min="{{ week_start.isoformat() }}" max="{{ week_end.isoformat() }}" value="{{ today.isoformat() if week_start <= today <= week_end else week_start.isoformat() }}" required>
+      </label>
+      <label>
+        Type
+        <select name="leave_type">
+          <option value="full">Full Day</option>
+          <option value="half_am">Half Day AM</option>
+          <option value="half_pm">Half Day PM</option>
+        </select>
+      </label>
+      <label class="full">
+        Note
+        <input type="text" name="reason" maxlength="255" placeholder="Optional note">
+      </label>
+      <button type="submit">Save Leave Day</button>
+      <p class="dashboard-leave-feedback" data-dashboard-leave-feedback hidden></p>
+    </form>
+    <div class="dashboard-leave-week" data-dashboard-leave-week>
+      {% for day in week_leave_days %}
+      <article
+        class="dashboard-leave-day is-{{ day.status }}"
+        data-dashboard-leave-day
+        data-date="{{ day.date.isoformat() }}"
+        data-status="{{ day.status }}"
+        data-base-status="{{ day.base_status }}"
+        data-base-value="{{ day.base_value_short }}"
+        data-base-detail="{{ day.base_detail }}"
+      >
+        <div>
+          <span>{{ day.day_short }}</span>
+          <strong>{{ day.value_short }}</strong>
+        </div>
+        <small>
+          {{ day.date.strftime("%d %b") }}
+          {% if day.leave_reason %}· {{ day.leave_reason }}{% elif day.detail %}· {{ day.detail }}{% endif %}
+        </small>
+        {% if day.status == "leave" %}
+        <button type="button" class="button secondary small-button" data-dashboard-leave-delete data-date="{{ day.date.isoformat() }}" data-leave-id="{{ day.leave_id }}">Remove</button>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
 <div class="dashboard-grid" data-dashboard-grid>
   <section class="panel dashboard-focus-section" data-dashboard-section="week">
     <div class="panel-head">
@@ -392,6 +448,114 @@
   </div>
 </div>
 <script>
+  (() => {
+    const form = document.querySelector("[data-dashboard-leave-form]");
+    const weekWrap = document.querySelector("[data-dashboard-leave-week]");
+    const feedback = document.querySelector("[data-dashboard-leave-feedback]");
+    if (!form || !weekWrap || !feedback) {
+      return;
+    }
+
+    function renderMessage(message, isError = false) {
+      feedback.hidden = !message;
+      feedback.textContent = message;
+      feedback.classList.toggle("is-error", Boolean(message) && isError);
+    }
+
+    async function loadLeaves() {
+      const response = await fetch("/api/v1/leaves/");
+      if (!response.ok) {
+        throw new Error("Unable to load leaves.");
+      }
+      return response.json();
+    }
+
+    function leaveLabel(type) {
+      if (type === "full") return "L";
+      if (type === "half_am") return "AM";
+      if (type === "half_pm") return "PM";
+      return "";
+    }
+
+    function syncLeaveDays(leaves) {
+      const leaveMap = new Map(leaves.map((item) => [item.leave_date, item]));
+      weekWrap.querySelectorAll("[data-dashboard-leave-day]").forEach((card) => {
+        const leave = leaveMap.get(card.dataset.date);
+        const valueNode = card.querySelector("strong");
+        const detailNode = card.querySelector("small");
+        let removeButton = card.querySelector("[data-dashboard-leave-delete]");
+        if (leave) {
+          card.dataset.status = "leave";
+          card.className = "dashboard-leave-day is-leave";
+          if (valueNode) valueNode.textContent = leaveLabel(leave.leave_type);
+          if (detailNode) {
+            const parts = detailNode.textContent.split("·");
+            detailNode.textContent = `${parts[0].trim()} · ${leave.reason || "On leave."}`;
+          }
+          if (!removeButton) {
+            removeButton = document.createElement("button");
+            removeButton.type = "button";
+            removeButton.className = "button secondary small-button";
+            removeButton.dataset.dashboardLeaveDelete = "";
+            removeButton.dataset.date = card.dataset.date;
+            removeButton.textContent = "Remove";
+            card.appendChild(removeButton);
+          }
+          removeButton.dataset.leaveId = String(leave.id);
+        } else {
+          const originalStatus = card.dataset.baseStatus || "empty";
+          card.dataset.status = originalStatus;
+          card.className = `dashboard-leave-day is-${originalStatus}`;
+          if (valueNode) valueNode.textContent = card.dataset.baseValue || "0h";
+          if (detailNode) {
+            const parts = detailNode.textContent.split("·");
+            const baseDetail = card.dataset.baseDetail?.trim();
+            detailNode.textContent = baseDetail ? `${parts[0].trim()} · ${baseDetail}` : parts[0].trim();
+          }
+          removeButton?.remove();
+        }
+      });
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      renderMessage("");
+      const payload = Object.fromEntries(new FormData(form).entries());
+      try {
+        const response = await fetch("/api/v1/leaves/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error("Unable to save leave day.");
+        }
+        syncLeaveDays(await loadLeaves());
+        renderMessage("Leave day saved.");
+      } catch (error) {
+        renderMessage(error.message || "Unable to save leave day.", true);
+      }
+    });
+
+    weekWrap.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-dashboard-leave-delete]");
+      if (!button || !button.dataset.leaveId) {
+        return;
+      }
+      renderMessage("");
+      try {
+        const response = await fetch(`/api/v1/leaves/${button.dataset.leaveId}`, { method: "DELETE" });
+        if (!response.ok) {
+          throw new Error("Unable to remove leave day.");
+        }
+        syncLeaveDays(await loadLeaves());
+        renderMessage("Leave day removed.");
+      } catch (error) {
+        renderMessage(error.message || "Unable to remove leave day.", true);
+      }
+    });
+  })();
+
   (() => {
     const storageKey = "ptlite-dashboard-blocks";
     const grid = document.querySelector("[data-dashboard-grid]");

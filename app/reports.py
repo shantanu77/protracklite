@@ -38,6 +38,34 @@ def leave_weight(leave_type: LeaveType) -> Decimal:
     return Decimal("0.5")
 
 
+def leave_short_label(leave_type: LeaveType | None) -> str:
+    if leave_type == LeaveType.FULL:
+        return "L"
+    if leave_type == LeaveType.HALF_AM:
+        return "AM"
+    if leave_type == LeaveType.HALF_PM:
+        return "PM"
+    return ""
+
+
+def load_leave_map(db: Session, user_id: int, from_date: date, to_date: date) -> dict[date, Leave]:
+    return {
+        item.leave_date: item
+        for item in db.scalars(
+            select(Leave).where(Leave.user_id == user_id, Leave.leave_date >= from_date, Leave.leave_date <= to_date)
+        )
+    }
+
+
+def load_holiday_map(db: Session, org_id: int, from_date: date, to_date: date) -> dict[date, Holiday]:
+    return {
+        item.holiday_date: item
+        for item in db.scalars(
+            select(Holiday).where(Holiday.org_id == org_id, Holiday.holiday_date >= from_date, Holiday.holiday_date <= to_date)
+        )
+    }
+
+
 def daterange(start_date: date, end_date: date):
     cursor = start_date
     while cursor <= end_date:
@@ -57,14 +85,8 @@ def compute_work_rate(
     weekend_days = set((settings.weekend_days if settings else [5, 6]) or [5, 6])
     work_hours_per_day = Decimal(str(settings.work_hours_per_day if settings else "8.00"))
 
-    holidays = {
-        item.holiday_date
-        for item in db.scalars(select(Holiday).where(Holiday.org_id == org_id, Holiday.holiday_date >= from_date, Holiday.holiday_date <= to_date))
-    }
-    leaves = {
-        item.leave_date: leave_weight(item.leave_type)
-        for item in db.scalars(select(Leave).where(Leave.user_id == user_id, Leave.leave_date >= from_date, Leave.leave_date <= to_date))
-    }
+    holidays = load_holiday_map(db, org_id, from_date, to_date)
+    leaves = {leave_date: leave_weight(item.leave_type) for leave_date, item in load_leave_map(db, user_id, from_date, to_date).items()}
 
     available_days = Decimal("0")
     for day in daterange(from_date, to_date):
@@ -146,12 +168,90 @@ def compute_work_rate(
     }
 
 
+def week_allocation_summary(
+    db: Session,
+    org_id: int,
+    user_id: int,
+    from_date: date,
+    to_date: date,
+    settings: OrgSettings | None = None,
+) -> list[dict]:
+    settings = settings or db.scalar(select(OrgSettings).where(OrgSettings.org_id == org_id))
+    weekend_days = set((settings.weekend_days if settings else [5, 6]) or [5, 6])
+    leaves = load_leave_map(db, user_id, from_date, to_date)
+    holidays = load_holiday_map(db, org_id, from_date, to_date)
+
+    hours_by_day = {
+        log_date: float(hours or 0)
+        for log_date, hours in db.execute(
+            select(TimeLog.log_date, func.coalesce(func.sum(TimeLog.hours), 0))
+            .select_from(TimeLog)
+            .join(Task, TimeLog.task_id == Task.id)
+            .where(
+                Task.org_id == org_id,
+                Task.is_archived.is_(False),
+                TimeLog.user_id == user_id,
+                TimeLog.log_date >= from_date,
+                TimeLog.log_date <= to_date,
+            )
+            .group_by(TimeLog.log_date)
+        ).all()
+    }
+
+    summary: list[dict] = []
+    for day in daterange(from_date, to_date):
+        leave = leaves.get(day)
+        holiday = holidays.get(day)
+        hours = round(hours_by_day.get(day, 0.0), 2)
+        is_weekend = day.weekday() in weekend_days
+        base_status = "logged" if hours > 0 else "empty"
+        base_value = f"{hours:g}h"
+        base_detail = "No hours logged."
+        if holiday:
+            base_status = "holiday"
+            base_value = "Hol"
+            base_detail = holiday.name
+        elif is_weekend:
+            base_status = "weekend"
+            base_value = "Off"
+            base_detail = "Weekend"
+        elif hours > 0:
+            base_detail = f"{hours:.2f}h booked."
+
+        status = base_status
+        short_value = base_value
+        detail = base_detail
+        if leave:
+            status = "leave"
+            short_value = leave_short_label(leave.leave_type)
+            detail = f"On leave{f' ({leave.reason})' if leave.reason else ''}."
+
+        summary.append(
+            {
+                "date": day,
+                "day_short": day.strftime("%a"),
+                "hours": hours,
+                "status": status,
+                "base_status": base_status,
+                "base_value_short": base_value,
+                "base_detail": base_detail,
+                "value_short": short_value,
+                "detail": detail,
+                "leave_id": leave.id if leave else None,
+                "leave_type": leave.leave_type.value if leave else None,
+                "leave_reason": leave.reason if leave else "",
+            }
+        )
+    return summary
+
+
 def monday_report(db: Session, org_id: int, user_id: int, today: date | None = None) -> dict:
     today = today or local_today()
     this_monday, this_sunday = current_week_bounds(today)
     prev_monday, prev_sunday = previous_week_bounds(today)
     two_week_cutoff = prev_monday - timedelta(days=7)
     null_end_date_last = case((Task.end_date.is_(None), 1), else_=0)
+    previous_week_daily_allocation = week_allocation_summary(db, org_id, user_id, prev_monday, prev_sunday)
 
     def format_short_date(value: date | None) -> str | None:
         if not value:
@@ -424,6 +524,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         "previous_week_target_hours": previous_week_target_hours,
         "previous_week_effort_rate": previous_week_effort_rate,
         "previous_week_booking_tone": booking_health_tone,
+        "previous_week_daily_allocation": previous_week_daily_allocation,
         "pending_from_last_week_count": pending_from_last_week_count,
         "pending_more_than_two_weeks_count": pending_more_than_two_weeks_count,
         "total_open_task_count": total_open_task_count,
@@ -1065,6 +1166,10 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
         selected_day = month_start
     if selected_day > month_end:
         selected_day = month_end
+    settings = db.scalar(select(OrgSettings).where(OrgSettings.org_id == org_id))
+    weekend_days = set((settings.weekend_days if settings else [5, 6]) or [5, 6])
+    month_leaves = load_leave_map(db, user_id, month_start, month_end)
+    month_holidays = load_holiday_map(db, org_id, month_start, month_end)
 
     month_log_rows = db.execute(
         select(TimeLog, Task)
@@ -1110,6 +1215,7 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
 
     logs_by_task_id: dict[int, list[dict]] = defaultdict(list)
     log_dates_by_task_id: dict[int, set[date]] = defaultdict(set)
+    hours_by_day: dict[date, float] = defaultdict(float)
     for log, task in month_log_rows:
         logs_by_task_id[task.id].append(
             {
@@ -1119,6 +1225,7 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
             }
         )
         log_dates_by_task_id[task.id].add(log.log_date)
+        hours_by_day[log.log_date] += float(log.hours or 0)
 
     project_map = {project.id: project for project in db.scalars(select(Project).where(Project.org_id == org_id)).all()}
     activity_type_map = {item.id: item for item in db.scalars(select(ActivityType).where(ActivityType.org_id == org_id)).all()}
@@ -1191,6 +1298,21 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
                     "task_count": len(entries),
                     "open_count": sum(1 for item in entries if item["status"] != TaskStatus.CLOSED.value),
                     "logged_count": sum(1 for item in entries if "logged" in item["day_reasons"]),
+                    "logged_hours": round(hours_by_day.get(day, 0.0), 2),
+                    "is_weekend": day.weekday() in weekend_days,
+                    "is_holiday": day in month_holidays,
+                    "holiday_name": month_holidays.get(day).name if day in month_holidays else "",
+                    "leave_type": month_leaves.get(day).leave_type.value if day in month_leaves else None,
+                    "leave_short_label": leave_short_label(month_leaves.get(day).leave_type if day in month_leaves else None),
+                    "leave_reason": month_leaves.get(day).reason if day in month_leaves else "",
+                    "is_absent": (
+                        day.month == month_start.month
+                        and day <= today
+                        and day.weekday() not in weekend_days
+                        and day not in month_holidays
+                        and day not in month_leaves
+                        and hours_by_day.get(day, 0.0) <= 0
+                    ),
                     "sample_tasks": [item["task_id"] for item in entries[:2]],
                 }
             )
@@ -1209,5 +1331,8 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
         "weeks": day_cells,
         "selected_day_tasks": day_entries.get(selected_day, []),
         "selected_day_total": len(day_entries.get(selected_day, [])),
+        "selected_day_leave": month_leaves.get(selected_day),
+        "selected_day_holiday": month_holidays.get(selected_day),
+        "selected_day_logged_hours": round(hours_by_day.get(selected_day, 0.0), 2),
         "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     }

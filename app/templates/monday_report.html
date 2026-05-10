@@ -120,6 +120,14 @@
   </div>
 </div>
 <section class="panel monday-summary-panel">
+  <div class="monday-allocation-strip" aria-label="Previous week day-wise booked hours">
+    {% for day in report.previous_week_daily_allocation %}
+    <div class="monday-allocation-box is-{{ day.status }}" title="{{ day.date.strftime('%A, %d %b %Y') }} · {{ day.detail }}">
+      <span>{{ day.day_short }}</span>
+      <strong>{{ day.value_short }}</strong>
+    </div>
+    {% endfor %}
+  </div>
   <p>
     Last week: {{ "%.2f"|format(report.previous_week_effort_hours) }}h booked against
     {{ "%.2f"|format(report.previous_week_target_hours) }}h available,

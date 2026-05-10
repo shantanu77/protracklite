@@ -27,7 +27,7 @@
       {% for week in report.weeks %}
         {% for cell in week %}
         <a
-          class="calendar-day-card{% if not cell.in_month %} is-outside{% endif %}{% if cell.is_today %} is-today{% endif %}{% if cell.is_selected %} is-selected{% endif %}"
+          class="calendar-day-card{% if not cell.in_month %} is-outside{% endif %}{% if cell.is_today %} is-today{% endif %}{% if cell.is_selected %} is-selected{% endif %}{% if cell.leave_type %} is-leave{% endif %}{% if cell.is_absent %} is-absent{% endif %}"
           href="/{{ org.slug }}/reports/calendar?month={{ report.month_anchor.strftime('%Y-%m') }}&day={{ cell.date.isoformat() }}"
         >
           <div class="calendar-day-head">
@@ -37,6 +37,20 @@
             {% endif %}
           </div>
           <div class="calendar-day-metrics">
+            {% if cell.leave_type %}
+            <span>Leave {{ cell.leave_short_label }}</span>
+            {% elif cell.is_holiday %}
+            <span>{{ cell.holiday_name }}</span>
+            {% endif %}
+            <span class="calendar-hours-pill{% if cell.logged_hours <= 0 and cell.is_absent %} is-empty{% endif %}">
+              {% if cell.logged_hours > 0 %}
+              {{ "%.2f"|format(cell.logged_hours) }}h
+              {% elif cell.is_absent %}
+              No log
+              {% else %}
+              0.00h
+              {% endif %}
+            </span>
             {% if cell.open_count %}
             <span>Open {{ cell.open_count }}</span>
             {% endif %}
@@ -62,6 +76,17 @@
       <h2>{{ report.selected_day.strftime("%A, %d %b %Y") }}</h2>
       <p>{{ report.selected_day_total }} task{% if report.selected_day_total != 1 %}s{% endif %} connected to this day.</p>
     </div>
+  </div>
+  <div class="calendar-day-summary-strip">
+    {% if report.selected_day_leave %}
+    <span class="badge warning">On leave {{ report.selected_day_leave.leave_type.value|replace('_', ' ') }}</span>
+    {% endif %}
+    {% if report.selected_day_holiday %}
+    <span class="badge muted">{{ report.selected_day_holiday.name }}</span>
+    {% endif %}
+    <span class="calendar-hours-pill{% if report.selected_day_logged_hours <= 0 and not report.selected_day_leave and not report.selected_day_holiday %} is-empty{% endif %}">
+      Logged {{ "%.2f"|format(report.selected_day_logged_hours) }}h
+    </span>
   </div>
   <div class="calendar-day-task-list">
     {% for task in report.selected_day_tasks %}

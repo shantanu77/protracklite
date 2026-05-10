@@ -47,6 +47,7 @@ from app.reports import (
     monday_report,
     previous_week_bounds,
     reports_overview,
+    week_allocation_summary,
 )
 from app.security import (
     create_access_token,
@@ -1749,6 +1750,7 @@ def dashboard(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
+    week_start, week_end = current_week_bounds()
     created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
     if created_task_id and created_task_id not in created_task_ids:
         created_task_ids.insert(0, created_task_id)
@@ -1760,6 +1762,9 @@ def dashboard(
             "user": user,
             "groups": dashboard_payload(db, org, user),
             "today": date.today(),
+            "week_start": week_start,
+            "week_end": week_end,
+            "week_leave_days": week_allocation_summary(db, org.id, user.id, week_start, week_end),
             "created_task_id": created_task_id,
             "created_count": created_count,
             "created_summary": created_summary,
@@ -3076,15 +3081,23 @@ def api_list_leaves(org_user: tuple[Organization, User] = Depends(get_org_user),
 @app.post("/api/v1/leaves/")
 def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     _, user = org_user
-    leave = Leave(
-        user_id=user.id,
-        leave_date=date.fromisoformat(payload["leave_date"]),
-        leave_type=LeaveType(payload.get("leave_type", "full")),
-        reason=payload.get("reason", ""),
-    )
-    db.add(leave)
+    leave_date = date.fromisoformat(payload["leave_date"])
+    leave_type = LeaveType(payload.get("leave_type", "full"))
+    reason = str(payload.get("reason", "") or "").strip()
+    leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
+    if leave:
+        leave.leave_type = leave_type
+        leave.reason = reason
+    else:
+        leave = Leave(
+            user_id=user.id,
+            leave_date=leave_date,
+            leave_type=leave_type,
+            reason=reason,
+        )
+        db.add(leave)
     db.commit()
-    return {"id": leave.id}
+    return {"id": leave.id, "leave_date": leave.leave_date.isoformat(), "leave_type": leave.leave_type.value, "reason": leave.reason}
 
 
 @app.delete("/api/v1/leaves/{leave_id}")

@@ -1601,6 +1601,50 @@ mark {
   margin-top: 0.5rem;
 }
 
+.monday-allocation-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.monday-allocation-box {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem 0.7rem;
+  border-radius: 16px;
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  background: linear-gradient(180deg, rgba(250, 251, 251, 0.96), rgba(255, 255, 255, 1));
+}
+
+.monday-allocation-box span {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.monday-allocation-box strong {
+  font-size: 1rem;
+  color: var(--primary);
+}
+
+.monday-allocation-box.is-leave {
+  background: linear-gradient(180deg, rgba(254, 243, 199, 0.9), rgba(255, 251, 235, 1));
+  border-color: rgba(217, 119, 6, 0.28);
+}
+
+.monday-allocation-box.is-empty {
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.9), rgba(255, 255, 255, 1));
+  border-color: rgba(220, 38, 38, 0.18);
+}
+
+.monday-allocation-box.is-weekend,
+.monday-allocation-box.is-holiday {
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.95), rgba(255, 255, 255, 1));
+}
+
 .report-layout {
   align-items: start;
 }
@@ -1675,6 +1719,16 @@ mark {
   box-shadow: inset 0 0 0 1px rgba(29, 52, 66, 0.16), 0 10px 24px rgba(17, 24, 39, 0.08);
 }
 
+.calendar-day-card.is-leave {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: linear-gradient(180deg, rgba(255, 247, 221, 0.96), rgba(255, 255, 255, 1));
+}
+
+.calendar-day-card.is-absent {
+  border-color: rgba(220, 38, 38, 0.24);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.98), rgba(255, 255, 255, 1));
+}
+
 .calendar-day-head,
 .calendar-task-top,
 .calendar-task-log-row {
@@ -1712,8 +1766,121 @@ mark {
   font-size: 0.84rem;
 }
 
+.calendar-hours-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  padding: 0.34rem 0.58rem;
+  border-radius: 999px;
+  background: rgba(31, 122, 82, 0.1);
+  color: #166534 !important;
+  font-weight: 800;
+}
+
+.calendar-hours-pill.is-empty {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c !important;
+}
+
 .calendar-task-card {
   gap: 0.7rem;
+}
+
+.calendar-day-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.dashboard-leave-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.dashboard-leave-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.dashboard-leave-form {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-leave-form .full {
+  grid-column: 1 / -1;
+}
+
+.dashboard-leave-week {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.dashboard-leave-day {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem;
+  border-radius: 18px;
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  background: linear-gradient(180deg, rgba(250, 251, 251, 0.96), rgba(255, 255, 255, 1));
+}
+
+.dashboard-leave-day > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.dashboard-leave-day span {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dashboard-leave-day strong {
+  color: var(--primary);
+}
+
+.dashboard-leave-day small {
+  color: var(--muted);
+}
+
+.dashboard-leave-day.is-leave {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: linear-gradient(180deg, rgba(255, 247, 221, 0.96), rgba(255, 255, 255, 1));
+}
+
+.dashboard-leave-day.is-empty {
+  border-color: rgba(220, 38, 38, 0.16);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.9), rgba(255, 255, 255, 1));
+}
+
+.dashboard-leave-day.is-weekend,
+.dashboard-leave-day.is-holiday {
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.95), rgba(255, 255, 255, 1));
+}
+
+.dashboard-leave-feedback {
+  margin: 0;
+  color: #166534;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.dashboard-leave-feedback.is-error {
+  color: #b91c1c;
+}
+
+.small-button {
+  min-height: 34px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.8rem;
 }
 
 .calendar-task-top .button {
