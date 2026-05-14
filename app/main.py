@@ -2262,6 +2262,10 @@ def new_task_page(
     org, user = org_user
     settings_obj = get_org_settings(db, org.id)
     activity_types = visible_activity_types_for_user(db, org.id, user)
+    default_project, default_activity_type = resolve_default_task_targets(db, org.id, user)
+    today = date.today()
+    week_start, _ = current_week_bounds(today)
+    week_friday = week_start + timedelta(days=4)
     created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
     if created_task_id and created_task_id not in created_task_ids:
         created_task_ids.insert(0, created_task_id)
@@ -2274,10 +2278,12 @@ def new_task_page(
             "task": None,
             "projects": org_projects(db, org.id),
             "activity_types": activity_types,
-            "activity_categories": active_activity_categories(db, org.id, user),
             "statuses": list(TaskStatus),
             "settings": settings_obj,
-            "today": date.today(),
+            "today": today,
+            "week_friday": week_friday,
+            "default_project_id": default_project.id,
+            "default_activity_type_id": default_activity_type.id,
             "tasks": recent_task_summaries(db, org.id, user.id),
             "created_task_id": created_task_id,
             "created_count": created_count,

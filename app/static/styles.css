@@ -2455,6 +2455,35 @@ mark {
   margin-top: 0.6rem;
 }
 
+.task-create-more {
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(250, 251, 251, 0.96), rgba(255, 255, 255, 1));
+  padding: 1rem 1.1rem;
+}
+
+.task-create-more summary {
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+}
+
+.task-create-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-create-more-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 1rem;
+}
+
+.task-create-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .task-detail-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
