@@ -8,27 +8,6 @@ from app.models import ActivityType, Department, Organization, OrgSettings, Proj
 from app.security import hash_password
 
 
-DEFAULT_ACTIVITY_TYPES = [
-    ("SPEC", "Specification Writing", "product_management", True),
-    ("RES", "Research", "others", True),
-    ("DES", "Design", "software_development", True),
-    ("DEV", "Development / Coding", "software_development", True),
-    ("TEST", "Testing & QA", "software_development", True),
-    ("REV", "Code Review", "software_development", True),
-    ("BUG", "Bug Fix", "software_development", True),
-    ("DOC", "Documentation", "project_delivery_management", True),
-    ("DEP", "Deployment / DevOps", "infra_management", True),
-    ("MTG", "Meeting / Discussion", "others", True),
-    ("DEMO", "Demo Preparation & Delivery", "project_delivery_management", True),
-    ("PLAN", "Planning", "project_delivery_management", True),
-    ("STUDY", "Self Study / Learning", "others", False),
-    ("TRAIN", "Training / Seminar / Workshop", "people_management", False),
-    ("ADMIN", "Administrative Work", "it_tasks", False),
-    ("SUPPORT", "Support / Helpdesk", "it_tasks", True),
-    ("REVIEW", "Performance / Process Review", "people_management", False),
-    ("OTHER", "Other", "others", False),
-]
-
 DEFAULT_DEPARTMENTS = (
     "Product",
     "Engineering",
@@ -46,6 +25,204 @@ SOLULEVER_DEPARTMENT_ASSIGNMENTS = {
     "devendra.mule@solulever.com": "Delivery(Customer Activation)",
     "shrey.srivastava@solulever.com": "Delivery(Customer Activation)",
     "jitin.gera@solulever.com": "Delivery(Customer Activation)",
+}
+
+DEPARTMENT_ACTIVITY_DEFINITIONS = {
+    "Product": [
+        ("PRD-MKT", "Market Research & Discovery", "product_management", True),
+        ("PRD-ROAD", "Roadmap Planning & Strategy", "product_management", True),
+        ("PRD-SPEC", "PRD Writing & Feature Spec", "product_management", True),
+        ("PRD-UX", "UI/UX Wireframing & Design Review", "product_management", True),
+        ("PRD-BACK", "Backlog Grooming & Prioritization", "product_management", True),
+        ("PRD-TEST", "User Testing & Feedback Analysis", "product_management", True),
+        ("PRD-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("PRD-RSK", "General: Research & Skill Development", "others", False),
+        ("PRD-MENT", "General: Team Support & Mentorship", "people_management", False),
+        ("PRD-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "Engineering": [
+        ("ENG-FEAT", "New Feature Development", "software_development", True),
+        ("ENG-BUG", "Bug Fixing & Hotfixes", "software_development", True),
+        ("ENG-REV", "Code Review & Refactoring", "software_development", True),
+        ("ENG-ARCH", "Technical Architecture & Design", "software_development", True),
+        ("ENG-API", "API Integration & Documentation", "software_development", True),
+        ("ENG-TEST", "Unit & Integration Testing", "software_development", True),
+        ("ENG-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("ENG-RSK", "General: Research & Skill Development", "others", False),
+        ("ENG-MENT", "General: Team Support & Mentorship", "people_management", False),
+        ("ENG-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "Delivery(Customer Activation)": [
+        ("DLV-BPM", "Business Process Mapping", "project_delivery_management", True),
+        ("DLV-CONF", "Platform Configuration & Setup", "project_delivery_management", True),
+        ("DLV-DISC", "Client Discovery Workshops", "project_delivery_management", True),
+        ("DLV-UAT", "User Acceptance Testing (UAT) Support", "project_delivery_management", True),
+        ("DLV-TRN", "End-User Training", "project_delivery_management", True),
+        ("DLV-ETL", "Data Migration & ETL", "project_delivery_management", True),
+        ("DLV-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("DLV-RSK", "General: Research & Skill Development", "others", False),
+        ("DLV-MENT", "General: Team Support & Mentorship", "people_management", False),
+        ("DLV-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "Techops/Devops": [
+        ("OPS-CLOUD", "Cloud Infrastructure Management", "infra_management", True),
+        ("OPS-CICD", "CI/CD Pipeline Maintenance", "infra_management", True),
+        ("OPS-SECP", "Security Patching & Hardening", "infra_management", True),
+        ("OPS-DBA", "Database Administration", "infra_management", True),
+        ("OPS-MON", "System Monitoring & Alerting", "infra_management", True),
+        ("OPS-DEP", "Production Deployment", "infra_management", True),
+        ("OPS-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("OPS-RSK", "General: Research & Skill Development", "others", False),
+        ("OPS-MENT", "General: Team Support & Mentorship", "people_management", False),
+        ("OPS-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "Support": [
+        ("SUP-L12", "L1/L2 Ticket Resolution", "it_tasks", True),
+        ("SUP-INC", "Incident Investigation", "it_tasks", True),
+        ("SUP-KB", "Knowledge Base Documentation", "it_tasks", True),
+        ("SUP-ESC", "Bug Escalation Management", "it_tasks", True),
+        ("SUP-HEALTH", "Client Health Checks", "it_tasks", True),
+        ("SUP-FEAT", "Feature Request Logging", "it_tasks", True),
+        ("SUP-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("SUP-RSK", "General: Research & Skill Development", "others", False),
+        ("SUP-MENT", "General: Team Support & Mentorship", "people_management", False),
+        ("SUP-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "IT": [
+        ("IT-IAM", "Access Management (IAM)", "it_tasks", True),
+        ("IT-HW", "Hardware Procurement & Setup", "it_tasks", True),
+        ("IT-VPN", "Internal Network/VPN Support", "it_tasks", True),
+        ("IT-LIC", "Software License Management", "it_tasks", True),
+        ("IT-AUD", "Security Audit & Compliance", "it_tasks", True),
+        ("IT-HLP", "Internal Helpdesk Support", "it_tasks", True),
+        ("IT-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("IT-RSK", "General: Research & Skill Development", "others", False),
+        ("IT-MENT", "General: Team Support & Mentorship", "people_management", False),
+        ("IT-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+}
+
+LEGACY_ACTIVITY_MAP_BY_DEPARTMENT = {
+    "Product": {
+        "Specification Writing": "PRD Writing & Feature Spec",
+        "Research": "General: Research & Skill Development",
+        "Design": "UI/UX Wireframing & Design Review",
+        "Development / Coding": "PRD Writing & Feature Spec",
+        "Testing & QA": "User Testing & Feedback Analysis",
+        "Code Review": "UI/UX Wireframing & Design Review",
+        "Bug Fix": "User Testing & Feedback Analysis",
+        "Documentation": "PRD Writing & Feature Spec",
+        "Deployment / DevOps": "General: Unplanned / Ad-hoc Requests",
+        "Meeting / Discussion": "General: Internal Meetings & Admin",
+        "Demo Preparation & Delivery": "User Testing & Feedback Analysis",
+        "Planning": "Roadmap Planning & Strategy",
+        "Self Study / Learning": "General: Research & Skill Development",
+        "Training / Seminar / Workshop": "General: Research & Skill Development",
+        "Administrative Work": "General: Internal Meetings & Admin",
+        "Support / Helpdesk": "General: Team Support & Mentorship",
+        "Performance / Process Review": "General: Team Support & Mentorship",
+        "Other": "General: Unplanned / Ad-hoc Requests",
+    },
+    "Engineering": {
+        "Specification Writing": "API Integration & Documentation",
+        "Research": "General: Research & Skill Development",
+        "Design": "Technical Architecture & Design",
+        "Development / Coding": "New Feature Development",
+        "Testing & QA": "Unit & Integration Testing",
+        "Code Review": "Code Review & Refactoring",
+        "Bug Fix": "Bug Fixing & Hotfixes",
+        "Documentation": "API Integration & Documentation",
+        "Deployment / DevOps": "Technical Architecture & Design",
+        "Meeting / Discussion": "General: Internal Meetings & Admin",
+        "Demo Preparation & Delivery": "General: Team Support & Mentorship",
+        "Planning": "Technical Architecture & Design",
+        "Self Study / Learning": "General: Research & Skill Development",
+        "Training / Seminar / Workshop": "General: Research & Skill Development",
+        "Administrative Work": "General: Internal Meetings & Admin",
+        "Support / Helpdesk": "General: Team Support & Mentorship",
+        "Performance / Process Review": "General: Team Support & Mentorship",
+        "Other": "General: Unplanned / Ad-hoc Requests",
+    },
+    "Delivery(Customer Activation)": {
+        "Specification Writing": "Business Process Mapping",
+        "Research": "General: Research & Skill Development",
+        "Design": "Platform Configuration & Setup",
+        "Development / Coding": "Platform Configuration & Setup",
+        "Testing & QA": "User Acceptance Testing (UAT) Support",
+        "Code Review": "General: Team Support & Mentorship",
+        "Bug Fix": "User Acceptance Testing (UAT) Support",
+        "Documentation": "End-User Training",
+        "Deployment / DevOps": "Platform Configuration & Setup",
+        "Meeting / Discussion": "General: Internal Meetings & Admin",
+        "Demo Preparation & Delivery": "End-User Training",
+        "Planning": "Business Process Mapping",
+        "Self Study / Learning": "General: Research & Skill Development",
+        "Training / Seminar / Workshop": "General: Research & Skill Development",
+        "Administrative Work": "General: Internal Meetings & Admin",
+        "Support / Helpdesk": "General: Team Support & Mentorship",
+        "Performance / Process Review": "General: Team Support & Mentorship",
+        "Other": "General: Unplanned / Ad-hoc Requests",
+    },
+    "Techops/Devops": {
+        "Specification Writing": "General: Unplanned / Ad-hoc Requests",
+        "Research": "General: Research & Skill Development",
+        "Design": "Cloud Infrastructure Management",
+        "Development / Coding": "CI/CD Pipeline Maintenance",
+        "Testing & QA": "System Monitoring & Alerting",
+        "Code Review": "Security Patching & Hardening",
+        "Bug Fix": "Security Patching & Hardening",
+        "Documentation": "Database Administration",
+        "Deployment / DevOps": "Production Deployment",
+        "Meeting / Discussion": "General: Internal Meetings & Admin",
+        "Demo Preparation & Delivery": "General: Team Support & Mentorship",
+        "Planning": "Cloud Infrastructure Management",
+        "Self Study / Learning": "General: Research & Skill Development",
+        "Training / Seminar / Workshop": "General: Research & Skill Development",
+        "Administrative Work": "General: Internal Meetings & Admin",
+        "Support / Helpdesk": "System Monitoring & Alerting",
+        "Performance / Process Review": "General: Team Support & Mentorship",
+        "Other": "General: Unplanned / Ad-hoc Requests",
+    },
+    "Support": {
+        "Specification Writing": "Feature Request Logging",
+        "Research": "General: Research & Skill Development",
+        "Design": "Knowledge Base Documentation",
+        "Development / Coding": "Bug Escalation Management",
+        "Testing & QA": "Incident Investigation",
+        "Code Review": "Bug Escalation Management",
+        "Bug Fix": "Incident Investigation",
+        "Documentation": "Knowledge Base Documentation",
+        "Deployment / DevOps": "Incident Investigation",
+        "Meeting / Discussion": "General: Internal Meetings & Admin",
+        "Demo Preparation & Delivery": "Client Health Checks",
+        "Planning": "Feature Request Logging",
+        "Self Study / Learning": "General: Research & Skill Development",
+        "Training / Seminar / Workshop": "General: Research & Skill Development",
+        "Administrative Work": "General: Internal Meetings & Admin",
+        "Support / Helpdesk": "L1/L2 Ticket Resolution",
+        "Performance / Process Review": "General: Team Support & Mentorship",
+        "Other": "General: Unplanned / Ad-hoc Requests",
+    },
+    "IT": {
+        "Specification Writing": "Software License Management",
+        "Research": "General: Research & Skill Development",
+        "Design": "Hardware Procurement & Setup",
+        "Development / Coding": "Software License Management",
+        "Testing & QA": "Security Audit & Compliance",
+        "Code Review": "Security Audit & Compliance",
+        "Bug Fix": "Internal Helpdesk Support",
+        "Documentation": "Software License Management",
+        "Deployment / DevOps": "Internal Network/VPN Support",
+        "Meeting / Discussion": "General: Internal Meetings & Admin",
+        "Demo Preparation & Delivery": "Internal Helpdesk Support",
+        "Planning": "Access Management (IAM)",
+        "Self Study / Learning": "General: Research & Skill Development",
+        "Training / Seminar / Workshop": "General: Research & Skill Development",
+        "Administrative Work": "General: Internal Meetings & Admin",
+        "Support / Helpdesk": "Internal Helpdesk Support",
+        "Performance / Process Review": "General: Team Support & Mentorship",
+        "Other": "General: Unplanned / Ad-hoc Requests",
+    },
 }
 
 
@@ -79,19 +256,19 @@ def seed_defaults(db: Session) -> None:
         project_task_sequence=0,
     )
     db.add(project)
+    db.flush()
 
-    for code, name, category, chargeable in DEFAULT_ACTIVITY_TYPES:
-        db.add(
-            ActivityType(
-                org_id=org.id,
-                code=code,
-                name=name,
-                category=category,
-                is_chargeable=chargeable,
-                is_default=True,
-                is_active=True,
-            )
-        )
+    departments_by_name = ensure_departments_for_org(db, org)
+    ensure_department_activity_types(db, org, departments_by_name)
+
+    default_activity = db.scalar(
+        select(ActivityType)
+        .join(Department, Department.id == ActivityType.department_id)
+        .where(ActivityType.org_id == org.id, Department.name == "Engineering", ActivityType.code == "ENG-FEAT")
+    )
+    settings_obj = db.scalar(select(OrgSettings).where(OrgSettings.org_id == org.id))
+    if settings_obj and default_activity:
+        settings_obj.default_activity_type_id = default_activity.id
 
     db.commit()
 
@@ -106,6 +283,41 @@ def ensure_departments_for_org(db: Session, org: Organization) -> dict[str, Depa
             db.flush()
             departments_by_name[name] = department
     return departments_by_name
+
+
+def ensure_department_activity_types(
+    db: Session,
+    org: Organization,
+    departments_by_name: dict[str, Department],
+) -> dict[tuple[str, str], ActivityType]:
+    existing = db.scalars(select(ActivityType).where(ActivityType.org_id == org.id)).all()
+    activity_map = {(item.code, item.name): item for item in existing}
+    for department_name, definitions in DEPARTMENT_ACTIVITY_DEFINITIONS.items():
+        department = departments_by_name[department_name]
+        for code, name, category, is_chargeable in definitions:
+            key = (code, name)
+            if key not in activity_map:
+                item = ActivityType(
+                    org_id=org.id,
+                    department_id=department.id,
+                    code=code,
+                    name=name,
+                    category=category,
+                    is_chargeable=is_chargeable,
+                    is_default=True,
+                    is_active=True,
+                )
+                db.add(item)
+                db.flush()
+                activity_map[key] = item
+            else:
+                activity = activity_map[key]
+                activity.department_id = department.id
+                activity.category = category
+                activity.is_chargeable = is_chargeable
+                activity.is_default = True
+                activity.is_active = True
+    return activity_map
 
 
 def seed_department_assignments(db: Session, org_slug: str = "solulever") -> None:
@@ -124,6 +336,71 @@ def seed_department_assignments(db: Session, org_slug: str = "solulever") -> Non
         user = next((item for item in users if item.email.strip().lower() == email), None)
         if user:
             user.department_id = departments_by_name[department_name].id
+
+    db.commit()
+
+
+def migrate_department_activity_catalog(db: Session, org_slug: str = "solulever") -> None:
+    org = db.scalar(select(Organization).where(Organization.slug == org_slug))
+    if not org:
+        return
+
+    departments_by_name = ensure_departments_for_org(db, org)
+    ensure_department_activity_types(db, org, departments_by_name)
+
+    activity_types = db.scalars(select(ActivityType).where(ActivityType.org_id == org.id)).all()
+    activity_by_department_and_name = {
+        (item.department_id, item.name): item for item in activity_types if item.department_id is not None
+    }
+    desired_codes = {
+        code
+        for definitions in DEPARTMENT_ACTIVITY_DEFINITIONS.values()
+        for code, _name, _category, _is_chargeable in definitions
+    }
+
+    tasks = db.scalars(select(Task).where(Task.org_id == org.id)).all()
+    for task in tasks:
+        user = db.get(User, task.assigned_to)
+        if not user or not user.department_id:
+            continue
+        current_activity = next((item for item in activity_types if item.id == task.activity_type_id), None)
+        if not current_activity:
+            continue
+        if current_activity.department_id == user.department_id and current_activity.is_active:
+            continue
+        department = next((item for item in departments_by_name.values() if item.id == user.department_id), None)
+        if not department:
+            continue
+        target_name = LEGACY_ACTIVITY_MAP_BY_DEPARTMENT.get(department.name, {}).get(
+            current_activity.name,
+            "General: Unplanned / Ad-hoc Requests",
+        )
+        target = activity_by_department_and_name.get((user.department_id, target_name))
+        if target:
+            task.activity_type_id = target.id
+
+    legacy_items = [
+        item
+        for item in activity_types
+        if item.department_id is None or item.code not in desired_codes
+    ]
+    legacy_ids = {item.id for item in legacy_items}
+    active_task_activity_ids = {item[0] for item in db.execute(select(Task.activity_type_id).where(Task.org_id == org.id)).all()}
+    for item in legacy_items:
+        if item.id not in active_task_activity_ids:
+            db.delete(item)
+        else:
+            item.is_active = False
+            item.is_default = False
+
+    settings_obj = db.scalar(select(OrgSettings).where(OrgSettings.org_id == org.id))
+    if settings_obj and (not settings_obj.default_activity_type_id or settings_obj.default_activity_type_id in legacy_ids):
+        default_activity = db.scalar(
+            select(ActivityType)
+            .join(Department, Department.id == ActivityType.department_id)
+            .where(ActivityType.org_id == org.id, Department.name == "Engineering", ActivityType.code == "ENG-FEAT")
+        )
+        settings_obj.default_activity_type_id = default_activity.id if default_activity else None
 
     db.commit()
 

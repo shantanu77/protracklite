@@ -58,7 +58,7 @@ from app.security import (
     hash_password,
     verify_password,
 )
-from app.seed import seed_defaults, seed_department_assignments
+from app.seed import migrate_department_activity_catalog, seed_defaults, seed_department_assignments
 
 
 settings = get_settings()
@@ -337,6 +337,7 @@ def ensure_activity_types_schema() -> None:
     columns = {column["name"] for column in inspector.get_columns("activity_types")}
     ddl_by_column = {
         "category": "ALTER TABLE activity_types ADD COLUMN category VARCHAR(80) NOT NULL DEFAULT 'others'",
+        "department_id": "ALTER TABLE activity_types ADD COLUMN department_id INTEGER NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -458,6 +459,10 @@ def ensure_query_indexes() -> None:
                 "CREATE INDEX ix_activity_types_org_active_name "
                 "ON activity_types (org_id, is_active, name)"
             ),
+            "ix_activity_types_org_department_active_name": (
+                "CREATE INDEX ix_activity_types_org_department_active_name "
+                "ON activity_types (org_id, department_id, is_active, name)"
+            ),
         },
         "holidays": {
             "ix_holidays_org_holiday_date": (
@@ -497,6 +502,7 @@ def on_startup() -> None:
     try:
         seed_defaults(db)
         seed_department_assignments(db)
+        migrate_department_activity_catalog(db)
         backfill_activity_type_categories(db)
     finally:
         db.close()
@@ -1160,16 +1166,15 @@ def extract_list_payload_with_openai(raw_content: str, fallback_title: str) -> d
     return extract_list_payload_locally(raw_content, fallback_title)
 
 
-def resolve_default_task_targets(db: Session, org_id: int) -> tuple[Project, ActivityType]:
+def resolve_default_task_targets(db: Session, org_id: int, user: User | None = None) -> tuple[Project, ActivityType]:
     settings_obj = get_org_settings(db, org_id)
     project = db.get(Project, settings_obj.default_project_id) if settings_obj.default_project_id else None
     activity = db.get(ActivityType, settings_obj.default_activity_type_id) if settings_obj.default_activity_type_id else None
     if not project or project.org_id != org_id or not project.is_active:
         project = db.scalar(select(Project).where(Project.org_id == org_id, Project.is_active.is_(True)).order_by(Project.name.asc()))
-    if not activity or activity.org_id != org_id or not activity.is_active:
-        activity = db.scalar(
-            select(ActivityType).where(ActivityType.org_id == org_id, ActivityType.is_active.is_(True)).order_by(ActivityType.name.asc())
-        )
+    visible_activity_types = visible_activity_types_for_user(db, org_id, user, {activity.id} if activity else None) if user else org_activity_types(db, org_id)
+    if not activity or activity.org_id != org_id or not activity.is_active or (user and activity not in visible_activity_types):
+        activity = visible_activity_types[0] if visible_activity_types else None
     if not project or not activity:
         raise HTTPException(status_code=400, detail="A default project and activity type are required for AI backlog import")
     return project, activity
@@ -1525,14 +1530,46 @@ def all_org_projects(db: Session, org_id: int) -> list[Project]:
     return db.scalars(select(Project).where(Project.org_id == org_id).order_by(Project.name.asc())).all()
 
 
-def org_activity_types(db: Session, org_id: int) -> list[ActivityType]:
-    return db.scalars(
-        select(ActivityType).where(ActivityType.org_id == org_id, ActivityType.is_active.is_(True)).order_by(ActivityType.name.asc())
-    ).all()
+def org_activity_types(db: Session, org_id: int, include_inactive: bool = False) -> list[ActivityType]:
+    query = select(ActivityType).options(selectinload(ActivityType.department)).where(ActivityType.org_id == org_id)
+    if not include_inactive:
+        query = query.where(ActivityType.is_active.is_(True))
+    return db.scalars(query.order_by(ActivityType.name.asc())).all()
 
 
-def active_activity_categories(db: Session, org_id: int) -> list[tuple[str, str]]:
-    categories = sorted({item.category for item in org_activity_types(db, org_id) if item.category in ACTIVITY_CATEGORY_LABELS})
+def visible_activity_types_for_user(
+    db: Session,
+    org_id: int,
+    user: User,
+    include_ids: set[int] | None = None,
+) -> list[ActivityType]:
+    include_ids = include_ids or set()
+    query = select(ActivityType).options(selectinload(ActivityType.department)).where(ActivityType.org_id == org_id)
+    if user.role != Role.ADMIN and user.department_id:
+        query = query.where(or_(ActivityType.department_id == user.department_id, ActivityType.id.in_(include_ids)))
+    else:
+        query = query.where(or_(ActivityType.is_active.is_(True), ActivityType.id.in_(include_ids)))
+    if include_ids:
+        query = query.where(or_(ActivityType.is_active.is_(True), ActivityType.id.in_(include_ids)))
+    else:
+        query = query.where(ActivityType.is_active.is_(True))
+    return db.scalars(query.order_by(ActivityType.name.asc())).all()
+
+
+def activity_type_for_user(db: Session, org_id: int, user: User, activity_type_id: int) -> ActivityType | None:
+    activity = db.get(ActivityType, activity_type_id)
+    if not activity or activity.org_id != org_id or not activity.is_active:
+        return None
+    if user.role == Role.ADMIN:
+        return activity
+    if user.department_id and activity.department_id == user.department_id:
+        return activity
+    return None
+
+
+def active_activity_categories(db: Session, org_id: int, user: User | None = None, include_ids: set[int] | None = None) -> list[tuple[str, str]]:
+    activity_types = visible_activity_types_for_user(db, org_id, user, include_ids) if user else org_activity_types(db, org_id)
+    categories = sorted({item.category for item in activity_types if item.category in ACTIVITY_CATEGORY_LABELS})
     return [(key, ACTIVITY_CATEGORY_LABELS[key]) for key in categories]
 
 
@@ -2224,7 +2261,7 @@ def new_task_page(
 ):
     org, user = org_user
     settings_obj = get_org_settings(db, org.id)
-    activity_types = org_activity_types(db, org.id)
+    activity_types = visible_activity_types_for_user(db, org.id, user)
     created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
     if created_task_id and created_task_id not in created_task_ids:
         created_task_ids.insert(0, created_task_id)
@@ -2237,7 +2274,7 @@ def new_task_page(
             "task": None,
             "projects": org_projects(db, org.id),
             "activity_types": activity_types,
-            "activity_categories": active_activity_categories(db, org.id),
+            "activity_categories": active_activity_categories(db, org.id, user),
             "statuses": list(TaskStatus),
             "settings": settings_obj,
             "today": date.today(),
@@ -2272,6 +2309,9 @@ def create_task_page(
     project = db.get(Project, project_id)
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    activity_type = activity_type_for_user(db, org.id, user, activity_type_id)
+    if not activity_type:
+        raise HTTPException(status_code=400, detail="Invalid activity type")
 
     parsed_start_date = None if is_backlog else parse_optional_date(start_date)
     parsed_end_date = None if is_backlog else parse_optional_date(end_date)
@@ -2285,7 +2325,7 @@ def create_task_page(
         created_by=user.id,
         name=name,
         description=sanitize_html(description),
-        activity_type_id=activity_type_id,
+        activity_type_id=activity_type.id,
         status=status_value,
         tags_text=serialize_task_tags(parse_task_tags(tags)),
         is_private=is_private,
@@ -2314,8 +2354,8 @@ def create_bulk_backlog_tasks(
     if not task_lines:
         return RedirectResponse(url=f"/{org_slug}/tasks/new", status_code=303)
 
-    project, default_activity_type = resolve_default_task_targets(db, org.id)
-    activity_types = org_activity_types(db, org.id)
+    project, default_activity_type = resolve_default_task_targets(db, org.id, user)
+    activity_types = visible_activity_types_for_user(db, org.id, user)
     parsed_tasks = extract_bulk_tasks_with_openai(freeflow_tasks)
     created_task_ids: list[str] = []
 
@@ -2370,8 +2410,8 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
             "task": task,
             "logs": logs,
             "projects": all_org_projects(db, org.id),
-            "activity_types": org_activity_types(db, org.id),
-            "activity_categories": active_activity_categories(db, org.id),
+            "activity_types": visible_activity_types_for_user(db, org.id, user, {task.activity_type_id}),
+            "activity_categories": active_activity_categories(db, org.id, user, {task.activity_type_id}),
             "current_activity_category": db.get(ActivityType, task.activity_type_id).category if db.get(ActivityType, task.activity_type_id) else "others",
             "statuses": list(TaskStatus),
             "people": org_people(db, org.id),
@@ -2579,10 +2619,13 @@ def update_task_page(
     parsed_start_date = None if is_backlog else parse_optional_date(start_date)
     parsed_end_date = None if is_backlog else parse_optional_date(end_date)
     parsed_estimated_hours = None if is_backlog else parse_optional_decimal(estimated_hours)
+    activity_type = activity_type_for_user(db, org.id, user, activity_type_id)
+    if not activity_type:
+        raise HTTPException(status_code=400, detail="Invalid activity type")
 
     task.project_id = project_id
     task.name = name
-    task.activity_type_id = activity_type_id
+    task.activity_type_id = activity_type.id
     task.description = sanitize_html(description)
     task.tags_text = serialize_task_tags(parse_task_tags(tags))
     task.start_date = parsed_start_date
@@ -2696,6 +2739,9 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
     project = db.get(Project, payload["project_id"])
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    activity_type = activity_type_for_user(db, org.id, user, payload["activity_type_id"])
+    if not activity_type:
+        raise HTTPException(status_code=400, detail="Invalid activity type")
     task = Task(
         task_id=next_task_id(project),
         org_id=org.id,
@@ -2704,7 +2750,7 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
         created_by=user.id,
         name=payload["name"],
         description=sanitize_html(payload.get("description", "")),
-        activity_type_id=payload["activity_type_id"],
+        activity_type_id=activity_type.id,
         status=TaskStatus(payload.get("status", "not_started")),
         task_color=normalize_task_color(payload.get("task_color")),
         tags_text=serialize_task_tags(parse_task_tags(payload.get("tags"))),
@@ -2721,11 +2767,11 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
 
 @app.get("/api/v1/tasks/quick-create/options")
 def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
-    org, _ = org_user
+    org, user = org_user
     settings_obj = get_org_settings(db, org.id)
     projects = org_projects(db, org.id)
-    activity_types = org_activity_types(db, org.id)
-    default_project, default_activity_type = resolve_default_task_targets(db, org.id)
+    activity_types = visible_activity_types_for_user(db, org.id, user)
+    default_project, default_activity_type = resolve_default_task_targets(db, org.id, user)
     default_status = settings_obj.default_task_status or TaskStatus.NOT_STARTED.value
 
     return {
@@ -2736,7 +2782,7 @@ def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(
         ],
         "activity_categories": [
             {"key": key, "label": label}
-            for key, label in active_activity_categories(db, org.id)
+            for key, label in active_activity_categories(db, org.id, user)
         ],
         "statuses": [{"value": item.value, "label": item.value.replace("_", " ")} for item in TaskStatus],
         "defaults": {
@@ -3431,7 +3477,9 @@ def admin_update_project(
 def admin_activity_types_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     must_be_admin(user)
-    activity_types = db.scalars(select(ActivityType).where(ActivityType.org_id == org.id).order_by(ActivityType.name.asc())).all()
+    activity_types = db.scalars(
+        select(ActivityType).options(selectinload(ActivityType.department)).where(ActivityType.org_id == org.id).order_by(ActivityType.name.asc())
+    ).all()
     return templates.TemplateResponse(
         "admin_activity_types.html",
         {
@@ -3439,6 +3487,7 @@ def admin_activity_types_page(request: Request, org_user: tuple[Organization, Us
             "org": org,
             "user": user,
             "activity_types": activity_types,
+            "departments": org_departments(db, org.id),
             "activity_categories": ACTIVITY_CATEGORY_CHOICES,
             "activity_category_labels": ACTIVITY_CATEGORY_LABELS,
         },
@@ -3448,6 +3497,7 @@ def admin_activity_types_page(request: Request, org_user: tuple[Organization, Us
 @app.post("/{org_slug}/admin/activity-types")
 def admin_create_activity_type(
     org_slug: str,
+    department_id: int = Form(...),
     code: str = Form(...),
     name: str = Form(...),
     category: str = Form("others"),
@@ -3458,6 +3508,9 @@ def admin_create_activity_type(
 ):
     org, user = org_user
     must_be_admin(user)
+    department = db.get(Department, department_id)
+    if not department or department.org_id != org.id:
+        raise HTTPException(status_code=400, detail="Department not found")
     normalized_code = code.strip().upper()
     normalized_name = name.strip()
     duplicate = db.scalar(select(ActivityType).where(ActivityType.org_id == org.id, ActivityType.code == normalized_code))
@@ -3466,6 +3519,7 @@ def admin_create_activity_type(
     db.add(
         ActivityType(
             org_id=org.id,
+            department_id=department.id,
             code=normalized_code,
             name=normalized_name,
             category=category if category in ACTIVITY_CATEGORY_LABELS else "others",
@@ -3482,6 +3536,7 @@ def admin_create_activity_type(
 def admin_update_activity_type(
     org_slug: str,
     activity_type_id: int,
+    department_id: int = Form(...),
     code: str = Form(...),
     name: str = Form(...),
     category: str = Form("others"),
@@ -3495,6 +3550,9 @@ def admin_update_activity_type(
     activity_type = db.get(ActivityType, activity_type_id)
     if not activity_type or activity_type.org_id != org.id:
         raise HTTPException(status_code=404, detail="Activity type not found")
+    department = db.get(Department, department_id)
+    if not department or department.org_id != org.id:
+        raise HTTPException(status_code=400, detail="Department not found")
     normalized_code = code.strip().upper()
     normalized_name = name.strip()
     duplicate = db.scalar(
@@ -3506,6 +3564,7 @@ def admin_update_activity_type(
     )
     if duplicate:
         raise HTTPException(status_code=400, detail="Activity type code already exists")
+    activity_type.department_id = department.id
     activity_type.code = normalized_code
     activity_type.name = normalized_name
     activity_type.category = category if category in ACTIVITY_CATEGORY_LABELS else "others"

@@ -71,6 +71,7 @@ class Department(Base):
 
     organization: Mapped[Organization] = relationship(back_populates="departments")
     users: Mapped[list["User"]] = relationship(back_populates="department")
+    activity_types: Mapped[list["ActivityType"]] = relationship(back_populates="department")
 
 
 class User(Base):
@@ -118,6 +119,7 @@ class ActivityType(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True, nullable=True)
     code: Mapped[str] = mapped_column(String(20))
     name: Mapped[str] = mapped_column(String(150))
     category: Mapped[str] = mapped_column(String(80), default="others")
@@ -127,6 +129,7 @@ class ActivityType(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization: Mapped[Organization] = relationship(back_populates="activity_types")
+    department: Mapped[Department | None] = relationship(back_populates="activity_types")
 
 
 class Task(Base):
