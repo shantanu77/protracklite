@@ -8,7 +8,6 @@
           <th>Status</th>
           <th>Deadline</th>
           <th>Hours</th>
-          <th>Tags</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -33,13 +32,6 @@
           <td data-dashboard-highlight>{{ task.status_label if task.status_label is defined else task.status|replace('_', ' ') }}</td>
           <td data-dashboard-highlight>{{ task.deadline_label }}</td>
           <td>{% if task.estimated_hours is not none %}{{ "%.2f"|format(task.estimated_hours) }}h plan · {% endif %}{{ "%.2f"|format(task.logged_hours or 0) }}h logged</td>
-          <td>
-            <div class="dashboard-task-badges" data-dashboard-highlight>
-              {% for tag in task.tags %}
-              <span class="badge muted">#{{ tag }}</span>
-              {% endfor %}
-            </div>
-          </td>
           <td>
             <div class="dashboard-task-table-actions">
               {% if sortable %}

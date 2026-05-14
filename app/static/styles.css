@@ -1336,20 +1336,23 @@ label:not(.checkbox) textarea {
 .dashboard-task-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .dashboard-task-table th,
 .dashboard-task-table td {
-  padding: 0.75rem 0.8rem;
+  padding: 0.48rem 0.55rem;
   border-top: 1px solid rgba(217, 224, 228, 0.92);
   vertical-align: top;
   text-align: left;
+  font-size: 0.84rem;
+  line-height: 1.2;
 }
 
 .dashboard-task-table thead th {
   border-top: 0;
   color: var(--muted);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1361,19 +1364,40 @@ label:not(.checkbox) textarea {
 
 .dashboard-task-table-main {
   display: grid;
-  gap: 0.3rem;
-  min-width: 220px;
+  gap: 0.12rem;
+  min-width: 180px;
+}
+
+.dashboard-task-table-main strong {
+  font-size: 0.9rem;
 }
 
 .dashboard-task-table-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.25rem;
   align-items: center;
 }
 
 .dashboard-task-table-actions form {
   margin: 0;
+}
+
+.dashboard-task-table .chip {
+  padding: 0.18rem 0.42rem;
+  font-size: 0.72rem;
+}
+
+.dashboard-task-table .task-color-trigger {
+  width: 0.78rem;
+  min-width: 0.78rem;
+  height: 0.78rem;
+}
+
+.dashboard-task-table .icon-action {
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
 }
 
 .dashboard-expand-toggle {
