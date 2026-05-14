@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ActivityType, Organization, OrgSettings, Project, Role, Task, TaskStatus, TimeLog, User
+from app.models import ActivityType, Department, Organization, OrgSettings, Project, Role, Task, TaskStatus, TimeLog, User
 from app.security import hash_password
 
 
@@ -28,6 +28,25 @@ DEFAULT_ACTIVITY_TYPES = [
     ("REVIEW", "Performance / Process Review", "people_management", False),
     ("OTHER", "Other", "others", False),
 ]
+
+DEFAULT_DEPARTMENTS = (
+    "Product",
+    "Engineering",
+    "Delivery(Customer Activation)",
+    "Techops/Devops",
+    "Support",
+    "IT",
+)
+
+SOLULEVER_DEPARTMENT_ASSIGNMENTS = {
+    "divya.meghwanshi@solulever.com": "Product",
+    "bhupesh.joshi@solulever.com": "Product",
+    "shantanu.singh@solulever.com": "Product",
+    "karamveer.sharma@solulever.com": "IT",
+    "devendra.mule@solulever.com": "Delivery(Customer Activation)",
+    "shrey.srivastava@solulever.com": "Delivery(Customer Activation)",
+    "jitin.gera@solulever.com": "Delivery(Customer Activation)",
+}
 
 
 def seed_defaults(db: Session) -> None:
@@ -73,6 +92,38 @@ def seed_defaults(db: Session) -> None:
                 is_active=True,
             )
         )
+
+    db.commit()
+
+
+def ensure_departments_for_org(db: Session, org: Organization) -> dict[str, Department]:
+    existing = db.scalars(select(Department).where(Department.org_id == org.id)).all()
+    departments_by_name = {item.name: item for item in existing}
+    for name in DEFAULT_DEPARTMENTS:
+        if name not in departments_by_name:
+            department = Department(org_id=org.id, name=name)
+            db.add(department)
+            db.flush()
+            departments_by_name[name] = department
+    return departments_by_name
+
+
+def seed_department_assignments(db: Session, org_slug: str = "solulever") -> None:
+    org = db.scalar(select(Organization).where(Organization.slug == org_slug))
+    if not org:
+        return
+
+    departments_by_name = ensure_departments_for_org(db, org)
+    engineering_id = departments_by_name["Engineering"].id
+
+    users = db.scalars(select(User).where(User.org_id == org.id)).all()
+    for user in users:
+        user.department_id = engineering_id
+
+    for email, department_name in SOLULEVER_DEPARTMENT_ASSIGNMENTS.items():
+        user = next((item for item in users if item.email.strip().lower() == email), None)
+        if user:
+            user.department_id = departments_by_name[department_name].id
 
     db.commit()
 

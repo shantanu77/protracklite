@@ -39,6 +39,7 @@ class Organization(Base):
 
     settings: Mapped["OrgSettings"] = relationship(back_populates="organization", uselist=False, cascade="all, delete-orphan")
     users: Mapped[list["User"]] = relationship(back_populates="organization")
+    departments: Mapped[list["Department"]] = relationship(back_populates="organization")
     projects: Mapped[list["Project"]] = relationship(back_populates="organization")
     activity_types: Mapped[list["ActivityType"]] = relationship(back_populates="organization")
 
@@ -59,6 +60,19 @@ class OrgSettings(Base):
     organization: Mapped[Organization] = relationship(back_populates="settings")
 
 
+class Department(Base):
+    __tablename__ = "departments"
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_department_name_per_org"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    name: Mapped[str] = mapped_column(String(150))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    organization: Mapped[Organization] = relationship(back_populates="departments")
+    users: Mapped[list["User"]] = relationship(back_populates="department")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -67,6 +81,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(150))
     password_hash: Mapped[str] = mapped_column(String(255))
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True, nullable=True)
     role: Mapped[Role] = mapped_column(SqlEnum(Role), default=Role.EMPLOYEE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     send_effort_reminder: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -76,6 +91,7 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization: Mapped[Organization] = relationship(back_populates="users")
+    department: Mapped[Department | None] = relationship(back_populates="users")
 
 
 class Project(Base):

@@ -25,6 +25,7 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.models import (
     ActivityType,
+    Department,
     Holiday,
     Leave,
     LeaveType,
@@ -57,7 +58,7 @@ from app.security import (
     hash_password,
     verify_password,
 )
-from app.seed import seed_defaults
+from app.seed import seed_defaults, seed_department_assignments
 
 
 settings = get_settings()
@@ -118,6 +119,7 @@ TASK_COLOR_CHOICES = [
     ("#78716c", "Stone"),
     ("#a16207", "Ochre"),
 ]
+DEFAULT_USER_DEPARTMENT = "Engineering"
 TASK_COLOR_MAP = {color: label for color, label in TASK_COLOR_CHOICES}
 TASK_COLOR_VALUES = set(TASK_COLOR_MAP)
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
@@ -179,11 +181,49 @@ def ensure_users_schema() -> None:
     columns = {column["name"] for column in inspector.get_columns("users")}
     ddl_by_column = {
         "send_effort_reminder": "ALTER TABLE users ADD COLUMN send_effort_reminder BOOLEAN NOT NULL DEFAULT TRUE",
+        "department_id": "ALTER TABLE users ADD COLUMN department_id INTEGER NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
             if column_name not in columns:
                 connection.execute(text(ddl))
+
+
+def ensure_departments_schema() -> None:
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    with engine.begin() as connection:
+        if "departments" not in table_names:
+            if engine.dialect.name == "sqlite":
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE departments (
+                            id INTEGER NOT NULL PRIMARY KEY,
+                            org_id INTEGER NOT NULL,
+                            name VARCHAR(150) NOT NULL,
+                            created_at DATETIME NOT NULL,
+                            FOREIGN KEY(org_id) REFERENCES organizations (id),
+                            CONSTRAINT uq_department_name_per_org UNIQUE (org_id, name)
+                        )
+                        """
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE departments (
+                            id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                            org_id INTEGER NOT NULL,
+                            name VARCHAR(150) NOT NULL,
+                            created_at DATETIME NOT NULL,
+                            CONSTRAINT uq_department_name_per_org UNIQUE (org_id, name),
+                            FOREIGN KEY(org_id) REFERENCES organizations (id)
+                        )
+                        """
+                    )
+                )
 
 
 def ensure_org_settings_schema() -> None:
@@ -396,6 +436,16 @@ def ensure_query_indexes() -> None:
                 "CREATE INDEX ix_users_org_active_full_name "
                 "ON users (org_id, is_active, full_name)"
             ),
+            "ix_users_org_department_active_full_name": (
+                "CREATE INDEX ix_users_org_department_active_full_name "
+                "ON users (org_id, department_id, is_active, full_name)"
+            ),
+        },
+        "departments": {
+            "ix_departments_org_name": (
+                "CREATE INDEX ix_departments_org_name "
+                "ON departments (org_id, name)"
+            ),
         },
         "projects": {
             "ix_projects_org_active_name": (
@@ -435,6 +485,7 @@ def ensure_query_indexes() -> None:
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_departments_schema()
     ensure_users_schema()
     ensure_org_settings_schema()
     ensure_tasks_schema()
@@ -445,6 +496,7 @@ def on_startup() -> None:
     db = next(get_db())
     try:
         seed_defaults(db)
+        seed_department_assignments(db)
         backfill_activity_type_categories(db)
     finally:
         db.close()
@@ -1453,7 +1505,16 @@ def safe_org_redirect(org_slug: str, redirect_to: str | None, fallback: str) -> 
 
 
 def org_people(db: Session, org_id: int) -> list[User]:
-    return db.scalars(select(User).where(User.org_id == org_id, User.is_active.is_(True)).order_by(User.full_name.asc())).all()
+    return db.scalars(
+        select(User)
+        .options(selectinload(User.department))
+        .where(User.org_id == org_id, User.is_active.is_(True))
+        .order_by(User.full_name.asc())
+    ).all()
+
+
+def org_departments(db: Session, org_id: int) -> list[Department]:
+    return db.scalars(select(Department).where(Department.org_id == org_id).order_by(Department.name.asc())).all()
 
 
 def org_projects(db: Session, org_id: int) -> list[Project]:
@@ -2826,13 +2887,28 @@ def api_create_project(payload: dict, org_user: tuple[Organization, User] = Depe
 @app.get("/api/v1/users/")
 def api_list_users(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, _ = org_user
-    return [{"id": item.id, "full_name": item.full_name, "email": item.email, "role": item.role.value} for item in org_people(db, org.id)]
+    return [
+        {
+            "id": item.id,
+            "full_name": item.full_name,
+            "email": item.email,
+            "role": item.role.value,
+            "department": item.department.name if item.department else None,
+        }
+        for item in org_people(db, org.id)
+    ]
 
 
 @app.get("/api/v1/users/me")
 def api_user_me(org_user: tuple[Organization, User] = Depends(get_org_user)):
     _, user = org_user
-    return {"id": user.id, "full_name": user.full_name, "email": user.email, "role": user.role.value}
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "role": user.role.value,
+        "department": user.department.name if user.department else None,
+    }
 
 
 @app.put("/api/v1/users/me")
@@ -3190,8 +3266,21 @@ def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User]
 def admin_users_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     must_be_admin(user)
-    people = db.scalars(select(User).where(User.org_id == org.id).order_by(User.created_at.desc())).all()
-    return templates.TemplateResponse("admin_users.html", {"request": request, "org": org, "user": user, "people": people, "roles": list(Role)})
+    people = db.scalars(select(User).options(selectinload(User.department)).where(User.org_id == org.id).order_by(User.created_at.desc())).all()
+    departments = org_departments(db, org.id)
+    default_department = next((item for item in departments if item.name == DEFAULT_USER_DEPARTMENT), departments[0] if departments else None)
+    return templates.TemplateResponse(
+        "admin_users.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "people": people,
+            "roles": list(Role),
+            "departments": departments,
+            "default_department_id": default_department.id if default_department else None,
+        },
+    )
 
 
 @app.post("/{org_slug}/admin/users")
@@ -3199,17 +3288,25 @@ def admin_create_user(
     org_slug: str,
     full_name: str = Form(...),
     email: str = Form(...),
+    department_id: int | None = Form(None),
     role: Role = Form(Role.EMPLOYEE),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     must_be_admin(user)
+    departments = org_departments(db, org.id)
+    department = next((item for item in departments if item.id == department_id), None)
+    if department_id is not None and not department:
+        raise HTTPException(status_code=400, detail="Department not found")
+    if department is None:
+        department = next((item for item in departments if item.name == DEFAULT_USER_DEPARTMENT), departments[0] if departments else None)
     temp_password = generate_temp_password()
     new_user = User(
         org_id=org.id,
         full_name=full_name.strip(),
         email=email.strip().lower(),
+        department_id=department.id if department else None,
         role=role,
         password_hash=hash_password(temp_password),
         force_password_change=True,
@@ -3231,6 +3328,7 @@ def admin_update_user(
     org_slug: str,
     user_id: int,
     full_name: str = Form(...),
+    department_id: int | None = Form(None),
     role: Role = Form(...),
     is_active: bool = Form(False),
     send_effort_reminder: bool = Form(False),
@@ -3243,6 +3341,11 @@ def admin_update_user(
     target = db.get(User, user_id)
     if not target or target.org_id != org.id:
         raise HTTPException(status_code=404, detail="User not found")
+    if department_id is not None:
+        department = db.get(Department, department_id)
+        if not department or department.org_id != org.id:
+            raise HTTPException(status_code=400, detail="Department not found")
+        target.department_id = department.id
     target.full_name = full_name.strip()
     target.role = role
     target.is_active = is_active
