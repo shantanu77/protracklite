@@ -44,7 +44,7 @@
             >{{ dashboard_status_icon(task) }}</span>
           </td>
           <td data-dashboard-highlight>{{ task.deadline_label }}</td>
-          <td>{% if task.estimated_hours is not none %}{{ "%.2f"|format(task.estimated_hours) }}h plan · {% endif %}{{ "%.2f"|format(task.logged_hours or 0) }}h logged</td>
+          <td>{{ "%.2f"|format(task.logged_hours or 0) }}h logged</td>
           <td>
             <div class="dashboard-task-table-actions">
               {% if sortable %}
