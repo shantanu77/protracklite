@@ -384,6 +384,7 @@ def migrate_department_activity_catalog(db: Session, org_slug: str = "solulever"
         for item in activity_types
         if item.department_id is None or item.code not in desired_codes
     ]
+    db.flush()
     legacy_ids = {item.id for item in legacy_items}
     active_task_activity_ids = {item[0] for item in db.execute(select(Task.activity_type_id).where(Task.org_id == org.id)).all()}
     for item in legacy_items:
