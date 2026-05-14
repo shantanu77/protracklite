@@ -1,4 +1,11 @@
 {% extends "base.html" %}
+{% macro dashboard_status_icon(task) -%}
+  {%- if task.status == 'closed' -%}✓
+  {%- elif task.status == 'stalled' -%}!
+  {%- elif task.status == 'started' -%}▶
+  {%- else -%}○
+  {%- endif -%}
+{%- endmacro %}
 {% macro dashboard_table(tasks, org, today, empty_text, sortable=false) %}
   <div class="dashboard-table-wrap" data-dashboard-table-wrap hidden>
     <table class="dashboard-task-table">
@@ -29,7 +36,13 @@
               <strong data-dashboard-highlight>{{ task.name }}</strong>
             </div>
           </td>
-          <td data-dashboard-highlight>{{ task.status_label if task.status_label is defined else task.status|replace('_', ' ') }}</td>
+          <td class="dashboard-task-table-status-cell">
+            <span
+              class="dashboard-task-table-status"
+              title="{{ task.status_label if task.status_label is defined else task.status|replace('_', ' ') }}"
+              aria-label="{{ task.status_label if task.status_label is defined else task.status|replace('_', ' ') }}"
+            >{{ dashboard_status_icon(task) }}</span>
+          </td>
           <td data-dashboard-highlight>{{ task.deadline_label }}</td>
           <td>{% if task.estimated_hours is not none %}{{ "%.2f"|format(task.estimated_hours) }}h plan · {% endif %}{{ "%.2f"|format(task.logged_hours or 0) }}h logged</td>
           <td>

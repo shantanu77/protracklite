@@ -1339,6 +1339,32 @@ label:not(.checkbox) textarea {
   table-layout: fixed;
 }
 
+.dashboard-task-table th:nth-child(1),
+.dashboard-task-table td:nth-child(1) {
+  width: 42%;
+}
+
+.dashboard-task-table th:nth-child(2),
+.dashboard-task-table td:nth-child(2) {
+  width: 7%;
+  text-align: center;
+}
+
+.dashboard-task-table th:nth-child(3),
+.dashboard-task-table td:nth-child(3) {
+  width: 15%;
+}
+
+.dashboard-task-table th:nth-child(4),
+.dashboard-task-table td:nth-child(4) {
+  width: 16%;
+}
+
+.dashboard-task-table th:nth-child(5),
+.dashboard-task-table td:nth-child(5) {
+  width: 20%;
+}
+
 .dashboard-task-table th,
 .dashboard-task-table td {
   padding: 0.48rem 0.55rem;
@@ -1381,6 +1407,23 @@ label:not(.checkbox) textarea {
 
 .dashboard-task-table-actions form {
   margin: 0;
+}
+
+.dashboard-task-table-status-cell {
+  text-align: center;
+}
+
+.dashboard-task-table-status {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  background: rgba(29, 52, 66, 0.08);
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .dashboard-task-table .chip {
