@@ -2484,6 +2484,48 @@ mark {
   justify-content: flex-start;
 }
 
+.task-create-form {
+  gap: 0.7rem;
+}
+
+.task-create-form .panel-head {
+  margin-bottom: 0.35rem;
+}
+
+.task-create-form .panel-head p {
+  font-size: 0.82rem;
+}
+
+.task-create-form label:not(.checkbox) {
+  gap: 0.22rem;
+  font-size: 0.72rem;
+}
+
+.task-create-form input,
+.task-create-form select,
+.task-create-form textarea {
+  padding-top: 0.72rem;
+  padding-bottom: 0.72rem;
+}
+
+.task-create-form input[name="name"] {
+  font-size: 0.95rem;
+}
+
+.task-create-form .checkbox {
+  min-height: 36px;
+  font-size: 0.9rem;
+}
+
+.task-create-form .task-create-more {
+  padding: 0.8rem 0.9rem;
+}
+
+.task-create-form .task-create-more-grid {
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
 .task-detail-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
