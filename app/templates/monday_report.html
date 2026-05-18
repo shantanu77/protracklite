@@ -181,7 +181,7 @@
     <strong>{{ report.pending_more_than_two_weeks_count }} older than 2 weeks.</strong>
   </p>
 </section>
-<div class="grid">
+<div class="stack">
   {{ render_monday_table(report.worked_last_week_tasks, "Worked Last Week", "Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.", "No effort was booked last week.", "open", "worked") }}
   {{ render_monday_table(report.completed_tasks, "Completed Tasks", "Tasks closed in the previous week, with estimated versus actual effort.", "No tasks were closed last week.", "completed", "completed") }}
   {{ render_monday_table(report.pending_tasks, "Pending Tasks", "All open tasks assigned to you that are not stalled and started before this week.", "No pending non-stalled tasks.", "open", "pending") }}
