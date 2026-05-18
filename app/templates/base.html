@@ -638,18 +638,25 @@
     });
 
     document.querySelectorAll("form").forEach((form) => {
+      const projectSelect = form.querySelector("[data-project-select]");
       const categorySelect = form.querySelector("[data-activity-category]");
       const typeSelect = form.querySelector("[data-activity-type-select]");
+      const rawProjectActivityMap = form.dataset.projectActivityMap || "";
+      const projectActivityMap = rawProjectActivityMap ? JSON.parse(rawProjectActivityMap) : null;
       if (!categorySelect || !typeSelect) {
         return;
       }
       const options = Array.from(typeSelect.querySelectorAll("option"));
 
       function syncActivityTypes() {
+        const selectedProjectId = String(projectSelect?.value || "");
         const selectedCategory = categorySelect.value;
         let firstVisible = null;
         options.forEach((option) => {
-          const matches = !selectedCategory || option.dataset.category === selectedCategory;
+          const allowedIds = projectActivityMap ? new Set((projectActivityMap[selectedProjectId] || []).map((item) => String(item))) : null;
+          const matchesProject = !allowedIds || allowedIds.size === 0 || allowedIds.has(option.value);
+          const matchesCategory = !selectedCategory || option.dataset.category === selectedCategory;
+          const matches = matchesProject && matchesCategory;
           option.hidden = !matches;
           option.disabled = !matches;
           if (matches && !firstVisible) {
@@ -668,6 +675,7 @@
       if (selectedOption?.dataset.category) {
         categorySelect.value = selectedOption.dataset.category;
       }
+      projectSelect?.addEventListener("change", syncActivityTypes);
       categorySelect.addEventListener("change", syncActivityTypes);
       syncActivityTypes();
     });
@@ -707,11 +715,15 @@
       if (!quickTaskCategorySelect || !quickTaskActivityTypeSelect) {
         return;
       }
+      const selectedProjectId = String(quickTaskProjectSelect?.value || "");
       const selectedCategory = quickTaskCategorySelect.value;
+      const allowedIds = new Set(((quickTaskOptions?.project_activity_map || {})[selectedProjectId] || []).map((item) => String(item)));
       const options = Array.from(quickTaskActivityTypeSelect.querySelectorAll("option"));
       let firstVisible = null;
       options.forEach((option) => {
-        const matches = !selectedCategory || option.dataset.category === selectedCategory;
+        const matchesProject = !selectedProjectId || allowedIds.size === 0 || allowedIds.has(option.value);
+        const matchesCategory = !selectedCategory || option.dataset.category === selectedCategory;
+        const matches = matchesProject && matchesCategory;
         option.hidden = !matches;
         option.disabled = !matches;
         if (matches && !firstVisible) {
@@ -844,6 +856,7 @@
     }
 
     quickTaskCategorySelect?.addEventListener("change", syncQuickTaskActivityTypes);
+    quickTaskProjectSelect?.addEventListener("change", syncQuickTaskActivityTypes);
     quickTaskBacklogToggle?.addEventListener("change", syncQuickTaskBacklogState);
 
     quickTaskForm?.addEventListener("submit", async (event) => {

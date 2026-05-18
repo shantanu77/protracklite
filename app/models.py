@@ -113,6 +113,16 @@ class Project(Base):
     tasks: Mapped[list["Task"]] = relationship(back_populates="project")
 
 
+class ProjectActivityType(Base):
+    __tablename__ = "project_activity_types"
+    __table_args__ = (UniqueConstraint("project_id", "activity_type_id", name="uq_project_activity_type"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    activity_type_id: Mapped[int] = mapped_column(ForeignKey("activity_types.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ActivityType(Base):
     __tablename__ = "activity_types"
     __table_args__ = (UniqueConstraint("org_id", "code", name="uq_activity_code_per_org"),)

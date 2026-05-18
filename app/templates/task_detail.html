@@ -95,7 +95,7 @@
         </div>
       </div>
       <label>Project
-        <select name="project_id" required>
+        <select name="project_id" data-project-select required>
           {% for project in projects %}
           <option value="{{ project.id }}" {% if project.id == task.project_id %}selected{% endif %}>{{ project.name }} ({{ project.code }})</option>
           {% endfor %}
@@ -197,11 +197,37 @@
 
 <script>
   (() => {
+    const projectActivityMap = {{ project_activity_map|tojson }};
     const form = document.querySelector(".task-detail-form");
+    const projectSelect = form?.querySelector("[data-project-select]");
+    const categorySelect = form?.querySelector("[data-activity-category]");
+    const activityTypeSelect = form?.querySelector("[data-activity-type-select]");
+    const activityTypeOptions = activityTypeSelect ? Array.from(activityTypeSelect.querySelectorAll("option")) : [];
     const backlogToggle = form?.querySelector("[data-backlog-toggle]");
     const fields = form ? Array.from(form.querySelectorAll("[data-backlog-field]")) : [];
-    if (!form || !backlogToggle) {
+    if (!form || !backlogToggle || !projectSelect || !categorySelect || !activityTypeSelect) {
       return;
+    }
+
+    function syncActivityTypes() {
+      const selectedProjectId = String(projectSelect.value || "");
+      const selectedCategory = categorySelect.value;
+      const allowedIds = new Set((projectActivityMap[selectedProjectId] || []).map((item) => String(item)));
+      let firstVisible = null;
+      activityTypeOptions.forEach((option) => {
+        const matchesProject = !selectedProjectId || allowedIds.size === 0 || allowedIds.has(option.value);
+        const matchesCategory = !selectedCategory || option.dataset.category === selectedCategory;
+        const matches = matchesProject && matchesCategory;
+        option.hidden = !matches;
+        option.disabled = !matches;
+        if (matches && !firstVisible) {
+          firstVisible = option;
+        }
+      });
+      const current = activityTypeSelect.selectedOptions[0];
+      if ((!current || current.hidden || current.disabled) && firstVisible) {
+        activityTypeSelect.value = firstVisible.value;
+      }
     }
 
     function syncBacklogState() {
@@ -216,7 +242,10 @@
       });
     }
 
+    projectSelect.addEventListener("change", syncActivityTypes);
+    categorySelect.addEventListener("change", syncActivityTypes);
     backlogToggle.addEventListener("change", syncBacklogState);
+    syncActivityTypes();
     syncBacklogState();
   })();
 </script>

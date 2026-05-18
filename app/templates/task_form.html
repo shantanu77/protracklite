@@ -37,16 +37,16 @@
       </div>
     </div>
     <label>Project
-      <select name="project_id" required>
+      <select name="project_id" data-project-select required>
         {% for project in projects %}
         <option value="{{ project.id }}" {% if project.id == default_project_id %}selected{% endif %}>{{ project.name }}</option>
         {% endfor %}
       </select>
     </label>
     <label>Activity Type
-      <select name="activity_type_id" required>
+      <select name="activity_type_id" data-activity-type-select required>
         {% for item in activity_types %}
-        <option value="{{ item.id }}" {% if item.id == default_activity_type_id %}selected{% endif %}>{{ item.name }}</option>
+        <option value="{{ item.id }}" data-category="{{ item.category }}" {% if item.id == default_activity_type_id %}selected{% endif %}>{{ item.name }}</option>
         {% endfor %}
       </select>
     </label>
@@ -217,11 +217,33 @@
 
 <script>
   (() => {
+    const projectActivityMap = {{ project_activity_map|tojson }};
     const form = document.querySelector("form.panel.form-grid");
+    const projectSelect = form?.querySelector("[data-project-select]");
+    const activityTypeSelect = form?.querySelector("[data-activity-type-select]");
+    const activityTypeOptions = activityTypeSelect ? Array.from(activityTypeSelect.querySelectorAll("option")) : [];
     const backlogToggle = form?.querySelector("[data-backlog-toggle]");
     const fields = form ? Array.from(form.querySelectorAll("[data-backlog-field]")) : [];
-    if (!form || !backlogToggle) {
+    if (!form || !backlogToggle || !projectSelect || !activityTypeSelect) {
       return;
+    }
+
+    function syncActivityTypes() {
+      const selectedProjectId = String(projectSelect.value || "");
+      const allowedIds = new Set((projectActivityMap[selectedProjectId] || []).map((item) => String(item)));
+      let firstVisible = null;
+      activityTypeOptions.forEach((option) => {
+        const matchesProject = !selectedProjectId || allowedIds.size === 0 || allowedIds.has(option.value);
+        option.hidden = !matchesProject;
+        option.disabled = !matchesProject;
+        if (matchesProject && !firstVisible) {
+          firstVisible = option;
+        }
+      });
+      const current = activityTypeSelect.selectedOptions[0];
+      if ((!current || current.hidden || current.disabled) && firstVisible) {
+        activityTypeSelect.value = firstVisible.value;
+      }
     }
 
     function syncBacklogState() {
@@ -244,7 +266,9 @@
       });
     }
 
+    projectSelect.addEventListener("change", syncActivityTypes);
     backlogToggle.addEventListener("change", syncBacklogState);
+    syncActivityTypes();
     syncBacklogState();
   })();
 
