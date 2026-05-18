@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% macro render_task_card(task, card_kind="open") %}
-  {% set detail_id = "monday-task-details-" ~ task.task_id %}
+{% macro render_task_card(task, card_kind="open", detail_suffix="") %}
+  {% set detail_id = "monday-task-details-" ~ task.task_id ~ "-" ~ detail_suffix %}
   <div class="list-row deadline-card {{ 'upcoming' if card_kind == 'completed' else task.deadline_tone }} monday-task-card">
     <div class="monday-task-main">
       <div>
@@ -142,7 +142,7 @@
       <p>Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.</p>
     </div>
     {% for task in report.worked_last_week_tasks %}
-    {{ render_task_card(task, "completed" if task.status == "closed" else "open") }}
+    {{ render_task_card(task, "completed" if task.status == "closed" else "open", "worked-" ~ loop.index) }}
     {% else %}<p class="empty">No effort was booked last week.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -151,7 +151,7 @@
       <p>Tasks closed in the previous week, with estimated versus actual effort.</p>
     </div>
     {% for task in report.completed_tasks %}
-    {{ render_task_card(task, "completed") }}
+    {{ render_task_card(task, "completed", "completed-" ~ loop.index) }}
     {% else %}<p class="empty">No tasks were closed last week.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -160,7 +160,7 @@
       <p>All open tasks assigned to you that are not stalled and started before this week.</p>
     </div>
     {% for task in report.pending_tasks %}
-    {{ render_task_card(task, "open") }}
+    {{ render_task_card(task, "open", "pending-" ~ loop.index) }}
     {% else %}<p class="empty">No pending non-stalled tasks.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -174,7 +174,7 @@
       </div>
     </div>
     {% for task in report.this_week_tasks %}
-    {{ render_task_card(task, "open") }}
+    {{ render_task_card(task, "open", "this-week-" ~ loop.index) }}
     {% else %}<p class="empty">No open tasks in this week.</p>{% endfor %}
   </section>
   <section class="panel">
@@ -183,7 +183,7 @@
       <p>Tasks marked stalled, along with the reason recorded on the task.</p>
     </div>
     {% for task in report.stalled_tasks %}
-    {{ render_task_card(task, "stalled") }}
+    {{ render_task_card(task, "stalled", "stalled-" ~ loop.index) }}
     {% else %}<p class="empty">No stalled tasks.</p>{% endfor %}
   </section>
 </div>
