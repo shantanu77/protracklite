@@ -114,6 +114,40 @@
       </form>
     </div>
   </div>
+  <div class="modal-backdrop" id="shared-log-modal" data-modal aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shared-log-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="shared-log-title">Log Hours</h2>
+          <p data-modal-text="task_name_text">Choose a task and log your work.</p>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close log hours modal">×</button>
+      </div>
+      <form method="post" class="form-grid">
+        <label>Date<input name="log_date" type="date" required></label>
+        <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
+        <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
+        <label class="full">Comments<textarea name="notes" rows="4" placeholder="What was done today?"></textarea></label>
+        <button type="submit">Add Time Log</button>
+      </form>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="stalled-task-modal" data-modal aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="stalled-task-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="stalled-task-title">Mark Task Stalled</h2>
+          <p data-modal-text="task_name_text">Record why this task is blocked or paused.</p>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close stalled task modal">×</button>
+      </div>
+      <form method="post" class="form-grid">
+        <label class="full">Stalled Reason<textarea name="stalled_reason" rows="4" placeholder="What is blocking this task?" required></textarea></label>
+        <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
+        <button type="submit">Mark Stalled</button>
+      </form>
+    </div>
+  </div>
   <div class="modal-backdrop" id="quick-task-modal" data-modal aria-hidden="true">
     <div class="modal-card wide quick-task-modal" role="dialog" aria-modal="true" aria-labelledby="quick-task-title">
       <div class="modal-head">
@@ -259,6 +293,16 @@
         if (button.dataset.modalOpen === "complete-task-modal") {
           window.setTimeout(() => {
             modal.querySelector('[name="completion_date"]')?.focus();
+          }, 0);
+        }
+        if (button.dataset.modalOpen === "shared-log-modal") {
+          window.setTimeout(() => {
+            modal.querySelector('[name="hours"]')?.focus();
+          }, 0);
+        }
+        if (button.dataset.modalOpen === "stalled-task-modal") {
+          window.setTimeout(() => {
+            modal.querySelector('[name="stalled_reason"]')?.focus();
           }, 0);
         }
       });

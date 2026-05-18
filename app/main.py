@@ -2643,6 +2643,36 @@ def complete_task_page(
     return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
 
 
+@app.post("/{org_slug}/tasks/{task_code}/stall")
+def stall_task_page(
+    org_slug: str,
+    task_code: str,
+    stalled_reason: str = Form(""),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
+    if user.role != Role.ADMIN:
+        task_query = task_query.where(Task.assigned_to == user.id)
+    task = db.scalar(task_query)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status == TaskStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Completed tasks cannot be marked stalled")
+
+    reason = stalled_reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Stalled reason is required")
+
+    task.status = TaskStatus.STALLED
+    task.stalled_reason = reason
+    task.closed_at = None
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
+
+
 @app.post("/{org_slug}/tasks/{task_code}/unarchive")
 def unarchive_task_page(org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
@@ -3156,7 +3186,7 @@ def work_rate_page(
 def monday_report_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     report = monday_report(db, org.id, user.id)
-    return templates.TemplateResponse("monday_report.html", {"request": request, "org": org, "user": user, "report": report})
+    return templates.TemplateResponse("monday_report.html", {"request": request, "org": org, "user": user, "report": report, "today": date.today()})
 
 
 @app.post("/{org_slug}/reports/monday/add-from-backlog")
