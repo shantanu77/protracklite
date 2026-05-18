@@ -1692,6 +1692,19 @@ mark {
   justify-content: flex-end;
 }
 
+.monday-table-wrap {
+  display: block;
+}
+
+.monday-task-table .monday-task-row:hover {
+  background: rgba(29, 52, 66, 0.03);
+}
+
+.monday-task-detail-row td {
+  padding: 0.9rem 0.55rem 1rem;
+  background: rgba(29, 52, 66, 0.02);
+}
+
 .monday-task-name {
   color: var(--text);
   line-height: 1.35;
@@ -1711,8 +1724,6 @@ mark {
 .monday-task-details {
   display: grid;
   gap: 0.9rem;
-  border-top: 1px solid rgba(217, 224, 228, 0.92);
-  padding-top: 0.9rem;
 }
 
 .monday-task-details[hidden] {

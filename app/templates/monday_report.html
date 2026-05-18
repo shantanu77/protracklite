@@ -1,87 +1,133 @@
 {% extends "base.html" %}
-{% macro render_task_card(task, card_kind="open", detail_suffix="") %}
-  {% set detail_id = "monday-task-details-" ~ task.task_id ~ "-" ~ detail_suffix %}
-  <div class="list-row deadline-card {{ 'upcoming' if card_kind == 'completed' else task.deadline_tone }} monday-task-card">
-    <div class="monday-task-main">
-      <div>
-        <div class="report-row-head">
-          <strong>{{ task.task_id }}</strong>
-          <div class="report-row-badges">
-            {% if card_kind == "completed" %}
-            <span class="report-hours-pill emphasis">{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
-            <span class="badge success">closed</span>
-            <span class="deadline-pill {{ task.effort_tone }}">{{ task.effort_label }}</span>
-            {% elif card_kind == "stalled" %}
-            <span class="report-hours-pill">{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
-            <span class="badge danger">stalled</span>
-            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
-            {% else %}
-            <span class="report-hours-pill">{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
-            <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
-            <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
-            {% endif %}
-          </div>
-        </div>
-        <span class="monday-task-name">{{ task.name }}</span>
-        <small>
-          {% if card_kind == "completed" %}
-          {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
-          {% if task.end_date_label %} · End: {{ task.end_date_label }}{% endif %}
-          {% if task.closed_at_label %} · Closed: {{ task.closed_at_label }}{% endif %}
-          · planned {{ "%.2f"|format(task.estimated_hours or 0) }}h · total actual {{ "%.2f"|format(task.logged_hours or 0) }}h
-          {% else %}
-          {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
-          {% if task.end_date_label %} · End: {{ task.end_date_label }}{% else %} · End: Not set{% endif %}
-          {% if task.overdue_days %} · overdue by {{ task.overdue_days }} day{% if task.overdue_days != 1 %}s{% endif %}{% endif %}
-          {% endif %}
-        </small>
-        <div class="monday-task-actions">
-          <button
-            type="button"
-            class="dashboard-expand-toggle monday-expand-toggle"
-            data-monday-expand-toggle
-            data-expand-label="Details"
-            aria-expanded="false"
-            aria-controls="{{ detail_id }}"
-          >
-            Expand Details
-          </button>
-        </div>
-      </div>
+{% macro monday_status_icon(task, card_kind="open") -%}
+  {%- if card_kind == "completed" or task.status == "closed" -%}✓
+  {%- elif card_kind == "stalled" or task.status == "stalled" -%}!
+  {%- elif task.status == "started" -%}▶
+  {%- else -%}○
+  {%- endif -%}
+{%- endmacro %}
+{% macro render_monday_table(tasks, title, copy, empty_text, card_kind="open", section_key="") %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>{{ title }}</h2>
+      <p>{{ copy }}</p>
     </div>
-    <div class="monday-task-details" id="{{ detail_id }}" data-monday-expand-panel hidden>
-      <div class="monday-task-detail-block">
-        <span class="monday-task-detail-label">Description</span>
-        {% if task.description %}
-        <div class="monday-task-detail-text">{{ task.description|safe }}</div>
-        {% else %}
-        <p class="empty">No description added.</p>
-        {% endif %}
-      </div>
-      {% if card_kind == "stalled" %}
-      <div class="monday-task-detail-block">
-        <span class="monday-task-detail-label">Stalled Reason</span>
-        <p>{{ task.stalled_reason or "No stalled reason recorded." }}</p>
-      </div>
-      {% endif %}
-      <div class="monday-task-detail-block">
-        <span class="monday-task-detail-label">Booked Hour Log (Last Week)</span>
-        <div class="dashboard-log-list">
-          {% for log in task.report_time_logs %}
-          <article class="dashboard-log-item">
-            <div class="dashboard-log-meta">
-              <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
-              <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
-            </div>
-            <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
-          </article>
-          {% else %}
-          <p class="empty">No booked-hour log found.</p>
+    {% if tasks %}
+    <div class="dashboard-table-wrap monday-table-wrap">
+      <table class="dashboard-task-table monday-task-table">
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Status</th>
+            <th>Dates</th>
+            <th>Hours</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for task in tasks %}
+          {% set detail_id = "monday-task-details-" ~ section_key ~ "-" ~ loop.index %}
+          <tr class="monday-task-row">
+            <td>
+              <div class="dashboard-task-table-main">
+                <div class="task-card-headline">
+                  <span class="chip">{{ task.task_id }}</span>
+                </div>
+                <strong>{{ task.name }}</strong>
+                <small>
+                  {% if card_kind == "completed" %}
+                  {% if task.closed_at_label %}Closed {{ task.closed_at_label }}{% else %}Completed{% endif %}
+                  {% if task.effort_label %} · {{ task.effort_label }}{% endif %}
+                  {% elif card_kind == "stalled" and task.stalled_reason %}
+                  {{ task.stalled_reason[:90] }}{% if task.stalled_reason|length > 90 %}...{% endif %}
+                  {% else %}
+                  {{ task.deadline_label }}
+                  {% endif %}
+                </small>
+              </div>
+            </td>
+            <td class="dashboard-task-table-status-cell">
+              <span
+                class="dashboard-task-table-status"
+                title="{{ task.status|replace('_', ' ') }}"
+                aria-label="{{ task.status|replace('_', ' ') }}"
+              >{{ monday_status_icon(task, card_kind) }}</span>
+            </td>
+            <td>
+              {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
+              {% if task.end_date_label %} · End: {{ task.end_date_label }}{% elif card_kind != "completed" %} · End: Not set{% endif %}
+              {% if card_kind == "completed" and task.closed_at_label %} · Closed: {{ task.closed_at_label }}{% endif %}
+            </td>
+            <td>
+              {% if card_kind == "completed" %}
+              {% if task.estimated_hours is not none %}Plan {{ "%.2f"|format(task.estimated_hours or 0) }}h{% else %}Plan not set{% endif %}
+              <br>
+              {{ "%.2f"|format(task.logged_hours or 0) }}h actual
+              {% else %}
+              {{ "%.2f"|format(task.report_hours or 0) }}h last week
+              <br>
+              {{ "%.2f"|format(task.logged_hours or 0) }}h total
+              {% endif %}
+            </td>
+            <td>
+              <div class="dashboard-task-table-actions">
+                <button
+                  type="button"
+                  class="dashboard-expand-toggle monday-expand-toggle"
+                  data-monday-expand-toggle
+                  data-expand-label="Details"
+                  aria-expanded="false"
+                  aria-controls="{{ detail_id }}"
+                >
+                  Expand Details
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr class="monday-task-detail-row" id="{{ detail_id }}" data-monday-expand-panel hidden>
+            <td colspan="5">
+              <div class="monday-task-details">
+                <div class="monday-task-detail-block">
+                  <span class="monday-task-detail-label">Description</span>
+                  {% if task.description %}
+                  <div class="monday-task-detail-text">{{ task.description|safe }}</div>
+                  {% else %}
+                  <p class="empty">No description added.</p>
+                  {% endif %}
+                </div>
+                {% if card_kind == "stalled" %}
+                <div class="monday-task-detail-block">
+                  <span class="monday-task-detail-label">Stalled Reason</span>
+                  <p>{{ task.stalled_reason or "No stalled reason recorded." }}</p>
+                </div>
+                {% endif %}
+                <div class="monday-task-detail-block">
+                  <span class="monday-task-detail-label">Booked Hour Log (Last Week)</span>
+                  <div class="dashboard-log-list">
+                    {% for log in task.report_time_logs %}
+                    <article class="dashboard-log-item">
+                      <div class="dashboard-log-meta">
+                        <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
+                        <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
+                      </div>
+                      <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
+                    </article>
+                    {% else %}
+                    <p class="empty">No booked-hour log found.</p>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
           {% endfor %}
-        </div>
-      </div>
+        </tbody>
+      </table>
     </div>
-  </div>
+    {% else %}
+    <p class="empty">{{ empty_text }}</p>
+    {% endif %}
+  </section>
 {% endmacro %}
 {% block content %}
 <section class="page-head">
@@ -136,33 +182,9 @@
   </p>
 </section>
 <div class="grid">
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Worked Last Week</h2>
-      <p>Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.</p>
-    </div>
-    {% for task in report.worked_last_week_tasks %}
-    {{ render_task_card(task, "completed" if task.status == "closed" else "open", "worked-" ~ loop.index) }}
-    {% else %}<p class="empty">No effort was booked last week.</p>{% endfor %}
-  </section>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Completed Tasks</h2>
-      <p>Tasks closed in the previous week, with estimated versus actual effort.</p>
-    </div>
-    {% for task in report.completed_tasks %}
-    {{ render_task_card(task, "completed", "completed-" ~ loop.index) }}
-    {% else %}<p class="empty">No tasks were closed last week.</p>{% endfor %}
-  </section>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Pending Tasks</h2>
-      <p>All open tasks assigned to you that are not stalled and started before this week.</p>
-    </div>
-    {% for task in report.pending_tasks %}
-    {{ render_task_card(task, "open", "pending-" ~ loop.index) }}
-    {% else %}<p class="empty">No pending non-stalled tasks.</p>{% endfor %}
-  </section>
+  {{ render_monday_table(report.worked_last_week_tasks, "Worked Last Week", "Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.", "No effort was booked last week.", "open", "worked") }}
+  {{ render_monday_table(report.completed_tasks, "Completed Tasks", "Tasks closed in the previous week, with estimated versus actual effort.", "No tasks were closed last week.", "completed", "completed") }}
+  {{ render_monday_table(report.pending_tasks, "Pending Tasks", "All open tasks assigned to you that are not stalled and started before this week.", "No pending non-stalled tasks.", "open", "pending") }}
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -173,19 +195,97 @@
         <button type="button" class="button" data-modal-open="backlog-to-week-modal">Add From Backlog</button>
       </div>
     </div>
-    {% for task in report.this_week_tasks %}
-    {{ render_task_card(task, "open", "this-week-" ~ loop.index) }}
-    {% else %}<p class="empty">No open tasks in this week.</p>{% endfor %}
-  </section>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Stalled Tasks</h2>
-      <p>Tasks marked stalled, along with the reason recorded on the task.</p>
+    {% if report.this_week_tasks %}
+    <div class="dashboard-table-wrap monday-table-wrap">
+      <table class="dashboard-task-table monday-task-table">
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Status</th>
+            <th>Dates</th>
+            <th>Hours</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for task in report.this_week_tasks %}
+          {% set detail_id = "monday-task-details-this-week-" ~ loop.index %}
+          <tr class="monday-task-row">
+            <td>
+              <div class="dashboard-task-table-main">
+                <div class="task-card-headline">
+                  <span class="chip">{{ task.task_id }}</span>
+                </div>
+                <strong>{{ task.name }}</strong>
+                <small>{{ task.deadline_label }}</small>
+              </div>
+            </td>
+            <td class="dashboard-task-table-status-cell">
+              <span class="dashboard-task-table-status" title="{{ task.status|replace('_', ' ') }}" aria-label="{{ task.status|replace('_', ' ') }}"> {{ monday_status_icon(task, "open") }}</span>
+            </td>
+            <td>
+              {% if task.start_date_label %}Start: {{ task.start_date_label }}{% else %}Start: Not set{% endif %}
+              {% if task.end_date_label %} · End: {{ task.end_date_label }}{% else %} · End: Not set{% endif %}
+            </td>
+            <td>
+              {{ "%.2f"|format(task.report_hours or 0) }}h last week
+              <br>
+              {{ "%.2f"|format(task.logged_hours or 0) }}h total
+            </td>
+            <td>
+              <div class="dashboard-task-table-actions">
+                <button
+                  type="button"
+                  class="dashboard-expand-toggle monday-expand-toggle"
+                  data-monday-expand-toggle
+                  data-expand-label="Details"
+                  aria-expanded="false"
+                  aria-controls="{{ detail_id }}"
+                >
+                  Expand Details
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr class="monday-task-detail-row" id="{{ detail_id }}" data-monday-expand-panel hidden>
+            <td colspan="5">
+              <div class="monday-task-details">
+                <div class="monday-task-detail-block">
+                  <span class="monday-task-detail-label">Description</span>
+                  {% if task.description %}
+                  <div class="monday-task-detail-text">{{ task.description|safe }}</div>
+                  {% else %}
+                  <p class="empty">No description added.</p>
+                  {% endif %}
+                </div>
+                <div class="monday-task-detail-block">
+                  <span class="monday-task-detail-label">Booked Hour Log (Last Week)</span>
+                  <div class="dashboard-log-list">
+                    {% for log in task.report_time_logs %}
+                    <article class="dashboard-log-item">
+                      <div class="dashboard-log-meta">
+                        <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
+                        <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
+                      </div>
+                      <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
+                    </article>
+                    {% else %}
+                    <p class="empty">No booked-hour log found.</p>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    {% for task in report.stalled_tasks %}
-    {{ render_task_card(task, "stalled", "stalled-" ~ loop.index) }}
-    {% else %}<p class="empty">No stalled tasks.</p>{% endfor %}
+    {% else %}
+    <p class="empty">No open tasks in this week.</p>
+    {% endif %}
   </section>
+  {{ render_monday_table(report.stalled_tasks, "Stalled Tasks", "Tasks marked stalled, along with the reason recorded on the task.", "No stalled tasks.", "stalled", "stalled") }}
 </div>
 
 <div class="modal-backdrop" id="backlog-to-week-modal" data-modal aria-hidden="true">
