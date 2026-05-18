@@ -111,8 +111,8 @@
       </label>
       <label>Activity Type
         <select name="activity_type_id" data-activity-type-select required>
-          {% for item in activity_types %}
-          <option value="{{ item.id }}" data-category="{{ item.category }}" {% if item.id == task.activity_type_id %}selected{% endif %}>{{ item.name }}</option>
+          {% for item in activity_type_options %}
+          <option value="{{ item.id }}" data-category="{{ item.category }}" {% if item.id == task.activity_type_id %}selected{% endif %}>{{ item.label }}</option>
           {% endfor %}
         </select>
       </label>

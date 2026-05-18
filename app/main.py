@@ -522,6 +522,7 @@ def on_startup() -> None:
         migrate_department_activity_catalog(db)
         backfill_activity_type_categories(db)
         backfill_project_activity_type_links(db)
+        backfill_project_activity_type_defaults(db)
     finally:
         db.close()
 
@@ -1216,6 +1217,45 @@ def backfill_project_activity_type_links(db: Session) -> None:
         db.commit()
 
 
+def backfill_project_activity_type_defaults(db: Session) -> None:
+    project_rows = db.execute(
+        select(Project.id, Project.org_id, Project.created_by)
+        .where(
+            ~select(ProjectActivityType.id)
+            .where(ProjectActivityType.project_id == Project.id)
+            .exists()
+        )
+    ).all()
+    if not project_rows:
+        return
+
+    creator_department_cache: dict[int, int | None] = {}
+    department_activity_cache: dict[tuple[int, int], list[int]] = {}
+    links_to_add: list[ProjectActivityType] = []
+
+    for project_id, org_id, created_by in project_rows:
+        if created_by not in creator_department_cache:
+            creator_department_cache[created_by] = db.scalar(select(User.department_id).where(User.id == created_by))
+        department_id = creator_department_cache.get(created_by)
+        if not department_id:
+            continue
+        cache_key = (org_id, department_id)
+        if cache_key not in department_activity_cache:
+            department_activity_cache[cache_key] = db.scalars(
+                select(ActivityType.id).where(
+                    ActivityType.org_id == org_id,
+                    ActivityType.department_id == department_id,
+                    ActivityType.is_active.is_(True),
+                )
+            ).all()
+        for activity_type_id in department_activity_cache[cache_key]:
+            links_to_add.append(ProjectActivityType(project_id=project_id, activity_type_id=activity_type_id))
+
+    if links_to_add:
+        db.add_all(links_to_add)
+        db.commit()
+
+
 def select_activity_type_for_ai_task(
     activity_types: list[ActivityType],
     default_activity_type: ActivityType,
@@ -1630,8 +1670,18 @@ def project_activity_type_ids_map_for_user(
         mapping.setdefault(project_id, []).append(activity_type_id)
         linked_project_ids.add(project_id)
 
+    project_creator_department_ids = {
+        project.id: db.scalar(select(User.department_id).where(User.id == project.created_by))
+        for project in projects
+    }
     for project_id in project_ids:
         if project_id not in linked_project_ids:
+            creator_department_id = project_creator_department_ids.get(project_id)
+            if creator_department_id:
+                department_activity_ids = [item.id for item in activity_types if item.department_id == creator_department_id]
+                if department_activity_ids:
+                    mapping[project_id] = department_activity_ids
+                    continue
             mapping[project_id] = list(visible_activity_ids)
     return mapping
 
@@ -1645,7 +1695,14 @@ def project_allows_activity_type(
         select(ProjectActivityType.id).where(ProjectActivityType.project_id == project_id).limit(1)
     )
     if not project_has_links:
-        return True
+        project = db.get(Project, project_id)
+        if not project:
+            return False
+        creator_department_id = db.scalar(select(User.department_id).where(User.id == project.created_by))
+        if not creator_department_id:
+            return True
+        activity_type = db.get(ActivityType, activity_type_id)
+        return bool(activity_type and activity_type.department_id == creator_department_id and activity_type.is_active)
     allowed_link = db.scalar(
         select(ProjectActivityType.id).where(
             ProjectActivityType.project_id == project_id,
@@ -1653,6 +1710,22 @@ def project_allows_activity_type(
         ).limit(1)
     )
     return allowed_link is not None
+
+
+def activity_type_options(activity_types: list[ActivityType]) -> list[dict[str, Any]]:
+    name_counts: dict[str, int] = {}
+    for item in activity_types:
+        name_counts[item.name] = name_counts.get(item.name, 0) + 1
+    return [
+        {
+            "id": item.id,
+            "name": item.name,
+            "label": f"{item.name} ({item.department.name})" if name_counts.get(item.name, 0) > 1 and item.department else item.name,
+            "category": item.category,
+            "department_id": item.department_id,
+        }
+        for item in activity_types
+    ]
 
 
 def active_activity_categories(db: Session, org_id: int, user: User | None = None, include_ids: set[int] | None = None) -> list[tuple[str, str]]:
@@ -2351,6 +2424,7 @@ def new_task_page(
     settings_obj = get_org_settings(db, org.id)
     projects = org_projects(db, org.id)
     activity_types = visible_activity_types_for_user(db, org.id, user)
+    activity_type_option_items = activity_type_options(activity_types)
     project_activity_map = project_activity_type_ids_map_for_user(db, org.id, user, projects, activity_types)
     default_project, default_activity_type = resolve_default_task_targets(db, org.id, user)
     today = date.today()
@@ -2368,6 +2442,7 @@ def new_task_page(
             "task": None,
             "projects": projects,
             "activity_types": activity_types,
+            "activity_type_options": activity_type_option_items,
             "project_activity_map": project_activity_map,
             "statuses": list(TaskStatus),
             "settings": settings_obj,
@@ -2502,6 +2577,7 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
     logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc(), TimeLog.created_at.desc())).all()
     projects = all_org_projects(db, org.id)
     activity_types = visible_activity_types_for_user(db, org.id, user, {task.activity_type_id})
+    activity_type_option_items = activity_type_options(activity_types)
     project_activity_map = project_activity_type_ids_map_for_user(db, org.id, user, projects, activity_types)
     return templates.TemplateResponse(
         "task_detail.html",
@@ -2513,6 +2589,7 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
             "logs": logs,
             "projects": projects,
             "activity_types": activity_types,
+            "activity_type_options": activity_type_option_items,
             "project_activity_map": project_activity_map,
             "activity_categories": active_activity_categories(db, org.id, user, {task.activity_type_id}),
             "current_activity_category": db.get(ActivityType, task.activity_type_id).category if db.get(ActivityType, task.activity_type_id) else "others",
@@ -2911,6 +2988,7 @@ def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(
     settings_obj = get_org_settings(db, org.id)
     projects = org_projects(db, org.id)
     activity_types = visible_activity_types_for_user(db, org.id, user)
+    activity_type_option_items = activity_type_options(activity_types)
     project_activity_map = project_activity_type_ids_map_for_user(db, org.id, user, projects, activity_types)
     default_project, default_activity_type = resolve_default_task_targets(db, org.id, user)
     default_status = settings_obj.default_task_status or TaskStatus.NOT_STARTED.value
@@ -2918,8 +2996,8 @@ def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(
     return {
         "projects": [{"id": item.id, "name": item.name, "code": item.code} for item in projects],
         "activity_types": [
-            {"id": item.id, "name": item.name, "category": item.category}
-            for item in activity_types
+            {"id": item["id"], "name": item["name"], "label": item["label"], "category": item["category"]}
+            for item in activity_type_option_items
         ],
         "project_activity_map": {str(project_id): activity_ids for project_id, activity_ids in project_activity_map.items()},
         "activity_categories": [

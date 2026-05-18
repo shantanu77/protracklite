@@ -819,7 +819,7 @@
         .join("");
 
       quickTaskActivityTypeSelect.innerHTML = (options.activity_types || [])
-        .map((item) => `<option value="${item.id}" data-category="${item.category || ""}">${item.name}</option>`)
+        .map((item) => `<option value="${item.id}" data-category="${item.category || ""}">${item.label || item.name}</option>`)
         .join("");
 
       const statusSelect = quickTaskForm.querySelector('[name="status"]');
