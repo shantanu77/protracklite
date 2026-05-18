@@ -1754,6 +1754,7 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
         {
             "task_id": task.task_id,
             "name": task.name,
+            "description": task.description or "",
             "status": task.status.value,
             "task_color": normalize_task_color(task.task_color),
             "task_color_label": TASK_COLOR_MAP.get(normalize_task_color(task.task_color), "Green"),
@@ -2925,6 +2926,7 @@ def api_list_tasks(
         {
             "task_id": task.task_id,
             "name": task.name,
+            "description": task.description or "",
             "status": task.status.value,
             "task_color": normalize_task_color(task.task_color),
             "task_color_label": TASK_COLOR_MAP.get(normalize_task_color(task.task_color), "Green"),

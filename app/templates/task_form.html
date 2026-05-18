@@ -84,7 +84,7 @@
     <div class="panel-head manage-tasks-head">
       <div>
         <h2>My Tasks</h2>
-        <p>Search and filter by status, then manage tasks in a compact grid. Default order is latest updated first.</p>
+        <p>Search and filter by status, then manage tasks in a compact table. Click a row to view time-log details. Default order is latest updated first.</p>
       </div>
       <div class="manage-task-controls">
         <div class="manage-task-filter">
@@ -104,74 +104,140 @@
         </div>
       </div>
     </div>
-    <div class="manage-task-grid" data-manage-task-grid>
+    <div class="dashboard-table-wrap monday-table-wrap">
+      <table class="dashboard-task-table monday-task-table">
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Status</th>
+            <th>Project</th>
+            <th>Hours</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody data-manage-task-grid>
       {% for task in tasks %}
-      <article
-        class="task-card manage-task-card"
+      <tr
+        class="monday-task-row is-status-{{ task.status|replace('_', '-') }}"
+        data-manage-task-row
+        data-detail-target="manage-task-detail-{{ loop.index }}"
         data-task-status="{{ task.status }}"
+        data-task-code="{{ task.task_id }}"
+        data-task-color="{{ task.task_color }}"
+        data-task-color-label="{{ task.task_color_label }}"
+        data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}"
         data-task-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ task.project_code ~ ' ' ~ task.project_name ~ ' ' ~ task.activity_type_name ~ ' ' ~ task.tags_text ~ ' ' ~ task.status)|lower }}"
       >
-        <div class="task-card-headline">
-          <span
-            class="task-color-trigger"
-            data-task-color-trigger
-            data-task-code="{{ task.task_id }}"
-            data-task-color="{{ task.task_color }}"
-            data-task-color-label="{{ task.task_color_label }}"
-            role="button"
-            tabindex="0"
-            aria-label="Task color"
-          ></span>
-          <span class="chip">{{ task.task_id }}</span>
-          <span class="badge {% if task.status == 'started' %}success{% elif task.status == 'stalled' %}danger{% elif task.status == 'closed' %}muted{% else %}warning{% endif %}">{{ task.status|replace('_', ' ') }}</span>
-        </div>
-        <strong>{{ task.name }}</strong>
-        <small>{{ task.project_code }}{% if task.project_name %} · {{ task.project_name }}{% endif %}{% if task.activity_type_name %} · {{ task.activity_type_name }}{% endif %}</small>
-        <small>
-          {% if task.is_backlog %}
-          Backlog
-          {% else %}
-          {% if task.start_date %}Start: {{ task.start_date }}{% else %}Start: Not set{% endif %}
-          {% if task.end_date %} · End: {{ task.end_date }}{% else %} · End: Not set{% endif %}
-          {% endif %}
-          {% if task.estimated_hours is not none %} · Plan: {{ "%.2f"|format(task.estimated_hours) }}h{% endif %}
-          · Logged: {{ "%.2f"|format(task.logged_hours or 0) }}h
-          {% if task.is_private %} · Private{% endif %}
-        </small>
-        <small>Updated {{ task.updated_at_label }}</small>
-        {% if task.tags %}
-        <div class="dashboard-task-badges">
-          {% for tag in task.tags %}
-          <span class="badge muted">#{{ tag }}</span>
-          {% endfor %}
-        </div>
-        {% endif %}
-        <div class="manage-task-actions">
-          <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}">View</a>
-          <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}#edit-task">Edit</a>
+        <td>
+          <div class="dashboard-task-table-main">
+            <div class="task-card-headline">
+              <span
+                class="task-color-trigger"
+                data-task-color-trigger
+                data-task-code="{{ task.task_id }}"
+                data-task-color="{{ task.task_color }}"
+                data-task-color-label="{{ task.task_color_label }}"
+                style="--task-color: {{ task.task_color }}; background: {{ task.task_color }}; background-color: {{ task.task_color }};"
+                role="button"
+                tabindex="0"
+                aria-label="Task color"
+              ></span>
+              <span class="chip">{{ task.task_id }}</span>
+            </div>
+            <strong>{{ task.name }}</strong>
+            <small>
+              {% if task.activity_type_name %}{{ task.activity_type_name }}{% endif %}
+              {% if task.tags %}
+              ·
+              {% for tag in task.tags %}
+              #{{ tag }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+              {% endif %}
+            </small>
+          </div>
+        </td>
+        <td class="dashboard-task-table-status-cell">
+          <span class="dashboard-task-table-status is-status-{{ task.status|replace('_', '-') }}" title="{{ task.status|replace('_', ' ') }}" aria-label="{{ task.status|replace('_', ' ') }}">
+            {% if task.status == 'closed' %}✓{% elif task.status == 'stalled' %}!{% elif task.status == 'started' %}▶{% else %}○{% endif %}
+          </span>
+        </td>
+        <td>
+          {{ task.project_code }}{% if task.project_name %} · {{ task.project_name }}{% endif %}
+          <br>
+          <small>
+            {% if task.is_backlog %}
+            Backlog
+            {% else %}
+            {% if task.start_date %}Start: {{ task.start_date }}{% else %}Start: Not set{% endif %}
+            {% if task.end_date %} · End: {{ task.end_date }}{% else %} · End: Not set{% endif %}
+            {% endif %}
+            {% if task.is_private %} · Private{% endif %}
+          </small>
+        </td>
+        <td>
+          {% if task.estimated_hours is not none %}Plan {{ "%.2f"|format(task.estimated_hours) }}h{% else %}Plan not set{% endif %}
+          <br>
+          {{ "%.2f"|format(task.logged_hours or 0) }}h logged
+        </td>
+        <td>
+          <div class="dashboard-task-table-actions">
+          <a class="icon-action link-action" href="/{{ org.slug }}/tasks/{{ task.task_id }}" title="View task">👁</a>
+          <a class="icon-action link-action" href="/{{ org.slug }}/tasks/{{ task.task_id }}#edit-task" title="Edit task">✎</a>
           <button
             type="button"
-            class="button secondary"
-            data-modal-open="manage-task-log-modal"
+            class="icon-action"
+            title="Log hours"
+            data-modal-open="shared-log-modal"
             data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "", "notes": "", "redirect_to": "/" ~ org.slug ~ "/tasks/new", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'
-          >Log Hours</button>
+          >＋</button>
+          {% if task.status not in ["closed", "stalled"] %}
+          <button
+            type="button"
+            class="icon-action danger-icon"
+            title="Mark stalled"
+            data-modal-open="stalled-task-modal"
+            data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/stall", "stalled_reason": "", "redirect_to": "/" ~ org.slug ~ "/tasks/new", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'
+          >!</button>
+          {% endif %}
           {% if task.status != "closed" %}
           <button
             type="button"
-            class="button secondary"
+            class="icon-action success-icon"
+            title="Mark completed"
             data-modal-open="complete-task-modal"
             data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/complete", "completion_date": today.isoformat(), "redirect_to": "/" ~ org.slug ~ "/tasks/new", "task_name_text": task.task_id ~ " · " ~ task.name, "task_schedule_text": "Choose a completion date from " ~ task.completion_min_date ~ " to " ~ task.completion_max_date ~ ".", "_fieldAttributes": {"completion_date": {"min": task.completion_min_date, "max": task.completion_max_date}}}|tojson|e }}'
-          >Mark Completed</button>
+          >✓</button>
           {% endif %}
           <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
             <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/new">
-            <button type="submit" class="button danger">Archive</button>
+            <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
           </form>
-        </div>
-      </article>
+          </div>
+        </td>
+      </tr>
+      <tr class="monday-task-detail-row" id="manage-task-detail-{{ loop.index }}" data-manage-task-detail hidden>
+        <td colspan="5">
+          <div class="monday-task-details">
+            <div class="monday-task-detail-block">
+              <span class="monday-task-detail-label">Description</span>
+              {% if task.description %}
+              <div class="monday-task-detail-text">{{ task.description|safe }}</div>
+              {% else %}
+              <p class="empty">No description added.</p>
+              {% endif %}
+            </div>
+            <div class="monday-task-detail-block">
+              <span class="monday-task-detail-label">Time Logs</span>
+              <div class="dashboard-log-list" data-manage-task-log-content></div>
+            </div>
+          </div>
+        </td>
+      </tr>
       {% else %}
-      <p class="empty">No tasks created yet.</p>
+      <tr><td colspan="5"><p class="empty">No tasks created yet.</p></td></tr>
       {% endfor %}
+        </tbody>
+      </table>
     </div>
     {% if tasks %}
     <p class="empty" data-manage-task-empty hidden>No tasks match the current search or status filter.</p>
@@ -192,25 +258,6 @@
       <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Hi Shantanu, please prepare the client deck for Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday. Also block some time next week to review dashboard options." required></textarea></label>
       <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
       <button type="submit">Create Tasks With AI</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="manage-task-log-modal" data-modal aria-hidden="true">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="manage-task-log-title">
-    <div class="modal-head">
-      <div>
-        <h2 id="manage-task-log-title">Log Hours</h2>
-        <p data-modal-text="task_name_text">Choose a task and log your work.</p>
-      </div>
-      <button type="button" class="modal-close" data-modal-close aria-label="Close log hours modal">×</button>
-    </div>
-    <form method="post" class="form-grid">
-      <label>Date<input name="log_date" type="date" value="{{ today.isoformat() }}" required></label>
-      <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
-      <input name="redirect_to" type="hidden" value="/{{ org.slug }}/tasks/new">
-      <label class="full">Comments<textarea name="notes" rows="4" placeholder="What was done today?"></textarea></label>
-      <button type="submit">Add Time Log</button>
     </form>
   </div>
 </div>
@@ -293,26 +340,38 @@
         .replaceAll("'", "&#39;");
     }
 
-    function buildTaskCard(task) {
-      const statusClass = task.status === "started"
-        ? "success"
-        : task.status === "stalled"
-          ? "danger"
-          : task.status === "closed"
-            ? "muted"
-            : "warning";
-      const tagsHtml = (task.tags || []).map((tag) => `<span class="badge muted">#${escapeHtml(tag)}</span>`).join("");
-      const scheduleText = task.is_backlog
-        ? "Backlog"
-        : `${task.start_date ? `Start: ${escapeHtml(task.start_date)}` : "Start: Not set"}${task.end_date ? ` · End: ${escapeHtml(task.end_date)}` : " · End: Not set"}`;
-      const planText = task.estimated_hours !== null && task.estimated_hours !== undefined
-        ? ` · Plan: ${Number(task.estimated_hours).toFixed(2)}h`
+    const logCache = new Map();
+
+    function renderLogItems(logs) {
+      if (!logs.length) {
+        return '<p class="empty">No time log notes found.</p>';
+      }
+      return logs.map((item) => `
+        <article class="dashboard-log-item">
+          <div class="dashboard-log-meta">
+            <span>${escapeHtml(item.date || "")}</span>
+            <span class="dashboard-log-hours">${escapeHtml(String(item.hours || 0))}h</span>
+          </div>
+          <div class="dashboard-log-notes">${escapeHtml(item.notes || "No comments added.")}</div>
+        </article>
+      `).join("");
+    }
+
+    function buildTaskRows(task, index) {
+      const tagsText = (task.tags || []).join(", ");
+      const stallButton = task.status !== "closed" && task.status !== "stalled"
+        ? `<button type="button" class="icon-action danger-icon" title="Mark stalled" data-modal-open="stalled-task-modal" data-modal-payload='${escapeHtml(JSON.stringify({
+            _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/stall`,
+            stalled_reason: "",
+            redirect_to: `/${"{{ org.slug }}"}/tasks/new`,
+            task_name_text: `${task.task_id} · ${task.name}`,
+          }))}'>!</button>`
         : "";
-      const privateText = task.is_private ? " · Private" : "";
       const completeButton = task.status !== "closed"
         ? `<button
             type="button"
-            class="button secondary"
+            class="icon-action success-icon"
+            title="Mark completed"
             data-modal-open="complete-task-modal"
             data-modal-payload='${escapeHtml(JSON.stringify({
               _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/complete`,
@@ -327,52 +386,78 @@
                 },
               },
             }))}'
-          >Mark Completed</button>`
+          >✓</button>`
         : "";
-
-      return `<article class="task-card manage-task-card">
-        <div class="task-card-headline">
-          <span
-            class="task-color-trigger"
-            data-task-color-trigger
-            data-task-code="${escapeHtml(task.task_id)}"
-            data-task-color="${escapeHtml(task.task_color)}"
-            data-task-color-label="${escapeHtml(task.task_color_label)}"
-            role="button"
-            tabindex="0"
-            aria-label="Task color"
-          ></span>
-          <span class="chip">${escapeHtml(task.task_id)}</span>
-          <span class="badge ${statusClass}">${escapeHtml(task.status.replaceAll("_", " "))}</span>
-        </div>
-        <strong>${escapeHtml(task.name)}</strong>
-        <small>${escapeHtml(task.project_code)}${task.project_name ? ` · ${escapeHtml(task.project_name)}` : ""}${task.activity_type_name ? ` · ${escapeHtml(task.activity_type_name)}` : ""}</small>
-        <small>${scheduleText}${planText} · Logged: ${Number(task.logged_hours || 0).toFixed(2)}h${privateText}</small>
-        <small>Updated ${escapeHtml(task.updated_at_label)}</small>
-        ${tagsHtml ? `<div class="dashboard-task-badges">${tagsHtml}</div>` : ""}
-        <div class="manage-task-actions">
-          <a class="button secondary" href="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}">View</a>
-          <a class="button secondary" href="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}#edit-task">Edit</a>
-          <button
-            type="button"
-            class="button secondary"
-            data-modal-open="manage-task-log-modal"
-            data-modal-payload='${escapeHtml(JSON.stringify({
-              _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/time-log`,
-              log_date: "{{ today.isoformat() }}",
-              hours: "",
-              notes: "",
-              redirect_to: `/${"{{ org.slug }}"}/tasks/new`,
-              task_name_text: `${task.task_id} · ${task.name}`,
-            }))}'
-          >Log Hours</button>
-          ${completeButton}
-          <form method="post" action="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
-            <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/new">
-            <button type="submit" class="button danger">Archive</button>
-          </form>
-        </div>
-      </article>`;
+      const detailId = `manage-task-detail-dynamic-${index}`;
+      return `<tr
+          class="monday-task-row is-status-${escapeHtml(task.status.replaceAll("_", "-"))}"
+          data-manage-task-row
+          data-detail-target="${detailId}"
+          data-task-status="${escapeHtml(task.status)}"
+          data-task-search="${escapeHtml(`${task.task_id} ${task.name} ${task.project_code || ""} ${task.project_name || ""} ${task.activity_type_name || ""} ${task.tags_text || ""} ${task.status}`.toLowerCase())}"
+          data-task-code="${escapeHtml(task.task_id)}"
+          data-task-has-logs="${Number(task.logged_hours || 0) > 0 ? "true" : "false"}"
+        >
+          <td>
+            <div class="dashboard-task-table-main">
+              <div class="task-card-headline">
+                <span class="task-color-trigger" data-task-color-trigger data-task-code="${escapeHtml(task.task_id)}" data-task-color="${escapeHtml(task.task_color)}" data-task-color-label="${escapeHtml(task.task_color_label)}" style="--task-color: ${escapeHtml(task.task_color)}; background: ${escapeHtml(task.task_color)}; background-color: ${escapeHtml(task.task_color)};" role="button" tabindex="0" aria-label="Task color"></span>
+                <span class="chip">${escapeHtml(task.task_id)}</span>
+              </div>
+              <strong>${escapeHtml(task.name)}</strong>
+              <small>${escapeHtml(task.activity_type_name || "")}${tagsText ? ` · ${escapeHtml(tagsText)}` : ""}</small>
+            </div>
+          </td>
+          <td class="dashboard-task-table-status-cell">
+            <span class="dashboard-task-table-status is-status-${escapeHtml(task.status.replaceAll("_", "-"))}" title="${escapeHtml(task.status.replaceAll("_", " "))}" aria-label="${escapeHtml(task.status.replaceAll("_", " "))}">
+              ${task.status === "closed" ? "✓" : task.status === "stalled" ? "!" : task.status === "started" ? "▶" : "○"}
+            </span>
+          </td>
+          <td>
+            ${escapeHtml(task.project_code || "")}${task.project_name ? ` · ${escapeHtml(task.project_name)}` : ""}
+            <br>
+            <small>${task.is_backlog ? "Backlog" : `${task.start_date ? `Start: ${escapeHtml(task.start_date)}` : "Start: Not set"}${task.end_date ? ` · End: ${escapeHtml(task.end_date)}` : " · End: Not set"}`}${task.is_private ? " · Private" : ""}</small>
+          </td>
+          <td>
+            ${task.estimated_hours !== null && task.estimated_hours !== undefined ? `Plan ${Number(task.estimated_hours).toFixed(2)}h` : "Plan not set"}
+            <br>
+            ${Number(task.logged_hours || 0).toFixed(2)}h logged
+          </td>
+          <td>
+            <div class="dashboard-task-table-actions">
+              <a class="icon-action link-action" href="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}" title="View task">👁</a>
+              <a class="icon-action link-action" href="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}#edit-task" title="Edit task">✎</a>
+              <button type="button" class="icon-action" title="Log hours" data-modal-open="shared-log-modal" data-modal-payload='${escapeHtml(JSON.stringify({
+                _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/time-log`,
+                log_date: "{{ today.isoformat() }}",
+                hours: "",
+                notes: "",
+                redirect_to: `/${"{{ org.slug }}"}/tasks/new`,
+                task_name_text: `${task.task_id} · ${task.name}`,
+              }))}'>＋</button>
+              ${stallButton}
+              ${completeButton}
+              <form method="post" action="/{{ org.slug }}/tasks/${encodeURIComponent(task.task_id)}/archive" onsubmit="return confirm('Archive this task? You can recover it later from the task page.');">
+                <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/new">
+                <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <tr class="monday-task-detail-row" id="${detailId}" data-manage-task-detail hidden>
+          <td colspan="5">
+            <div class="monday-task-details">
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Description</span>
+                ${task.description ? `<div class="monday-task-detail-text">${escapeHtml(task.description)}</div>` : `<p class="empty">No description added.</p>`}
+              </div>
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Time Logs</span>
+                <div class="dashboard-log-list" data-manage-task-log-content></div>
+              </div>
+            </div>
+          </td>
+        </tr>`;
     }
 
     function bindModalOpeners(scope) {
@@ -437,6 +522,51 @@
       });
     }
 
+    async function loadTaskLogs(taskCode) {
+      if (logCache.has(taskCode)) {
+        return logCache.get(taskCode);
+      }
+      const request = fetch(`/api/v1/tasks/${encodeURIComponent(taskCode)}/time-logs`, {
+        credentials: "same-origin",
+      }).then((response) => {
+        if (!response.ok) {
+          throw new Error(`Log fetch failed for ${taskCode}`);
+        }
+        return response.json();
+      }).catch(() => []);
+      logCache.set(taskCode, request);
+      return request;
+    }
+
+    function bindRowExpanders(scope) {
+      scope.querySelectorAll("[data-manage-task-row]").forEach((row) => {
+        row.addEventListener("click", async (event) => {
+          if (event.target.closest("button, a, input, textarea, select, label, form, [data-task-color-trigger]")) {
+            return;
+          }
+          const detailId = row.dataset.detailTarget;
+          const detailRow = detailId ? document.getElementById(detailId) : null;
+          if (!detailRow) {
+            return;
+          }
+          const isOpening = detailRow.hidden;
+          detailRow.hidden = !detailRow.hidden;
+          row.classList.toggle("is-expanded", isOpening);
+          if (!isOpening) {
+            return;
+          }
+          const content = detailRow.querySelector("[data-manage-task-log-content]");
+          const taskCode = row.dataset.taskCode;
+          if (!content || !taskCode) {
+            return;
+          }
+          content.innerHTML = '<p class="empty">Loading time logs...</p>';
+          const logs = await loadTaskLogs(taskCode);
+          content.innerHTML = renderLogItems(Array.isArray(logs) ? logs : []);
+        });
+      });
+    }
+
     async function loadTasks() {
       const params = new URLSearchParams();
       const status = statusFilter.value;
@@ -463,15 +593,18 @@
           throw new Error(`Failed to load tasks: ${response.status}`);
         }
         const tasks = await response.json();
-        taskGrid.innerHTML = tasks.map(buildTaskCard).join("");
+        taskGrid.innerHTML = tasks.length
+          ? tasks.map((task, index) => buildTaskRows(task, index)).join("")
+          : '<tr><td colspan="5"><p class="empty">No tasks match the current search or status filter.</p></td></tr>';
         emptyState.hidden = tasks.length > 0;
         bindModalOpeners(taskGrid);
+        bindRowExpanders(taskGrid);
       } catch (error) {
         if (error.name === "AbortError") {
           return;
         }
         console.error(error);
-        taskGrid.innerHTML = "";
+        taskGrid.innerHTML = '<tr><td colspan="5"><p class="empty">Unable to load tasks right now.</p></td></tr>';
         emptyState.hidden = false;
         emptyState.textContent = "Unable to load tasks right now.";
       } finally {
@@ -486,6 +619,7 @@
 
     statusFilter.addEventListener("change", loadTasks);
     searchInput.addEventListener("input", scheduleLoad);
+    bindRowExpanders(document);
   })();
 
   (() => {
