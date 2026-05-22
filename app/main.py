@@ -2866,6 +2866,7 @@ def add_time_log_page(
     log_date: date = Form(...),
     hours: Decimal = Form(...),
     notes: str = Form(""),
+    mark_completed: bool = Form(False),
     redirect_to: str = Form(""),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -2878,8 +2879,63 @@ def add_time_log_page(
     db.flush()
     if task.status == TaskStatus.NOT_STARTED:
         task.status = TaskStatus.STARTED
-    if task.start_date is None:
+    if task.start_date is None or log_date < task.start_date:
         task.start_date = log_date
+    if mark_completed:
+        earliest_completion_date = task.start_date or task.created_at.date()
+        if log_date < earliest_completion_date or log_date > date.today():
+            raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
+        task.status = TaskStatus.CLOSED
+        task.closed_at = datetime.combine(log_date, datetime.max.time().replace(microsecond=0))
+        if task.end_date is None:
+            task.end_date = log_date
+    task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
+    db.commit()
+    return RedirectResponse(
+        url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}"),
+        status_code=303,
+    )
+
+
+@app.post("/{org_slug}/tasks/{task_code}/time-log/{log_id}")
+def update_time_log_page(
+    org_slug: str,
+    task_code: str,
+    log_id: int,
+    log_date: date = Form(...),
+    hours: Decimal = Form(...),
+    notes: str = Form(""),
+    mark_completed: bool = Form(False),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    log_entry = db.scalar(select(TimeLog).where(TimeLog.id == log_id, TimeLog.task_id == task.id, TimeLog.user_id == user.id))
+    if not log_entry:
+        raise HTTPException(status_code=404, detail="Time log not found")
+
+    log_entry.log_date = log_date
+    log_entry.hours = hours
+    log_entry.notes = notes
+
+    if task.status == TaskStatus.NOT_STARTED:
+        task.status = TaskStatus.STARTED
+    if task.start_date is None or log_date < task.start_date:
+        task.start_date = log_date
+    if mark_completed:
+        earliest_completion_date = task.start_date or task.created_at.date()
+        if log_date < earliest_completion_date or log_date > date.today():
+            raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
+        task.status = TaskStatus.CLOSED
+        task.closed_at = datetime.combine(log_date, datetime.max.time().replace(microsecond=0))
+        if task.end_date is None:
+            task.end_date = log_date
+
     task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
     db.commit()
     return RedirectResponse(
@@ -3119,7 +3175,7 @@ def api_list_time_logs(task_code: str, org_user: tuple[Organization, User] = Dep
     if not task or (task.assigned_to != user.id and task.is_private):
         raise HTTPException(status_code=404, detail="Task not found")
     logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc())).all()
-    return [{"date": item.log_date.isoformat(), "hours": float(item.hours), "notes": item.notes} for item in logs]
+    return [{"id": item.id, "date": item.log_date.isoformat(), "hours": float(item.hours), "notes": item.notes} for item in logs]
 
 
 @app.get("/api/v1/tasks/tag-options")

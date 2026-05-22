@@ -20,11 +20,17 @@
       </thead>
       <tbody {% if sortable %}data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order"{% endif %}>
         {% for task in tasks %}
+        {% set detail_id = "dashboard-task-detail-" ~ task.task_id ~ "-" ~ loop.index %}
         <tr
+          class="dashboard-task-table-row"
           data-dashboard-task-row
           {% if sortable %}data-dashboard-sort-item draggable="true"{% endif %}
           data-task-code="{{ task.task_id }}"
           data-task-color="{{ task.task_color }}"
+          data-task-name="{{ task.name }}"
+          data-task-status="{{ task.status }}"
+          data-task-detail-target="{{ detail_id }}"
+          data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}"
           data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ (task.status_label if task.status_label is defined else task.status|replace('_', ' ')) ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}"
         >
           <td>
@@ -70,6 +76,26 @@
                 <button type="submit" class="icon-action danger-icon" title="Archive task">🗄</button>
               </form>
               {% endif %}
+            </div>
+          </td>
+        </tr>
+        <tr class="monday-task-detail-row" id="{{ detail_id }}" data-dashboard-task-detail-row hidden>
+          <td colspan="5">
+            <div class="monday-task-details">
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Description</span>
+                {% if task.description %}
+                <div class="monday-task-detail-text">{{ task.description|safe }}</div>
+                {% else %}
+                <p class="empty">No description added.</p>
+                {% endif %}
+              </div>
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Time Logs</span>
+                <div class="dashboard-log-list" data-dashboard-row-log-content>
+                  <p class="empty">Click the row to load time logs.</p>
+                </div>
+              </div>
             </div>
           </td>
         </tr>
@@ -212,7 +238,7 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.week %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -278,7 +304,7 @@
     </div>
     <div class="dashboard-card-list" data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order">
     {% for task in groups.today %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}" data-dashboard-sort-item>
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}" data-dashboard-sort-item>
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -334,7 +360,7 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.overdue %}
-    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -389,7 +415,7 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.pending %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -444,7 +470,7 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.completed %}
-    <div class="task-card deadline-card upcoming dashboard-task-card dashboard-task-card-completed" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card upcoming dashboard-task-card dashboard-task-card-completed" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
           <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
@@ -514,9 +540,10 @@
     <form method="post" class="form-grid">
       <label>Date<input name="log_date" type="date" required></label>
       <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
+      <label class="checkbox full"><input name="mark_completed" type="checkbox">Mark this task as completed with the same date</label>
       <label class="full">Notes<textarea name="notes" rows="4"></textarea></label>
       <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
-      <button type="submit">Add Hours</button>
+      <button type="submit" data-log-submit-button data-default-text="Add Hours">Add Hours</button>
     </form>
   </div>
 </div>
@@ -943,11 +970,125 @@
               <span class="dashboard-log-hours">${escapeHtml(String(item.hours || 0))}h</span>
             </div>
             <div class="dashboard-log-notes">${escapeHtml(item.notes || "No comments added.")}</div>
+            <div class="dashboard-log-actions">
+              <button
+                type="button"
+                class="icon-action link-action"
+                data-dashboard-edit-log
+                data-log-id="${escapeHtml(String(item.id || ""))}"
+                data-log-date="${escapeHtml(item.date || "")}"
+                data-log-hours="${escapeHtml(String(item.hours || ""))}"
+                data-log-notes="${escapeHtml(item.notes || "")}"
+              >✎</button>
+            </div>
           </article>
         `)
         .join("");
       drawer.hidden = false;
       applyHighlights(getActiveSearchTerm());
+    }
+
+    function renderTableRowLogs(row, logs) {
+      const detailId = row.dataset.taskDetailTarget;
+      const detailRow = detailId ? document.getElementById(detailId) : null;
+      const content = detailRow?.querySelector("[data-dashboard-row-log-content]");
+      if (!content) {
+        return;
+      }
+      if (!logs.length) {
+        content.innerHTML = '<p class="empty">No time log notes found.</p>';
+        return;
+      }
+      content.innerHTML = logs
+        .map((item) => `
+          <article class="dashboard-log-item">
+            <div class="dashboard-log-meta">
+              <span>${escapeHtml(item.date || "")}</span>
+              <span class="dashboard-log-hours">${escapeHtml(String(item.hours || 0))}h</span>
+            </div>
+            <div class="dashboard-log-notes">${escapeHtml(item.notes || "No comments added.")}</div>
+            <div class="dashboard-log-actions">
+              <button
+                type="button"
+                class="icon-action link-action"
+                data-dashboard-edit-log
+                data-log-id="${escapeHtml(String(item.id || ""))}"
+                data-log-date="${escapeHtml(item.date || "")}"
+                data-log-hours="${escapeHtml(String(item.hours || ""))}"
+                data-log-notes="${escapeHtml(item.notes || "")}"
+              >✎</button>
+            </div>
+          </article>
+        `)
+        .join("");
+    }
+
+    function fillDashboardLogModal(payload) {
+      const modal = document.getElementById("dashboard-log-modal");
+      const form = modal?.querySelector("form");
+      if (!modal || !form) {
+        return null;
+      }
+      form.reset();
+      if (payload._action) {
+        form.action = payload._action;
+      }
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key === "_action" || key === "_submitText" || key === "task_name_text") {
+          return;
+        }
+        const field = form.querySelector(`[name="${key}"]`);
+        if (!field) {
+          return;
+        }
+        if (field.type === "checkbox") {
+          field.checked = Boolean(value);
+        } else {
+          field.value = value ?? "";
+        }
+      });
+      const titleNode = modal.querySelector("[data-modal-text=\"task_name_text\"]");
+      if (titleNode) {
+        titleNode.textContent = payload.task_name_text || "Log effort for today.";
+      }
+      const submitButton = form.querySelector("[data-log-submit-button]");
+      if (submitButton) {
+        submitButton.textContent = payload._submitText || "Add Hours";
+      }
+      return modal;
+    }
+
+    function openDashboardLogModal(payload) {
+      const modal = fillDashboardLogModal(payload);
+      if (!modal) {
+        return;
+      }
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+      window.setTimeout(() => {
+        modal.querySelector('[name="hours"]')?.focus();
+      }, 0);
+    }
+
+    async function toggleTableRowLogs(row) {
+      const detailId = row.dataset.taskDetailTarget;
+      const detailRow = detailId ? document.getElementById(detailId) : null;
+      if (!detailRow) {
+        return;
+      }
+      const isOpening = detailRow.hidden;
+      detailRow.hidden = !detailRow.hidden;
+      row.classList.toggle("is-expanded", isOpening);
+      if (!isOpening) {
+        return;
+      }
+      const content = detailRow.querySelector("[data-dashboard-row-log-content]");
+      if (content) {
+        content.innerHTML = '<p class="empty">Loading time logs...</p>';
+      }
+      const logs = await loadTaskLogs(row);
+      renderTableRowLogs(row, logs);
     }
 
     async function toggleTaskLogs(taskCard, button) {
@@ -1032,6 +1173,12 @@
           const matchesColor = !colorFilter || (row.dataset.taskColor || "").toLowerCase() === colorFilter;
           const shouldShow = matchesSearch && matchesColor;
           row.hidden = !shouldShow;
+          const detailId = row.dataset.taskDetailTarget;
+          const detailRow = detailId ? document.getElementById(detailId) : null;
+          if (detailRow && !shouldShow) {
+            detailRow.hidden = true;
+            row.classList.remove("is-expanded");
+          }
           if (shouldShow) {
             visibleRows += 1;
           }
@@ -1066,6 +1213,38 @@
       }
       toggleButton.addEventListener("click", () => {
         toggleTaskLogs(taskCard, toggleButton);
+      });
+    });
+
+    document.querySelectorAll("[data-dashboard-task-row]").forEach((row) => {
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("button, a, input, textarea, select, label, form, [data-task-color-trigger]")) {
+          return;
+        }
+        toggleTableRowLogs(row);
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      const editButton = event.target.closest("[data-dashboard-edit-log]");
+      if (!editButton) {
+        return;
+      }
+      const taskContainer = editButton.closest("[data-dashboard-task-card], [data-dashboard-task-row]");
+      const taskCode = taskContainer?.dataset.taskCode || "";
+      const taskName = taskContainer?.dataset.taskName || "";
+      if (!taskCode) {
+        return;
+      }
+      openDashboardLogModal({
+        _action: `/${"{{ org.slug }}"}/tasks/${taskCode}/time-log/${editButton.dataset.logId}`,
+        log_date: editButton.dataset.logDate || "",
+        hours: editButton.dataset.logHours || "",
+        notes: editButton.dataset.logNotes || "",
+        mark_completed: taskContainer?.dataset.taskStatus === "closed",
+        redirect_to: `/${"{{ org.slug }}"}/dashboard`,
+        task_name_text: `${taskCode} · ${taskName || "Update time log"}`,
+        _submitText: "Update Hours",
       });
     });
 
