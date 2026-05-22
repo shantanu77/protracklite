@@ -1230,7 +1230,9 @@
       if (!editButton) {
         return;
       }
-      const taskContainer = editButton.closest("[data-dashboard-task-card], [data-dashboard-task-row]");
+      const detailRow = editButton.closest("[data-dashboard-task-detail-row]");
+      const taskContainer = editButton.closest("[data-dashboard-task-card], [data-dashboard-task-row]")
+        || (detailRow instanceof HTMLTableRowElement ? detailRow.previousElementSibling : null);
       const taskCode = taskContainer?.dataset.taskCode || "";
       const taskName = taskContainer?.dataset.taskName || "";
       if (!taskCode) {
