@@ -216,7 +216,7 @@ class TimeLog(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     log_date: Mapped[date] = mapped_column(Date, default=date.today)
     hours: Mapped[Decimal] = mapped_column(Numeric(4, 2))
-    notes: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="No Details Provided")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     task: Mapped[Task] = relationship(back_populates="time_logs")

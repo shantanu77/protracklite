@@ -123,6 +123,8 @@ TASK_COLOR_CHOICES = [
 DEFAULT_USER_DEPARTMENT = "Engineering"
 TASK_COLOR_MAP = {color: label for color, label in TASK_COLOR_CHOICES}
 TASK_COLOR_VALUES = set(TASK_COLOR_MAP)
+TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
+TIME_LOG_NOTES_MIN_LENGTH = 10
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
 templates.env.globals["default_task_color"] = DEFAULT_TASK_COLOR
 
@@ -173,6 +175,18 @@ def task_tags(task: Task) -> list[str]:
 
 def task_tags_text(task: Task) -> str:
     return " ".join(task_tags(task))
+
+
+def normalize_time_log_notes(raw_notes: str | None) -> str:
+    notes = re.sub(r"\s+", " ", str(raw_notes or "").strip())
+    if not notes:
+        raise HTTPException(status_code=400, detail="Comments are required when logging hours")
+    if len(notes) < TIME_LOG_NOTES_MIN_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Comments must be at least {TIME_LOG_NOTES_MIN_LENGTH} characters long",
+        )
+    return notes
 
 
 def ensure_users_schema() -> None:
@@ -391,6 +405,26 @@ def ensure_work_list_items_schema() -> None:
                 connection.execute(text(ddl))
 
 
+def ensure_time_logs_schema() -> None:
+    inspector = inspect(engine)
+    if "time_logs" not in inspector.get_table_names():
+        return
+    notes_column = next((column for column in inspector.get_columns("time_logs") if column["name"] == "notes"), None)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE time_logs
+                SET notes = :placeholder
+                WHERE notes IS NULL OR TRIM(notes) = ''
+                """
+            ),
+            {"placeholder": TIME_LOG_NOTES_PLACEHOLDER},
+        )
+        if notes_column and notes_column.get("nullable", True) and engine.dialect.name == "mysql":
+            connection.execute(text("ALTER TABLE time_logs MODIFY COLUMN notes TEXT NOT NULL"))
+
+
 def ensure_query_indexes() -> None:
     inspector = inspect(engine)
     index_plan = {
@@ -514,6 +548,7 @@ def on_startup() -> None:
     ensure_project_activity_types_schema()
     ensure_work_lists_schema()
     ensure_work_list_items_schema()
+    ensure_time_logs_schema()
     ensure_query_indexes()
     db = next(get_db())
     try:
@@ -1376,6 +1411,21 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
 
 def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
     monday, sunday = current_week_bounds()
+    week_logged_task_ids = {
+        task_id
+        for task_id in db.scalars(
+            select(TimeLog.task_id)
+            .join(Task, TimeLog.task_id == Task.id)
+            .where(
+                Task.org_id == org.id,
+                Task.is_archived.is_(False),
+                TimeLog.user_id == user.id,
+                TimeLog.log_date >= monday,
+                TimeLog.log_date <= sunday,
+            )
+            .distinct()
+        )
+    }
     tasks = db.scalars(
         select(Task)
         .where(
@@ -1405,10 +1455,7 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
     today = date.today()
     for task in tasks:
         summary = dashboard_task_summary(task, today)
-        in_this_week = (
-            (task.start_date and monday <= task.start_date <= sunday)
-            or (task.end_date and monday <= task.end_date <= sunday)
-        )
+        in_this_week = task.id in week_logged_task_ids
         if in_this_week:
             groups["week"].append(summary)
         if task.start_date == today or task.end_date == today:
@@ -2875,7 +2922,8 @@ def add_time_log_page(
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=notes))
+    normalized_notes = normalize_time_log_notes(notes)
+    db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
     db.flush()
     if task.status == TaskStatus.NOT_STARTED:
         task.status = TaskStatus.STARTED
@@ -2919,9 +2967,10 @@ def update_time_log_page(
     if not log_entry:
         raise HTTPException(status_code=404, detail="Time log not found")
 
+    normalized_notes = normalize_time_log_notes(notes)
     log_entry.log_date = log_date
     log_entry.hours = hours
-    log_entry.notes = notes
+    log_entry.notes = normalized_notes
 
     if task.status == TaskStatus.NOT_STARTED:
         task.status = TaskStatus.STARTED
@@ -3148,13 +3197,14 @@ def api_add_time_log(task_code: str, payload: dict, org_user: tuple[Organization
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    normalized_notes = normalize_time_log_notes(payload.get("notes"))
     db.add(
         TimeLog(
             task_id=task.id,
             user_id=user.id,
             log_date=date.fromisoformat(payload["log_date"]),
             hours=payload["hours"],
-            notes=payload.get("notes", ""),
+            notes=normalized_notes,
         )
     )
     db.flush()

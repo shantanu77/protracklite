@@ -128,7 +128,7 @@
         <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
         <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
         <label class="checkbox full"><input name="mark_completed" type="checkbox">Mark this task as completed with the same date</label>
-        <label class="full">Comments<textarea name="notes" rows="4" placeholder="What was done today?"></textarea></label>
+        <label class="full">Comments<textarea name="notes" rows="4" minlength="10" placeholder="What was done today?" required></textarea></label>
         <button type="submit" data-log-submit-button data-default-text="Add Time Log">Add Time Log</button>
       </form>
     </div>

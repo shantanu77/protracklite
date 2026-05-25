@@ -279,7 +279,7 @@ Any employee can browse another employee's public tasks:
 
 ### 7.1 My Tasks — Default View
 Shown on dashboard after login:
-- **This week's tasks** (start_date or end_date falls within current Mon–Fri)
+- **This week's tasks** (every open task where the user logged hours in the current Mon–Sun window)
 - **All pending tasks** (status ≠ `closed`, regardless of date)
 - Grouped by: Today's Focus / This Week / Overdue / Pending (no date)
 - Each task card shows: Task ID, Name, Project, Status badge, Activity type, Estimated vs Logged hours, Days pending
