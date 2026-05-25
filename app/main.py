@@ -124,7 +124,7 @@ DEFAULT_USER_DEPARTMENT = "Engineering"
 TASK_COLOR_MAP = {color: label for color, label in TASK_COLOR_CHOICES}
 TASK_COLOR_VALUES = set(TASK_COLOR_MAP)
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
-TIME_LOG_NOTES_MIN_LENGTH = 10
+TIME_LOG_NOTES_MIN_LENGTH = 80
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
 templates.env.globals["default_task_color"] = DEFAULT_TASK_COLOR
 
