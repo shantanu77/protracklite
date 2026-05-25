@@ -123,12 +123,13 @@
         </div>
         <button type="button" class="modal-close" data-modal-close aria-label="Close log hours modal">×</button>
       </div>
-      <form method="post" class="form-grid">
+      <form method="post" class="form-grid" data-log-hours-form>
         <label>Date<input name="log_date" type="date" required></label>
         <label>Hours<input name="hours" type="number" step="0.25" min="0.25" required></label>
         <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
         <label class="checkbox full"><input name="mark_completed" type="checkbox">Mark this task as completed with the same date</label>
-        <label class="full">Comments<textarea name="notes" rows="4" minlength="10" placeholder="What was done today?" required></textarea></label>
+        <label class="full">Comments<textarea name="notes" rows="4" minlength="80" placeholder="What was done today?" required data-log-notes-input aria-describedby="shared-log-notes-helper"></textarea></label>
+        <p class="form-helper full" id="shared-log-notes-helper" data-log-notes-helper>Minimum 80 characters. 80 characters left.</p>
         <button type="submit" data-log-submit-button data-default-text="Add Time Log">Add Time Log</button>
       </form>
     </div>
@@ -219,6 +220,41 @@
   <script>
   (() => {
     const modals = document.querySelectorAll("[data-modal]");
+    const logHoursForms = document.querySelectorAll("[data-log-hours-form]");
+
+    function syncLogNotesState(form) {
+      const notesField = form.querySelector("[data-log-notes-input]");
+      const helper = form.querySelector("[data-log-notes-helper]");
+      if (!notesField || !helper) {
+        return;
+      }
+      const minLength = Number(notesField.getAttribute("minlength") || "0");
+      const currentLength = notesField.value.trim().length;
+      const remaining = Math.max(minLength - currentLength, 0);
+      notesField.setCustomValidity(currentLength >= minLength ? "" : `Please enter at least ${minLength} characters.`);
+      helper.textContent = remaining > 0
+        ? `Minimum ${minLength} characters. ${remaining} characters left.`
+        : `Minimum ${minLength} characters met.`;
+      helper.classList.toggle("is-error", currentLength > 0 && currentLength < minLength);
+      helper.classList.toggle("is-valid", currentLength >= minLength);
+    }
+
+    logHoursForms.forEach((form) => {
+      const notesField = form.querySelector("[data-log-notes-input]");
+      if (!notesField) {
+        return;
+      }
+      notesField.addEventListener("input", () => syncLogNotesState(form));
+      notesField.addEventListener("blur", () => syncLogNotesState(form));
+      form.addEventListener("submit", (event) => {
+        syncLogNotesState(form);
+        if (!form.checkValidity()) {
+          event.preventDefault();
+          form.reportValidity();
+        }
+      });
+      syncLogNotesState(form);
+    });
 
     function setModalState(modal, open) {
       modal.classList.toggle("is-open", open);
@@ -284,6 +320,9 @@
           textNode.textContent = value ?? "";
         }
       });
+      if (form?.matches("[data-log-hours-form]")) {
+        syncLogNotesState(form);
+      }
       if (payload._submitText && form) {
         const submitButton = form.querySelector("[data-log-submit-button]");
         if (submitButton) {

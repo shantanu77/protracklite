@@ -102,6 +102,20 @@ textarea {
   min-height: 120px;
 }
 
+.form-helper {
+  margin-top: -0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.form-helper.is-error {
+  color: var(--danger);
+}
+
+.form-helper.is-valid {
+  color: var(--success);
+}
+
 .shell {
   min-height: 100vh;
   display: grid;
