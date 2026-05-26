@@ -208,6 +208,74 @@ class WorkListItem(Base):
     work_list: Mapped[WorkList] = relationship(back_populates="items")
 
 
+class PerformancePlan(Base):
+    __tablename__ = "performance_plans"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "year", name="uq_performance_plan_org_user_year"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    year: Mapped[int] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    goals: Mapped[list["PerformanceGoal"]] = relationship(back_populates="plan", cascade="all, delete-orphan")
+
+
+class PerformanceGoal(Base):
+    __tablename__ = "performance_goals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_plan_id: Mapped[int] = mapped_column(ForeignKey("performance_plans.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    weightage: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
+    sort_order: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    plan: Mapped[PerformancePlan] = relationship(back_populates="goals")
+    kpis: Mapped[list["PerformanceKPI"]] = relationship(back_populates="goal", cascade="all, delete-orphan")
+
+
+class PerformanceKPI(Base):
+    __tablename__ = "performance_kpis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_goal_id: Mapped[int] = mapped_column(ForeignKey("performance_goals.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    weightage: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
+    sort_order: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    goal: Mapped[PerformanceGoal] = relationship(back_populates="kpis")
+    items: Mapped[list["PerformanceKPIItem"]] = relationship(back_populates="kpi", cascade="all, delete-orphan")
+
+
+class PerformanceKPIItem(Base):
+    __tablename__ = "performance_kpi_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_kpi_id: Mapped[int] = mapped_column(ForeignKey("performance_kpis.id"), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    sort_order: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    kpi: Mapped[PerformanceKPI] = relationship(back_populates="items")
+
+
 class TimeLog(Base):
     __tablename__ = "time_logs"
 

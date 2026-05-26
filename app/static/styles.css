@@ -116,6 +116,77 @@ textarea {
   color: var(--success);
 }
 
+.goals-layout {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.goal-plan-card,
+.goal-block,
+.goal-kpi-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.goal-plan-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.goal-plan-actions form,
+.goal-plan-actions .badge {
+  margin: 0;
+}
+
+.goal-block-head,
+.goal-kpi-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.goal-score {
+  text-align: right;
+  min-width: 110px;
+}
+
+.goal-score strong {
+  display: block;
+  font-size: 1.35rem;
+}
+
+.goal-score small {
+  color: var(--muted);
+}
+
+.compact-form {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.goal-inline-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.goal-item-edit-form {
+  margin-top: 0.75rem;
+}
+
+@media (min-width: 1100px) {
+  .goals-layout {
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
 .shell {
   min-height: 100vh;
   display: grid;

@@ -40,6 +40,7 @@
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/goals' %} primary{% endif %}" href="/{{ org.slug }}/goals" {% if current_path == '/' ~ org.slug ~ '/goals' %}aria-current="page"{% endif %}>Goals</a>
               <div class="nav-subgroup is-expanded" data-nav-group>
                 <button class="nav-section-toggle nav-subsection-toggle" type="button" aria-expanded="true">
                   <span class="nav-section nav-subsection">Lists</span>
