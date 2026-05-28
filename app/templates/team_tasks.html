@@ -4,13 +4,13 @@
   <div>
     <p class="eyebrow">Team Visibility</p>
     <h1>{{ teammate.full_name }}</h1>
-    <p>Public tasks only.</p>
+    <p>{% if show_private_access %}Manager or admin view.{% else %}Public tasks only.{% endif %}</p>
   </div>
 </section>
 <section class="panel">
   <div class="panel-head">
     <h2>Visible Tasks</h2>
-    <p>Shared work for collaboration and status checks.</p>
+    <p>{% if show_private_access %}All active tasks visible within your management scope.{% else %}Shared work for collaboration and status checks.{% endif %}</p>
   </div>
   {% for task in tasks %}
   <div class="list-row">

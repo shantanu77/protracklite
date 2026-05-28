@@ -242,9 +242,11 @@ def plan_is_locked(plan: PerformancePlan) -> bool:
     return (plan.status or "").strip().lower() == PERFORMANCE_PLAN_STATUS_FINALIZED
 
 
-def can_manage_performance_item(user: User, plan: PerformancePlan, item: PerformanceKPIItem) -> bool:
+def can_manage_performance_item(db: Session, user: User, plan: PerformancePlan, item: PerformanceKPIItem) -> bool:
     if user.role == Role.ADMIN:
         return True
+    if user.role == Role.MANAGER:
+        return plan.user_id in managed_user_ids(db, plan.org_id, user)
     return plan.user_id == user.id and item.created_by == user.id and not item.is_completed
 
 
@@ -268,11 +270,14 @@ def ensure_users_schema() -> None:
     ddl_by_column = {
         "send_effort_reminder": "ALTER TABLE users ADD COLUMN send_effort_reminder BOOLEAN NOT NULL DEFAULT TRUE",
         "department_id": "ALTER TABLE users ADD COLUMN department_id INTEGER NULL",
+        "manager_id": "ALTER TABLE users ADD COLUMN manager_id INTEGER NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
             if column_name not in columns:
                 connection.execute(text(ddl))
+        if engine.dialect.name == "mysql":
+            connection.execute(text("ALTER TABLE users MODIFY COLUMN role ENUM('EMPLOYEE','MANAGER','ADMIN') NOT NULL DEFAULT 'EMPLOYEE'"))
 
 
 def ensure_departments_schema() -> None:
@@ -826,6 +831,39 @@ def get_org_user(
 def must_be_admin(user: User) -> None:
     if user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def must_be_admin_or_manager(user: User) -> None:
+    if user.role not in {Role.ADMIN, Role.MANAGER}:
+        raise HTTPException(status_code=403, detail="Manager access required")
+
+
+def managed_people(db: Session, org_id: int, user: User) -> list[User]:
+    if user.role == Role.ADMIN:
+        return org_people(db, org_id)
+    if user.role != Role.MANAGER:
+        return []
+    return db.scalars(
+        select(User)
+        .options(selectinload(User.department))
+        .where(User.org_id == org_id, User.manager_id == user.id, User.is_active.is_(True))
+        .order_by(User.full_name.asc())
+    ).all()
+
+
+def managed_user_ids(db: Session, org_id: int, user: User, *, include_self: bool = False) -> set[int]:
+    ids = {person.id for person in managed_people(db, org_id, user)}
+    if include_self:
+        ids.add(user.id)
+    return ids
+
+
+def can_manage_user_scope(db: Session, org_id: int, user: User, target_user_id: int) -> bool:
+    if user.role == Role.ADMIN:
+        return True
+    if user.role != Role.MANAGER:
+        return False
+    return target_user_id in managed_user_ids(db, org_id, user)
 
 
 def next_task_id(project: Project) -> str:
@@ -1997,7 +2035,9 @@ def performance_plan_for_access(
     if not plan_id:
         return None
     query = performance_plan_query(org_id).where(PerformancePlan.id == plan_id)
-    if user.role != Role.ADMIN:
+    if user.role == Role.MANAGER:
+        query = query.where(PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)))
+    elif user.role != Role.ADMIN:
         query = query.where(PerformancePlan.user_id == user.id)
     return db.scalar(query)
 
@@ -2016,7 +2056,9 @@ def next_performance_kpi_item_sort_order(kpi: PerformanceKPI) -> int:
 
 def performance_plan_summaries(db: Session, org_id: int, user: User) -> list[dict[str, Any]]:
     query = performance_plan_query(org_id)
-    if user.role != Role.ADMIN:
+    if user.role == Role.MANAGER:
+        query = query.where(PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)))
+    elif user.role != Role.ADMIN:
         query = query.where(PerformancePlan.user_id == user.id)
     plans = db.scalars(query.order_by(PerformancePlan.year.desc(), PerformancePlan.updated_at.desc(), PerformancePlan.id.desc())).all()
     org_user_map = {person.id: person for person in org_people(db, org_id)}
@@ -2106,6 +2148,71 @@ def performance_plan_payload(plan: PerformancePlan, people_map: dict[int, User])
         "weights_valid": weight_total_is_valid(goal_weight_total),
         "goals": goals_payload,
     }
+
+
+def scoped_team_dashboard_payload(db: Session, org: Organization, members: list[User]) -> dict[str, Any]:
+    today = date.today()
+    month_start = today.replace(day=1)
+    current_year = today.year
+    plan_rows = db.scalars(
+        performance_plan_query(org.id).where(
+            PerformancePlan.year == current_year,
+            PerformancePlan.user_id.in_([member.id for member in members]) if members else text("1=0"),
+        )
+    ).all() if members else []
+    plan_map = {plan.user_id: plan for plan in plan_rows}
+    rows = []
+    for member in members:
+        rates = compute_work_rate(db, org.id, member.id, month_start, today)
+        open_tasks = db.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.assigned_to == member.id,
+                Task.is_archived.is_(False),
+                Task.status != TaskStatus.CLOSED,
+            )
+        )
+        closed_tasks = db.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.assigned_to == member.id,
+                Task.is_archived.is_(False),
+                Task.status == TaskStatus.CLOSED,
+            )
+        )
+        plan = plan_map.get(member.id)
+        rows.append(
+            {
+                "member": member,
+                "rates": rates,
+                "open_tasks": open_tasks,
+                "closed_tasks": closed_tasks,
+                "goal_progress": calculate_plan_achievement_percent(plan) if plan else 0.0,
+                "has_plan": bool(plan),
+            }
+        )
+    summary = {
+        "employees": len(members),
+        "tasks_created_month": db.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.assigned_to.in_([member.id for member in members]) if members else text("1=0"),
+                Task.is_archived.is_(False),
+                Task.created_at >= datetime.combine(month_start, datetime.min.time()),
+            )
+        ) if members else 0,
+        "tasks_closed_month": db.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.org_id == org.id,
+                Task.assigned_to.in_([member.id for member in members]) if members else text("1=0"),
+                Task.is_archived.is_(False),
+                Task.status == TaskStatus.CLOSED,
+                Task.closed_at >= datetime.combine(month_start, datetime.min.time()),
+            )
+        ) if members else 0,
+        "plans_current_year": sum(1 for member in members if member.id in plan_map),
+    }
+    return {"summary": summary, "rows": rows}
 
 
 def task_tag_suggestions(db: Session, org_id: int, limit: int = 80) -> list[str]:
@@ -2350,8 +2457,12 @@ def goals_page(
     org, user = org_user
     summaries = performance_plan_summaries(db, org.id, user)
     selected_plan = performance_plan_for_access(db, org.id, user, plan_id or (summaries[0]["id"] if summaries else None))
-    people = org_people(db, org.id)
+    people = org_people(db, org.id) if user.role == Role.ADMIN else managed_people(db, org.id, user)
     people_map = {person.id: person for person in people}
+    if selected_plan and selected_plan.user_id not in people_map:
+        owner = db.get(User, selected_plan.user_id)
+        if owner:
+            people_map[owner.id] = owner
     selected_plan_payload = performance_plan_payload(selected_plan, people_map) if selected_plan else None
     return templates.TemplateResponse(
         "goals.html",
@@ -2378,10 +2489,12 @@ def create_performance_plan_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     owner = db.scalar(select(User).where(User.id == user_id, User.org_id == org.id, User.is_active.is_(True)))
     if not owner:
         raise HTTPException(status_code=404, detail="Employee not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, owner.id):
+        raise HTTPException(status_code=403, detail="You can only create plans for direct reports")
     existing = db.scalar(
         select(PerformancePlan).where(
             PerformancePlan.org_id == org.id,
@@ -2418,7 +2531,7 @@ def update_performance_plan_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
@@ -2441,7 +2554,7 @@ def finalize_performance_plan_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
@@ -2463,7 +2576,7 @@ def reopen_performance_plan_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
@@ -2483,7 +2596,7 @@ def create_performance_goal_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
@@ -2516,7 +2629,7 @@ def update_performance_goal_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     goal = db.scalar(
         select(PerformanceGoal)
         .options(selectinload(PerformanceGoal.plan))
@@ -2525,6 +2638,8 @@ def update_performance_goal_page(
     )
     if not goal:
         raise HTTPException(status_code=404, detail="Performance goal not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only manage goals for direct reports")
     if plan_is_locked(goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     normalized_title = title.strip()[:200]
@@ -2545,7 +2660,7 @@ def delete_performance_goal_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     goal = db.scalar(
         select(PerformanceGoal)
         .options(selectinload(PerformanceGoal.plan))
@@ -2554,6 +2669,8 @@ def delete_performance_goal_page(
     )
     if not goal:
         raise HTTPException(status_code=404, detail="Performance goal not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only manage goals for direct reports")
     if plan_is_locked(goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     plan_id = goal.performance_plan_id
@@ -2573,7 +2690,7 @@ def create_performance_kpi_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     goal = db.scalar(
         select(PerformanceGoal)
         .options(selectinload(PerformanceGoal.plan), selectinload(PerformanceGoal.kpis))
@@ -2582,6 +2699,8 @@ def create_performance_kpi_page(
     )
     if not goal:
         raise HTTPException(status_code=404, detail="Performance goal not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only manage goals for direct reports")
     if plan_is_locked(goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     normalized_title = title.strip()[:200]
@@ -2611,7 +2730,7 @@ def update_performance_kpi_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     kpi = db.scalar(
         select(PerformanceKPI)
         .options(selectinload(PerformanceKPI.goal).selectinload(PerformanceGoal.plan))
@@ -2621,6 +2740,8 @@ def update_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, kpi.goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only manage KPIs for direct reports")
     if plan_is_locked(kpi.goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     normalized_title = title.strip()[:200]
@@ -2641,7 +2762,7 @@ def delete_performance_kpi_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     kpi = db.scalar(
         select(PerformanceKPI)
         .options(selectinload(PerformanceKPI.goal).selectinload(PerformanceGoal.plan))
@@ -2651,6 +2772,8 @@ def delete_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, kpi.goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only manage KPIs for direct reports")
     if plan_is_locked(kpi.goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     plan_id = kpi.goal.plan.id
@@ -2681,7 +2804,9 @@ def create_performance_kpi_item_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
-    if user.role != Role.ADMIN and kpi.goal.plan.user_id != user.id:
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, kpi.goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only add KPI items for direct reports")
+    if user.role not in {Role.ADMIN, Role.MANAGER} and kpi.goal.plan.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only add KPI items to your own plan")
     if plan_is_locked(kpi.goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
@@ -2727,7 +2852,7 @@ def update_performance_kpi_item_page(
         raise HTTPException(status_code=404, detail="KPI item not found")
     if plan_is_locked(item.kpi.goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
-    if not can_manage_performance_item(user, item.kpi.goal.plan, item):
+    if not can_manage_performance_item(db, user, item.kpi.goal.plan, item):
         raise HTTPException(status_code=403, detail="You cannot edit this KPI item")
     normalized_title = title.strip()[:300]
     if not normalized_title:
@@ -2762,7 +2887,7 @@ def delete_performance_kpi_item_page(
         raise HTTPException(status_code=404, detail="KPI item not found")
     if plan_is_locked(item.kpi.goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
-    if not can_manage_performance_item(user, item.kpi.goal.plan, item):
+    if not can_manage_performance_item(db, user, item.kpi.goal.plan, item):
         raise HTTPException(status_code=403, detail="You cannot delete this KPI item")
     plan_id = item.kpi.goal.plan.id
     db.delete(item)
@@ -2778,7 +2903,7 @@ def toggle_performance_kpi_item_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin(user)
+    must_be_admin_or_manager(user)
     item = db.scalar(
         select(PerformanceKPIItem)
         .options(
@@ -2793,6 +2918,8 @@ def toggle_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
+    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, item.kpi.goal.plan.user_id):
+        raise HTTPException(status_code=403, detail="You can only complete KPI items for direct reports")
     if plan_is_locked(item.kpi.goal.plan):
         raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     item.is_completed = not item.is_completed
@@ -4001,17 +4128,15 @@ def api_update_me(payload: dict, org_user: tuple[Organization, User] = Depends(g
 
 @app.get("/api/v1/users/{user_id}/tasks")
 def api_public_tasks(user_id: int, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
-    org, _ = org_user
-    tasks = db.scalars(
-        select(Task)
-        .where(
-            Task.org_id == org.id,
-            Task.assigned_to == user_id,
-            Task.is_archived.is_(False),
-            Task.is_private.is_(False),
-        )
-        .order_by(Task.created_at.desc())
-    ).all()
+    org, user = org_user
+    query = select(Task).where(
+        Task.org_id == org.id,
+        Task.assigned_to == user_id,
+        Task.is_archived.is_(False),
+    )
+    if not (user.role == Role.ADMIN or can_manage_user_scope(db, org.id, user, user_id) or user.id == user_id):
+        query = query.where(Task.is_private.is_(False))
+    tasks = db.scalars(query.order_by(Task.created_at.desc())).all()
     return [{"task_id": task.task_id, "name": task.name, "status": task.status.value, "logged_hours": float(task.logged_hours or 0)} for task in tasks]
 
 
@@ -4021,19 +4146,18 @@ def team_tasks_page(request: Request, org_slug: str, user_id: int, org_user: tup
     teammate = db.get(User, user_id)
     if not teammate or teammate.org_id != org.id:
         raise HTTPException(status_code=404, detail="User not found")
-    tasks = db.scalars(
-        select(Task)
-        .where(
-            Task.org_id == org.id,
-            Task.assigned_to == teammate.id,
-            Task.is_archived.is_(False),
-            Task.is_private.is_(False),
-        )
-        .order_by(Task.created_at.desc())
-    ).all()
+    can_view_all = current_user.role == Role.ADMIN or can_manage_user_scope(db, org.id, current_user, teammate.id) or current_user.id == teammate.id
+    query = select(Task).where(
+        Task.org_id == org.id,
+        Task.assigned_to == teammate.id,
+        Task.is_archived.is_(False),
+    )
+    if not can_view_all:
+        query = query.where(Task.is_private.is_(False))
+    tasks = db.scalars(query.order_by(Task.created_at.desc())).all()
     return templates.TemplateResponse(
         "team_tasks.html",
-        {"request": request, "org": org, "user": current_user, "teammate": teammate, "tasks": tasks},
+        {"request": request, "org": org, "user": current_user, "teammate": teammate, "tasks": tasks, "show_private_access": can_view_all},
     )
 
 
@@ -4266,57 +4390,38 @@ def api_delete_leave(leave_id: int, org_user: tuple[Organization, User] = Depend
 def admin_dashboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     must_be_admin(user)
-    today = date.today()
-    month_start = today.replace(day=1)
     team = org_people(db, org.id)
-    rows = []
-    for member in team:
-        rates = compute_work_rate(db, org.id, member.id, month_start, today)
-        open_tasks = db.scalar(
-            select(func.count()).select_from(Task).where(
-                Task.org_id == org.id,
-                Task.assigned_to == member.id,
-                Task.is_archived.is_(False),
-                Task.status != TaskStatus.CLOSED,
-            )
-        )
-        closed_tasks = db.scalar(
-            select(func.count()).select_from(Task).where(
-                Task.org_id == org.id,
-                Task.assigned_to == member.id,
-                Task.is_archived.is_(False),
-                Task.status == TaskStatus.CLOSED,
-            )
-        )
-        rows.append({"member": member, "rates": rates, "open_tasks": open_tasks, "closed_tasks": closed_tasks})
-
-    summary = {
-        "employees": len(team),
-        "tasks_created_month": db.scalar(
-            select(func.count()).select_from(Task).where(
-                Task.org_id == org.id,
-                Task.is_archived.is_(False),
-                Task.created_at >= datetime.combine(month_start, datetime.min.time()),
-            )
-        ),
-        "tasks_closed_month": db.scalar(
-            select(func.count()).select_from(Task).where(
-                Task.org_id == org.id,
-                Task.is_archived.is_(False),
-                Task.status == TaskStatus.CLOSED,
-                Task.closed_at >= datetime.combine(month_start, datetime.min.time()),
-            )
-        ),
-    }
+    payload = scoped_team_dashboard_payload(db, org, team)
     return templates.TemplateResponse(
         "admin_dashboard.html",
         {
             "request": request,
             "org": org,
             "user": user,
-            "summary": summary,
-            "rows": rows,
+            "summary": payload["summary"],
+            "rows": payload["rows"],
             "settings": get_org_settings(db, org.id),
+        },
+    )
+
+
+@app.get("/{org_slug}/manager/dashboard", response_class=HTMLResponse)
+def manager_dashboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    if user.role == Role.ADMIN:
+        team = org_people(db, org.id)
+    else:
+        team = managed_people(db, org.id, user)
+    payload = scoped_team_dashboard_payload(db, org, team)
+    return templates.TemplateResponse(
+        "manager_dashboard.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "summary": payload["summary"],
+            "rows": payload["rows"],
         },
     )
 
@@ -4343,6 +4448,7 @@ def admin_users_page(request: Request, org_user: tuple[Organization, User] = Dep
     must_be_admin(user)
     people = db.scalars(select(User).options(selectinload(User.department)).where(User.org_id == org.id).order_by(User.created_at.desc())).all()
     departments = org_departments(db, org.id)
+    managers = [person for person in people if person.role in {Role.ADMIN, Role.MANAGER} and person.is_active]
     default_department = next((item for item in departments if item.name == DEFAULT_USER_DEPARTMENT), departments[0] if departments else None)
     return templates.TemplateResponse(
         "admin_users.html",
@@ -4353,6 +4459,7 @@ def admin_users_page(request: Request, org_user: tuple[Organization, User] = Dep
             "people": people,
             "roles": list(Role),
             "departments": departments,
+            "managers": managers,
             "default_department_id": default_department.id if default_department else None,
         },
     )
@@ -4364,6 +4471,7 @@ def admin_create_user(
     full_name: str = Form(...),
     email: str = Form(...),
     department_id: int | None = Form(None),
+    manager_id: int | None = Form(None),
     role: Role = Form(Role.EMPLOYEE),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4374,6 +4482,18 @@ def admin_create_user(
     department = next((item for item in departments if item.id == department_id), None)
     if department_id is not None and not department:
         raise HTTPException(status_code=400, detail="Department not found")
+    manager = None
+    if manager_id is not None:
+        manager = db.scalar(
+            select(User).where(
+                User.id == manager_id,
+                User.org_id == org.id,
+                User.is_active.is_(True),
+                User.role.in_([Role.ADMIN, Role.MANAGER]),
+            )
+        )
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager not found")
     if department is None:
         department = next((item for item in departments if item.name == DEFAULT_USER_DEPARTMENT), departments[0] if departments else None)
     temp_password = generate_temp_password()
@@ -4382,6 +4502,7 @@ def admin_create_user(
         full_name=full_name.strip(),
         email=email.strip().lower(),
         department_id=department.id if department else None,
+        manager_id=manager.id if manager else None,
         role=role,
         password_hash=hash_password(temp_password),
         force_password_change=True,
@@ -4404,6 +4525,7 @@ def admin_update_user(
     user_id: int,
     full_name: str = Form(...),
     department_id: int | None = Form(None),
+    manager_id: int | None = Form(None),
     role: Role = Form(...),
     is_active: bool = Form(False),
     send_effort_reminder: bool = Form(False),
@@ -4416,12 +4538,27 @@ def admin_update_user(
     target = db.get(User, user_id)
     if not target or target.org_id != org.id:
         raise HTTPException(status_code=404, detail="User not found")
+    manager = None
+    if manager_id is not None:
+        manager = db.scalar(
+            select(User).where(
+                User.id == manager_id,
+                User.org_id == org.id,
+                User.is_active.is_(True),
+                User.role.in_([Role.ADMIN, Role.MANAGER]),
+            )
+        )
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager not found")
+        if manager.id == target.id:
+            raise HTTPException(status_code=400, detail="A user cannot be their own manager")
     if department_id is not None:
         department = db.get(Department, department_id)
         if not department or department.org_id != org.id:
             raise HTTPException(status_code=400, detail="Department not found")
         target.department_id = department.id
     target.full_name = full_name.strip()
+    target.manager_id = manager.id if manager else None
     target.role = role
     target.is_active = is_active
     target.send_effort_reminder = send_effort_reminder

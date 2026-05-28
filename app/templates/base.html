@@ -66,6 +66,17 @@
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}>My Reports</a>
             </div>
           </div>
+          {% if user.role.value in ["manager", "admin"] %}
+          <div class="nav-group is-expanded" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="true">
+              <span class="nav-section">Manager</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/manager/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/manager/dashboard" {% if current_path == '/' ~ org.slug ~ '/manager/dashboard' %}aria-current="page"{% endif %}>Team Dashboard</a>
+            </div>
+          </div>
+          {% endif %}
           {% if user.role.value == "admin" %}
           <div class="nav-group is-expanded" data-nav-group>
             <button class="nav-section-toggle" type="button" aria-expanded="true">

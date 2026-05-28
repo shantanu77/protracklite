@@ -12,6 +12,7 @@ from app.database import Base
 
 class Role(str, Enum):
     EMPLOYEE = "employee"
+    MANAGER = "manager"
     ADMIN = "admin"
 
 
@@ -83,6 +84,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(150))
     password_hash: Mapped[str] = mapped_column(String(255))
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True, nullable=True)
+    manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     role: Mapped[Role] = mapped_column(SqlEnum(Role), default=Role.EMPLOYEE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     send_effort_reminder: Mapped[bool] = mapped_column(Boolean, default=True)

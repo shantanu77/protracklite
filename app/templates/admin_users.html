@@ -57,6 +57,7 @@
           <th>Name</th>
           <th>Email</th>
           <th>Department</th>
+          <th>Manager</th>
           <th>Role</th>
           <th>Status</th>
           <th>Reminder</th>
@@ -76,6 +77,10 @@
           <td><strong>{{ person.full_name }}</strong></td>
           <td>{{ person.email }}</td>
           <td>{{ person.department.name if person.department else "Unassigned" }}</td>
+          <td>
+            {% set manager = people|selectattr("id", "equalto", person.manager_id)|list|first %}
+            {{ manager.full_name if manager else "Unassigned" }}
+          </td>
           <td><span class="badge">{{ person.role.value }}</span></td>
           <td>
             <span class="badge {% if person.is_active %}success{% else %}danger{% endif %}">
@@ -94,7 +99,7 @@
                 type="button"
                 class="button secondary small"
                 data-modal-open="user-edit-modal"
-                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "department_id": person.department_id, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "reset_password": false}|tojson|e }}'
+                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "department_id": person.department_id, "manager_id": person.manager_id, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "reset_password": false}|tojson|e }}'
               >
                 Edit
               </button>
@@ -127,6 +132,14 @@
           {% endfor %}
         </select>
       </label>
+      <label>Manager
+        <select name="manager_id">
+          <option value="">Unassigned</option>
+          {% for manager in managers %}
+          <option value="{{ manager.id }}">{{ manager.full_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>Role
         <select name="role">
           {% for role in roles %}
@@ -154,6 +167,14 @@
         <select name="department_id">
           {% for department in departments %}
           <option value="{{ department.id }}">{{ department.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Manager
+        <select name="manager_id">
+          <option value="">Unassigned</option>
+          {% for manager in managers %}
+          <option value="{{ manager.id }}">{{ manager.full_name }}</option>
           {% endfor %}
         </select>
       </label>

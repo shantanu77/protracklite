@@ -10,7 +10,7 @@
 
 <section class="goals-layout">
   <div class="stack">
-    {% if user.role.value == "admin" %}
+    {% if user.role.value in ["admin", "manager"] %}
     <form method="post" action="/{{ org.slug }}/goals/plans" class="panel form-grid">
       <div class="panel-head full">
         <div>
@@ -35,7 +35,7 @@
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2>{% if user.role.value == "admin" %}All Plans{% else %}My Plans{% endif %}</h2>
+          <h2>{% if user.role.value == "admin" %}All Plans{% elif user.role.value == "manager" %}Team Plans{% else %}My Plans{% endif %}</h2>
           <p>Select a yearly plan to manage goals and KPI task lists.</p>
         </div>
       </div>
@@ -76,7 +76,7 @@
         </div>
         <div class="goal-plan-actions">
           <span class="badge {% if selected_plan.is_locked %}muted{% else %}success{% endif %}">{{ selected_plan.status_label }}</span>
-          {% if user.role.value == "admin" %}
+          {% if user.role.value in ["admin", "manager"] %}
           {% if selected_plan.is_locked %}
           <form method="post" action="/{{ org.slug }}/goals/plans/{{ selected_plan.id }}/reopen">
             <button type="submit" class="button secondary">Reopen Plan</button>
@@ -101,7 +101,7 @@
       <p class="empty">This plan cannot be finalized until all goal weights total exactly 100%.</p>
       {% endif %}
 
-      {% if user.role.value == "admin" and not selected_plan.is_locked %}
+      {% if user.role.value in ["admin", "manager"] and not selected_plan.is_locked %}
       <form method="post" action="/{{ org.slug }}/goals/plans/{{ selected_plan.id }}/update" class="panel form-grid">
         <div class="panel-head full">
           <div>
@@ -150,7 +150,7 @@
           <p class="empty">KPI weights for this goal must total 100% before plan finalization.</p>
           {% endif %}
 
-          {% if user.role.value == "admin" and not selected_plan.is_locked %}
+          {% if user.role.value in ["admin", "manager"] and not selected_plan.is_locked %}
           <form method="post" action="/{{ org.slug }}/goals/goals/{{ goal.id }}/update" class="panel form-grid compact-form">
             <label>Weight %<input type="number" name="weightage" step="0.01" min="0" max="100" value="{{ "%.2f"|format(goal.weightage) }}" required></label>
             <label>Goal Title<input name="title" value="{{ goal.title }}" required></label>
@@ -162,7 +162,7 @@
           </form>
           {% endif %}
 
-          {% if user.role.value == "admin" and not selected_plan.is_locked %}
+          {% if user.role.value in ["admin", "manager"] and not selected_plan.is_locked %}
           <form method="post" action="/{{ org.slug }}/goals/goals/{{ goal.id }}/kpis" class="panel form-grid compact-form">
             <label>Weight %<input type="number" name="weightage" step="0.01" min="0" max="100" required></label>
             <label>KPI Title<input name="title" required></label>
@@ -188,7 +188,7 @@
               <div class="list-progress-bar"><span style="width: {{ kpi.achievement_percent }}%;"></span></div>
               <small>Each item contributes {{ "%.2f"|format(kpi.item_weight_percent) }}% within this KPI.</small>
 
-              {% if user.role.value == "admin" and not selected_plan.is_locked %}
+              {% if user.role.value in ["admin", "manager"] and not selected_plan.is_locked %}
               <form method="post" action="/{{ org.slug }}/goals/kpis/{{ kpi.id }}/update" class="form-grid compact-form">
                 <label>Weight %<input type="number" name="weightage" step="0.01" min="0" max="100" value="{{ "%.2f"|format(kpi.weightage) }}" required></label>
                 <label>KPI Title<input name="title" value="{{ kpi.title }}" required></label>
@@ -204,14 +204,14 @@
               <form method="post" action="/{{ org.slug }}/goals/kpis/{{ kpi.id }}/items" class="form-grid compact-form">
                 <label class="full">Add KPI Item<input name="title" placeholder="Add a checklist item" required></label>
                 <label class="full">Notes<textarea name="notes" rows="2" placeholder="Optional context or evidence requirement"></textarea></label>
-                <button type="submit">{% if user.role.value == "admin" %}Add Item{% else %}Suggest Item{% endif %}</button>
+                <button type="submit">{% if user.role.value in ["admin", "manager"] %}Add Item{% else %}Suggest Item{% endif %}</button>
               </form>
               {% endif %}
 
               <div class="list-item-stack compact-list-items">
                 {% for item in kpi.items %}
                 <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}">
-                  {% if user.role.value == "admin" and not selected_plan.is_locked %}
+                  {% if user.role.value in ["admin", "manager"] and not selected_plan.is_locked %}
                   <form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/toggle" class="list-item-toggle-form">
                     <input type="checkbox" {% if item.is_completed %}checked{% endif %} onchange="this.form.submit()">
                   </form>
@@ -225,7 +225,7 @@
                     {% if item.notes %}
                     <small>{{ item.notes }}</small>
                     {% endif %}
-                    {% if not selected_plan.is_locked and (user.role.value == "admin" or (user.id == selected_plan.user_id and user.id == item.created_by and not item.is_completed)) %}
+                    {% if not selected_plan.is_locked and (user.role.value in ["admin", "manager"] or (user.id == selected_plan.user_id and user.id == item.created_by and not item.is_completed)) %}
                     <form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/update" class="form-grid compact-form goal-item-edit-form">
                       <label class="full">Item Title<input name="title" value="{{ item.title }}" required></label>
                       <label class="full">Notes<textarea name="notes" rows="2">{{ item.notes }}</textarea></label>
