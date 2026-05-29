@@ -202,6 +202,16 @@ def weight_total_is_valid(total: Decimal) -> bool:
     return total == Decimal("100.00")
 
 
+def parse_optional_form_int(raw_value: str | None, field_name: str) -> int | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a valid integer") from exc
+
+
 def calculate_kpi_achievement_percent(kpi: PerformanceKPI) -> float:
     total_items = len(kpi.items)
     if total_items == 0:
@@ -4471,22 +4481,23 @@ def admin_create_user(
     full_name: str = Form(...),
     email: str = Form(...),
     department_id: int | None = Form(None),
-    manager_id: int | None = Form(None),
+    manager_id: str = Form(""),
     role: Role = Form(Role.EMPLOYEE),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     must_be_admin(user)
+    parsed_manager_id = parse_optional_form_int(manager_id, "Manager")
     departments = org_departments(db, org.id)
     department = next((item for item in departments if item.id == department_id), None)
     if department_id is not None and not department:
         raise HTTPException(status_code=400, detail="Department not found")
     manager = None
-    if manager_id is not None:
+    if parsed_manager_id is not None:
         manager = db.scalar(
             select(User).where(
-                User.id == manager_id,
+                User.id == parsed_manager_id,
                 User.org_id == org.id,
                 User.is_active.is_(True),
                 User.role.in_([Role.ADMIN, Role.MANAGER]),
@@ -4525,7 +4536,7 @@ def admin_update_user(
     user_id: int,
     full_name: str = Form(...),
     department_id: int | None = Form(None),
-    manager_id: int | None = Form(None),
+    manager_id: str = Form(""),
     role: Role = Form(...),
     is_active: bool = Form(False),
     send_effort_reminder: bool = Form(False),
@@ -4535,14 +4546,15 @@ def admin_update_user(
 ):
     org, user = org_user
     must_be_admin(user)
+    parsed_manager_id = parse_optional_form_int(manager_id, "Manager")
     target = db.get(User, user_id)
     if not target or target.org_id != org.id:
         raise HTTPException(status_code=404, detail="User not found")
     manager = None
-    if manager_id is not None:
+    if parsed_manager_id is not None:
         manager = db.scalar(
             select(User).where(
-                User.id == manager_id,
+                User.id == parsed_manager_id,
                 User.org_id == org.id,
                 User.is_active.is_(True),
                 User.role.in_([Role.ADMIN, Role.MANAGER]),
