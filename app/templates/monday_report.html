@@ -136,7 +136,37 @@
     <h1>Monday Report</h1>
     <p>{{ report.previous_week_start.strftime("%A, %d %b %Y") }} to {{ report.previous_week_end.strftime("%A, %d %b %Y") }}</p>
   </div>
+  {% if report.can_generate_weekly_ai_summary %}
+  <div class="page-head-actions">
+    <button type="button" class="button" data-modal-open="ai-work-summary-modal">AI Work Summary</button>
+  </div>
+  {% endif %}
 </section>
+{% if summary_error %}
+<section class="panel monday-summary-panel ai-summary-feedback">
+  <p class="empty">{{ summary_error }}</p>
+</section>
+{% elif summary_generated %}
+<section class="panel monday-summary-panel ai-summary-feedback ai-summary-feedback-success">
+  <p>Weekly AI summary generated and saved for this report week.</p>
+</section>
+{% endif %}
+{% if report.weekly_ai_summary %}
+<section class="panel monday-summary-panel ai-summary-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Weekly AI Summary</h2>
+      <p>{{ report.weekly_ai_summary.week_start.strftime("%d %b %Y") }} to {{ report.weekly_ai_summary.week_end.strftime("%d %b %Y") }}</p>
+    </div>
+  </div>
+  <p class="ai-summary-copy">{{ report.weekly_ai_summary.summary_text }}</p>
+  <div class="ai-summary-meta">
+    <span>Generated {{ report.weekly_ai_summary.generated_at.strftime("%d %b %Y %I:%M %p") }}</span>
+    <span>From {{ report.weekly_ai_summary.task_count }} selected task{% if report.weekly_ai_summary.task_count != 1 %}s{% endif %}</span>
+    <span>{{ "%.2f"|format(report.weekly_ai_summary.total_selected_hours or 0) }}h selected effort</span>
+  </div>
+</section>
+{% endif %}
 <div class="stats">
   <div class="stat">
     <span>Last Week Closed</span>
@@ -341,6 +371,73 @@
     </form>
   </div>
 </div>
+
+{% if report.can_generate_weekly_ai_summary %}
+<div class="modal-backdrop" id="ai-work-summary-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide backlog-planner-modal" role="dialog" aria-modal="true" aria-labelledby="ai-work-summary-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="ai-work-summary-title">Generate Weekly AI Summary</h2>
+        <p>Select worked tasks from {{ report.previous_week_start.strftime("%d %b %Y") }} to {{ report.previous_week_end.strftime("%d %b %Y") }} to draft a saved weekly summary.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close AI work summary modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/reports/monday/ai-summary" class="stack" data-ai-summary-form>
+      <div class="ai-summary-modal-copy">
+        <div class="ai-summary-statline">
+          <span><strong>{{ "%.2f"|format(report.previous_week_effort_hours) }}h</strong> booked last week</span>
+          <span><strong>{{ "%.2f"|format(report.previous_week_effort_rate) }}%</strong> booking rate</span>
+          {% if report.previous_week_leave_summary %}
+          <span><strong>{{ report.previous_week_leave_summary|length }}</strong> leave day{% if report.previous_week_leave_summary|length != 1 %}s{% endif %}</span>
+          {% endif %}
+        </div>
+        <p>The summary will use selected tasks, task descriptions, booked-hour comments, effort totals, and leave context from the selected week.</p>
+      </div>
+      <div class="table-wrap backlog-planner-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Select</th>
+              <th>Task</th>
+              <th>Status</th>
+              <th>Effort In Week</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in report.worked_last_week_tasks %}
+            <tr>
+              <td>
+                <input type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" data-ai-summary-toggle>
+              </td>
+              <td class="backlog-task-cell">
+                <strong>{{ task.task_id }}</strong><br>
+                <small>{{ task.name }}</small>
+              </td>
+              <td><span class="badge muted">{{ task.status|replace('_', ' ') }}</span></td>
+              <td>{{ "%.2f"|format(task.report_hours or 0) }}h</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if report.previous_week_leave_summary %}
+      <div class="ai-summary-leave-strip">
+        <span class="monday-task-detail-label">Leave Context</span>
+        <div class="ai-summary-meta">
+          {% for leave in report.previous_week_leave_summary %}
+          <span>{{ leave.day_short }} {{ leave.date }}{% if leave.reason %} · {{ leave.reason }}{% endif %}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      <div class="ai-summary-actions">
+        <p class="empty" data-ai-summary-selection-note>Select at least one task.</p>
+        <button type="submit" data-ai-summary-submit disabled>Generate Summary</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 <script>
   (() => {
     document.querySelectorAll("[data-monday-expand-panel]").forEach((panel) => {
@@ -380,6 +477,32 @@
       toggle.addEventListener("change", syncRow);
       syncRow();
     });
+
+    const aiSummaryForm = document.querySelector("[data-ai-summary-form]");
+    if (!aiSummaryForm) {
+      return;
+    }
+
+    const aiSummaryToggles = [...aiSummaryForm.querySelectorAll("[data-ai-summary-toggle]")];
+    const aiSummarySubmit = aiSummaryForm.querySelector("[data-ai-summary-submit]");
+    const aiSummaryNote = aiSummaryForm.querySelector("[data-ai-summary-selection-note]");
+
+    function syncAiSummarySelection() {
+      const selectedCount = aiSummaryToggles.filter((item) => item.checked).length;
+      if (aiSummarySubmit) {
+        aiSummarySubmit.disabled = selectedCount === 0;
+      }
+      if (aiSummaryNote) {
+        aiSummaryNote.textContent = selectedCount > 0
+          ? `${selectedCount} task${selectedCount === 1 ? "" : "s"} selected for summary generation.`
+          : "Select at least one task.";
+      }
+    }
+
+    aiSummaryToggles.forEach((toggle) => {
+      toggle.addEventListener("change", syncAiSummarySelection);
+    });
+    syncAiSummarySelection();
   })();
 </script>
 {% endblock %}

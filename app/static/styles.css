@@ -3027,6 +3027,77 @@ mark {
   color: var(--text);
 }
 
+.ai-summary-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.ai-summary-copy {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.ai-summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.ai-summary-meta span {
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(19, 78, 74, 0.08);
+}
+
+.ai-summary-feedback {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: rgba(254, 242, 242, 0.96);
+}
+
+.ai-summary-feedback p {
+  color: #991b1b;
+}
+
+.ai-summary-feedback-success {
+  border-color: rgba(22, 163, 74, 0.18);
+  background: rgba(240, 253, 244, 0.96);
+}
+
+.ai-summary-feedback-success p {
+  color: #166534;
+}
+
+.ai-summary-modal-copy {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.ai-summary-statline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  color: var(--text);
+}
+
+.ai-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.ai-summary-actions .empty {
+  margin: 0;
+}
+
+.ai-summary-leave-strip {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .quick-link {
   display: flex;
   align-items: center;

@@ -292,6 +292,26 @@ class TimeLog(Base):
     task: Mapped[Task] = relationship(back_populates="time_logs")
 
 
+class WeeklyAISummary(Base):
+    __tablename__ = "weekly_ai_summaries"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "week_start", name="uq_weekly_ai_summary_org_user_week"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    week_start: Mapped[date] = mapped_column(Date, index=True)
+    week_end: Mapped[date] = mapped_column(Date)
+    summary_text: Mapped[str] = mapped_column(Text)
+    selected_task_ids_json: Mapped[list[int]] = mapped_column(JSON, default=list)
+    total_selected_hours: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=Decimal("0.00"))
+    input_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    model_name: Mapped[str] = mapped_column(String(120), default="")
+    prompt_version: Mapped[str] = mapped_column(String(40), default="")
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Leave(Base):
     __tablename__ = "leaves"
     __table_args__ = (UniqueConstraint("user_id", "leave_date", name="uq_leave_user_date"),)

@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from email.message import EmailMessage
 from typing import Any
+from urllib.parse import urlencode
 
 import bleach
 import httpx
@@ -42,6 +43,7 @@ from app.models import (
     TaskStatus,
     TimeLog,
     User,
+    WeeklyAISummary,
     WorkList,
     WorkListItem,
 )
@@ -135,6 +137,9 @@ TASK_COLOR_MAP = {color: label for color, label in TASK_COLOR_CHOICES}
 TASK_COLOR_VALUES = set(TASK_COLOR_MAP)
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
+WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v1"
+WEEKLY_AI_SUMMARY_MAX_CHARS = 700
+WEEKLY_AI_SUMMARY_TARGET_MODEL = "weekly-ai-summary"
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
 templates.env.globals["default_task_color"] = DEFAULT_TASK_COLOR
 
@@ -270,6 +275,137 @@ def normalize_time_log_notes(raw_notes: str | None) -> str:
             detail=f"Comments must be at least {TIME_LOG_NOTES_MIN_LENGTH} characters long",
         )
     return notes
+
+
+def strip_html_text(raw_html: str | None) -> str:
+    text_value = bleach.clean(str(raw_html or ""), tags=[], strip=True)
+    return re.sub(r"\s+", " ", text_value).strip()
+
+
+def get_weekly_ai_summary(db: Session, org_id: int, user_id: int, week_start: date) -> WeeklyAISummary | None:
+    return db.scalar(
+        select(WeeklyAISummary).where(
+            WeeklyAISummary.org_id == org_id,
+            WeeklyAISummary.user_id == user_id,
+            WeeklyAISummary.week_start == week_start,
+        )
+    )
+
+
+def summarize_leave_days(day_entries: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "date": day["date"].isoformat(),
+            "day_short": day["day_short"],
+            "leave_type": day.get("leave_type") or "",
+            "reason": (day.get("leave_reason") or "").strip(),
+            "detail": day.get("detail") or "",
+        }
+        for day in day_entries
+        if day.get("status") == "leave"
+    ]
+
+
+def serialize_weekly_ai_summary(summary: WeeklyAISummary | None) -> dict[str, Any] | None:
+    if not summary:
+        return None
+    selected_task_ids = summary.selected_task_ids_json or []
+    return {
+        "summary_text": summary.summary_text,
+        "week_start": summary.week_start,
+        "week_end": summary.week_end,
+        "task_count": len(selected_task_ids),
+        "selected_task_ids": selected_task_ids,
+        "total_selected_hours": float(summary.total_selected_hours or 0),
+        "generated_at": summary.generated_at,
+    }
+
+
+def normalize_weekly_ai_summary_text(raw_text: str) -> str:
+    text_value = re.sub(r"\s+", " ", str(raw_text or "").strip())
+    if not text_value:
+        raise ValueError("Generated summary was empty")
+    if len(text_value) <= WEEKLY_AI_SUMMARY_MAX_CHARS:
+        return text_value
+    sentences = re.split(r"(?<=[.!?])\s+", text_value)
+    compact_sentences: list[str] = []
+    running_length = 0
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        projected = running_length + len(sentence) + (1 if compact_sentences else 0)
+        if projected > WEEKLY_AI_SUMMARY_MAX_CHARS:
+            break
+        compact_sentences.append(sentence)
+        running_length = projected
+    if compact_sentences:
+        return " ".join(compact_sentences)
+    return text_value[: WEEKLY_AI_SUMMARY_MAX_CHARS - 1].rstrip(" ,;:-") + "…"
+
+
+def generate_weekly_ai_summary_with_openai(snapshot: dict[str, Any]) -> tuple[str, str]:
+    if not settings.openai_api_key:
+        raise RuntimeError("AI summary generation is not configured")
+    model_name = settings.openai_backlog_model or WEEKLY_AI_SUMMARY_TARGET_MODEL
+    payload = {
+        "model": model_name,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You write concise factual weekly work summaries for an employee work tracker. "
+                    "Return JSON only in this exact shape: {\"summary\":\"...\"}. "
+                    "Write exactly one paragraph in plain business language. "
+                    "Keep it factual, grounded only in the provided data, and avoid bullet points. "
+                    "Target 4 to 5 lines of typical UI width, roughly 350 to 550 characters, and never exceed 700 characters. "
+                    "Summarize meaningful work completed, progress made, key effort areas, and blockers if present. "
+                    "Mention leave only when it materially affected the week. "
+                    "Do not mention AI, do not invent meetings, outcomes, or tasks that are not in the input."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Generate one weekly summary paragraph from this structured input and return JSON only:\n"
+                    f"{json.dumps(snapshot, default=str)}"
+                ),
+            },
+        ],
+    }
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        response.raise_for_status()
+        data = response.json()
+        parsed = parse_json_payload(data["choices"][0]["message"]["content"])
+        summary_text = normalize_weekly_ai_summary_text(str(parsed.get("summary") or ""))
+        return summary_text, model_name
+    except Exception as exc:
+        response_text = ""
+        if isinstance(exc, httpx.HTTPStatusError):
+            response_text = exc.response.text[:500]
+        logger.warning("Weekly AI summary generation failed: %s %s", exc.__class__.__name__, response_text)
+        raise RuntimeError("Unable to generate weekly summary right now") from exc
+
+
+def monday_report_redirect_url(org_slug: str, *, summary_generated: bool = False, summary_error: str | None = None) -> str:
+    query: dict[str, str] = {}
+    if summary_generated:
+        query["summary_generated"] = "1"
+    if summary_error:
+        query["summary_error"] = summary_error
+    base_url = f"/{org_slug}/reports/monday"
+    return f"{base_url}?{urlencode(query)}" if query else base_url
 
 
 def ensure_users_schema() -> None:
@@ -634,6 +770,12 @@ def ensure_query_indexes() -> None:
             "ix_leaves_user_leave_date": (
                 "CREATE INDEX ix_leaves_user_leave_date "
                 "ON leaves (user_id, leave_date)"
+            ),
+        },
+        "weekly_ai_summaries": {
+            "ix_weekly_ai_summaries_org_user_week_generated": (
+                "CREATE INDEX ix_weekly_ai_summaries_org_user_week_generated "
+                "ON weekly_ai_summaries (org_id, user_id, week_start, generated_at)"
             ),
         },
     }
@@ -4192,10 +4334,161 @@ def work_rate_page(
 
 
 @app.get("/{org_slug}/reports/monday", response_class=HTMLResponse)
-def monday_report_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+def monday_report_page(
+    request: Request,
+    summary_generated: int | None = None,
+    summary_error: str | None = None,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
     org, user = org_user
     report = monday_report(db, org.id, user.id)
-    return templates.TemplateResponse("monday_report.html", {"request": request, "org": org, "user": user, "report": report, "today": date.today()})
+    weekly_summary = get_weekly_ai_summary(db, org.id, user.id, report["previous_week_start"])
+    report["weekly_ai_summary"] = serialize_weekly_ai_summary(weekly_summary)
+    report["previous_week_leave_summary"] = summarize_leave_days(report["previous_week_daily_allocation"])
+    report["can_generate_weekly_ai_summary"] = (
+        bool(settings.openai_api_key.strip())
+        and weekly_summary is None
+        and bool(report["worked_last_week_tasks"])
+    )
+    return templates.TemplateResponse(
+        "monday_report.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "report": report,
+            "today": date.today(),
+            "summary_generated": bool(summary_generated),
+            "summary_error": summary_error or "",
+        },
+    )
+
+
+@app.post("/{org_slug}/reports/monday/ai-summary")
+async def monday_report_generate_ai_summary(
+    org_slug: str,
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    if not settings.openai_api_key.strip():
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, summary_error="AI summary is not configured for this workspace."),
+            status_code=303,
+        )
+    report = monday_report(db, org.id, user.id)
+    previous_week_start = report["previous_week_start"]
+    previous_week_end = report["previous_week_end"]
+    existing_summary = get_weekly_ai_summary(db, org.id, user.id, previous_week_start)
+    if existing_summary:
+        return RedirectResponse(url=monday_report_redirect_url(org_slug, summary_generated=True), status_code=303)
+
+    form = await request.form()
+    selected_task_codes = [str(item).strip() for item in form.getlist("selected_task_codes") if str(item).strip()]
+    if not selected_task_codes:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, summary_error="Select at least one worked task to generate the weekly summary."),
+            status_code=303,
+        )
+
+    tasks_by_code = {task["task_id"]: task for task in report["worked_last_week_tasks"] if float(task.get("report_hours") or 0) > 0}
+    selected_report_tasks = [tasks_by_code[task_code] for task_code in selected_task_codes if task_code in tasks_by_code]
+    if not selected_report_tasks:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, summary_error="Selected tasks must come from Worked Last Week."),
+            status_code=303,
+        )
+
+    selected_task_models = db.scalars(
+        select(Task).where(
+            Task.org_id == org.id,
+            Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
+            Task.task_id.in_([task["task_id"] for task in selected_report_tasks]),
+        )
+    ).all()
+    task_models_by_code = {task.task_id: task for task in selected_task_models}
+    leave_entries = summarize_leave_days(report["previous_week_daily_allocation"])
+    selected_tasks_snapshot: list[dict[str, Any]] = []
+    selected_task_ids: list[int] = []
+    total_selected_hours = 0.0
+    for task in selected_report_tasks:
+        task_model = task_models_by_code.get(task["task_id"])
+        if not task_model:
+            continue
+        selected_task_ids.append(task_model.id)
+        task_hours = float(task.get("report_hours") or 0)
+        total_selected_hours += task_hours
+        selected_tasks_snapshot.append(
+            {
+                "task_id": task["task_id"],
+                "task_pk": task_model.id,
+                "name": task["name"],
+                "status": task["status"],
+                "description": strip_html_text(task["description"]),
+                "start_date": task["start_date"].isoformat() if task.get("start_date") else None,
+                "end_date": task["end_date"].isoformat() if task.get("end_date") else None,
+                "closed_at": task.get("closed_at").isoformat() if task.get("closed_at") else None,
+                "stalled_reason": strip_html_text(task.get("stalled_reason")),
+                "total_hours_for_week": round(task_hours, 2),
+                "week_logs": [
+                    {
+                        "date": log["date"].isoformat() if log.get("date") else None,
+                        "hours": float(log.get("hours") or 0),
+                        "notes": strip_html_text(log.get("notes")),
+                    }
+                    for log in task.get("report_time_logs", [])
+                ],
+            }
+        )
+    if not selected_tasks_snapshot:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, summary_error="No valid worked tasks were selected."),
+            status_code=303,
+        )
+
+    input_snapshot = {
+        "user": {"id": user.id, "full_name": user.full_name},
+        "week": {
+            "start": previous_week_start.isoformat(),
+            "end": previous_week_end.isoformat(),
+            "booked_hours": round(float(report["previous_week_effort_hours"] or 0), 2),
+            "available_hours": round(float(report["previous_week_available_hours"] or 0), 2),
+            "booking_percent": round(float(report["previous_week_effort_rate"] or 0), 2),
+            "pending_from_last_week_count": int(report["pending_from_last_week_count"] or 0),
+            "pending_more_than_two_weeks_count": int(report["pending_more_than_two_weeks_count"] or 0),
+            "leave_entries": leave_entries,
+        },
+        "selected_tasks": selected_tasks_snapshot,
+        "selected_task_count": len(selected_tasks_snapshot),
+        "selected_task_codes": [item["task_id"] for item in selected_tasks_snapshot],
+        "total_selected_hours": round(total_selected_hours, 2),
+    }
+
+    try:
+        summary_text, model_name = generate_weekly_ai_summary_with_openai(input_snapshot)
+    except RuntimeError as exc:
+        return RedirectResponse(url=monday_report_redirect_url(org_slug, summary_error=str(exc)), status_code=303)
+
+    db.add(
+        WeeklyAISummary(
+            org_id=org.id,
+            user_id=user.id,
+            week_start=previous_week_start,
+            week_end=previous_week_end,
+            summary_text=summary_text,
+            selected_task_ids_json=selected_task_ids,
+            total_selected_hours=Decimal(str(round(total_selected_hours, 2))),
+            input_snapshot_json=input_snapshot,
+            model_name=model_name,
+            prompt_version=WEEKLY_AI_SUMMARY_PROMPT_VERSION,
+            generated_at=datetime.utcnow(),
+        )
+    )
+    db.commit()
+    return RedirectResponse(url=monday_report_redirect_url(org_slug, summary_generated=True), status_code=303)
 
 
 @app.post("/{org_slug}/reports/monday/add-from-backlog")
