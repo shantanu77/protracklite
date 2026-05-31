@@ -2,17 +2,17 @@
 {% block content %}
 <section class="page-head leaderboard-page-head">
   <div>
-    <p class="eyebrow">Admin Report</p>
+    <p class="eyebrow">{{ "Admin Report" if user.role.value == "admin" else "Manager Report" }}</p>
     <h1>Leaderboard Arena</h1>
-    <p>Competitive 4-week view of team effort, delivery, consistency, and momentum from {{ report.period_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
+    <p>{{ scope_label }} 4-week view of effort, delivery, consistency, and momentum from {{ report.period_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
   </div>
 </section>
 
 <section class="leaderboard-hero">
   <div class="leaderboard-hero-copy">
     <span class="leaderboard-kicker">Rolling 4-Week Championship</span>
-    <h2>Recognition-first reporting for the whole org.</h2>
-    <p>Spotlight the people moving work forward with booked hours, finished tasks, chargeable effort, and consistency in one leaderboard.</p>
+    <h2>{{ scope_title }}</h2>
+    <p>{{ scope_description }}</p>
   </div>
   <div class="leaderboard-summary-grid">
     <article class="leaderboard-summary-card">
@@ -108,7 +108,7 @@
   <div class="panel-head">
     <div>
       <h2>Full Ranking Table</h2>
-      <p>All competitive metrics, with recognition tied to both output and consistency.</p>
+      <p>{{ scope_label }} competitive metrics, with recognition tied to both output and consistency.</p>
     </div>
   </div>
   <div class="table-wrap">

@@ -4439,8 +4439,17 @@ def manager_dashboard_page(request: Request, org_user: tuple[Organization, User]
 @app.get("/{org_slug}/admin/leaderboard", response_class=HTMLResponse)
 def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    must_be_admin(user)
-    report = admin_leaderboard_report(db, org.id)
+    must_be_admin_or_manager(user)
+    scope_user_ids = None
+    scope_label = "Whole Org"
+    scope_title = "Recognition-first reporting for the whole org."
+    scope_description = "Spotlight the people moving work forward with booked hours, finished tasks, chargeable effort, and consistency in one leaderboard."
+    if user.role == Role.MANAGER:
+        scope_user_ids = [person.id for person in managed_people(db, org.id, user)]
+        scope_label = "My Team"
+        scope_title = "Recognition-first reporting for your direct reports."
+        scope_description = "Spotlight the team members moving work forward with booked hours, finished tasks, chargeable effort, and consistency in one leaderboard."
+    report = admin_leaderboard_report(db, org.id, user_ids=scope_user_ids)
     return templates.TemplateResponse(
         "admin_leaderboard.html",
         {
@@ -4448,6 +4457,9 @@ def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User]
             "org": org,
             "user": user,
             "report": report,
+            "scope_label": scope_label,
+            "scope_title": scope_title,
+            "scope_description": scope_description,
         },
     )
 

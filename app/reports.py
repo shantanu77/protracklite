@@ -731,7 +731,13 @@ def reports_overview(db: Session, org_id: int, user_id: int, today: date | None 
     }
 
 
-def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None) -> dict:
+def admin_leaderboard_report(
+    db: Session,
+    org_id: int,
+    today: date | None = None,
+    *,
+    user_ids: list[int] | None = None,
+) -> dict:
     today = today or local_today()
     current_week_start, _ = current_week_bounds(today)
     period_start = current_week_start - timedelta(days=21)
@@ -739,11 +745,18 @@ def admin_leaderboard_report(db: Session, org_id: int, today: date | None = None
     previous_window_end = current_week_start - timedelta(days=1)
     previous_window_start = current_week_start - timedelta(days=7)
 
-    team = db.scalars(
+    team_query = (
         select(User)
         .where(User.org_id == org_id, User.is_active.is_(True))
         .order_by(User.full_name.asc())
-    ).all()
+    )
+    if user_ids is not None:
+        if not user_ids:
+            team = []
+        else:
+            team = db.scalars(team_query.where(User.id.in_(user_ids))).all()
+    else:
+        team = db.scalars(team_query).all()
     member_ids = [member.id for member in team]
 
     leaderboard_rows: list[dict] = []
