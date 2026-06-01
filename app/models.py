@@ -312,6 +312,33 @@ class WeeklyAISummary(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class WeeklyTaskPlan(Base):
+    __tablename__ = "weekly_task_plans"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "week_start", name="uq_weekly_task_plan_org_user_week"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    week_start: Mapped[date] = mapped_column(Date, index=True)
+    week_end: Mapped[date] = mapped_column(Date)
+    focus_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WeeklyTaskPlanItem(Base):
+    __tablename__ = "weekly_task_plan_items"
+    __table_args__ = (UniqueConstraint("weekly_task_plan_id", "task_id", name="uq_weekly_task_plan_item_task"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    weekly_task_plan_id: Mapped[int] = mapped_column(ForeignKey("weekly_task_plans.id"), index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    planned_note: Mapped[str] = mapped_column(String(255), default="")
+    sort_order: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Leave(Base):
     __tablename__ = "leaves"
     __table_args__ = (UniqueConstraint("user_id", "leave_date", name="uq_leave_user_date"),)

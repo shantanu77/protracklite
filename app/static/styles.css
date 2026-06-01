@@ -3027,6 +3027,74 @@ mark {
   color: var(--text);
 }
 
+.monday-plan-panel {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.monday-plan-focus-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.monday-plan-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.monday-plan-item {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(245, 252, 251, 0.98) 0%, rgba(236, 248, 247, 0.96) 100%);
+}
+
+.monday-plan-item.is-dragging {
+  opacity: 0.55;
+}
+
+.monday-plan-item-main {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.monday-plan-item-side {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.monday-plan-effort {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.monday-plan-note-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+}
+
+.monday-plan-note-form input {
+  min-width: 0;
+}
+
+.subtle-button {
+  background: rgba(19, 78, 74, 0.08);
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.16);
+}
+
+.subtle-button:hover {
+  background: rgba(19, 78, 74, 0.14);
+}
+
 .ai-summary-panel {
   display: grid;
   gap: 0.9rem;
@@ -3593,6 +3661,11 @@ mark {
 .badge.success {
   background: rgba(31, 122, 82, 0.12);
   color: var(--success);
+}
+
+.badge.info {
+  background: rgba(14, 116, 144, 0.12);
+  color: #0f766e;
 }
 
 .badge.warning {

@@ -44,6 +44,8 @@ from app.models import (
     TimeLog,
     User,
     WeeklyAISummary,
+    WeeklyTaskPlan,
+    WeeklyTaskPlanItem,
     WorkList,
     WorkListItem,
 )
@@ -406,6 +408,97 @@ def monday_report_redirect_url(org_slug: str, *, summary_generated: bool = False
         query["summary_error"] = summary_error
     base_url = f"/{org_slug}/reports/monday"
     return f"{base_url}?{urlencode(query)}" if query else base_url
+
+
+def get_weekly_task_plan(db: Session, org_id: int, user_id: int, week_start: date) -> WeeklyTaskPlan | None:
+    return db.scalar(
+        select(WeeklyTaskPlan).where(
+            WeeklyTaskPlan.org_id == org_id,
+            WeeklyTaskPlan.user_id == user_id,
+            WeeklyTaskPlan.week_start == week_start,
+        )
+    )
+
+
+def get_or_create_weekly_task_plan(db: Session, org_id: int, user_id: int, week_start: date, week_end: date) -> WeeklyTaskPlan:
+    existing_plan = get_weekly_task_plan(db, org_id, user_id, week_start)
+    if existing_plan:
+        return existing_plan
+    plan = WeeklyTaskPlan(org_id=org_id, user_id=user_id, week_start=week_start, week_end=week_end)
+    db.add(plan)
+    db.flush()
+    return plan
+
+
+def next_weekly_task_plan_item_sort_order(db: Session, plan_id: int) -> int:
+    current_max = db.scalar(
+        select(func.max(WeeklyTaskPlanItem.sort_order)).where(WeeklyTaskPlanItem.weekly_task_plan_id == plan_id)
+    )
+    return int(current_max or 0) + 1
+
+
+def serialize_weekly_task_plan(
+    db: Session,
+    org_id: int,
+    user_id: int,
+    week_start: date,
+    task_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    plan = get_weekly_task_plan(db, org_id, user_id, week_start)
+    if not plan:
+        return {"plan_id": None, "focus_note": "", "items": [], "planned_task_codes": set()}
+    plan_items = db.execute(
+        select(WeeklyTaskPlanItem, Task)
+        .join(Task, WeeklyTaskPlanItem.task_id == Task.id)
+        .where(WeeklyTaskPlanItem.weekly_task_plan_id == plan.id, Task.org_id == org_id, Task.assigned_to == user_id)
+        .order_by(WeeklyTaskPlanItem.sort_order.asc(), WeeklyTaskPlanItem.id.asc())
+    ).all()
+    serialized_items: list[dict[str, Any]] = []
+    planned_task_codes: set[str] = set()
+    for plan_item, task in plan_items:
+        source_task = task_lookup.get(task.task_id)
+        deadline_label = source_task.get("deadline_label") if source_task else ("No deadline" if not task.end_date else "")
+        if not deadline_label:
+            if task.end_date:
+                days_remaining = (task.end_date - date.today()).days
+                if days_remaining < 0:
+                    deadline_label = f"Late by {abs(days_remaining)} day{'s' if abs(days_remaining) != 1 else ''}"
+                elif days_remaining == 0:
+                    deadline_label = "Due today"
+                else:
+                    deadline_label = f"{days_remaining} day{'s' if days_remaining != 1 else ''} remaining"
+            else:
+                deadline_label = "No deadline"
+        serialized_items.append(
+            {
+                "id": plan_item.id,
+                "task_id": task.task_id,
+                "name": task.name,
+                "status": task.status.value,
+                "planned_note": plan_item.planned_note or "",
+                "sort_order": plan_item.sort_order,
+                "start_date_label": source_task.get("start_date_label") if source_task else (task.start_date.strftime("%d %b %Y") if task.start_date else None),
+                "end_date_label": source_task.get("end_date_label") if source_task else (task.end_date.strftime("%d %b %Y") if task.end_date else None),
+                "deadline_label": deadline_label,
+                "report_hours": float(source_task.get("report_hours") or 0) if source_task else 0.0,
+                "logged_hours": float(source_task.get("logged_hours") or 0) if source_task else float(task.logged_hours or 0),
+            }
+        )
+        planned_task_codes.add(task.task_id)
+    return {
+        "plan_id": plan.id,
+        "focus_note": plan.focus_note or "",
+        "items": serialized_items,
+        "planned_task_codes": planned_task_codes,
+    }
+
+
+def monday_allowed_plan_task_codes(report: dict[str, Any]) -> set[str]:
+    codes: set[str] = set()
+    for key in ("worked_last_week_tasks", "pending_tasks"):
+        for task in report.get(key, []):
+            codes.add(task["task_id"])
+    return codes
 
 
 def ensure_users_schema() -> None:
@@ -776,6 +869,18 @@ def ensure_query_indexes() -> None:
             "ix_weekly_ai_summaries_org_user_week_generated": (
                 "CREATE INDEX ix_weekly_ai_summaries_org_user_week_generated "
                 "ON weekly_ai_summaries (org_id, user_id, week_start, generated_at)"
+            ),
+        },
+        "weekly_task_plans": {
+            "ix_weekly_task_plans_org_user_week_updated": (
+                "CREATE INDEX ix_weekly_task_plans_org_user_week_updated "
+                "ON weekly_task_plans (org_id, user_id, week_start, updated_at)"
+            ),
+        },
+        "weekly_task_plan_items": {
+            "ix_weekly_task_plan_items_plan_sort": (
+                "CREATE INDEX ix_weekly_task_plan_items_plan_sort "
+                "ON weekly_task_plan_items (weekly_task_plan_id, sort_order)"
             ),
         },
     }
@@ -4343,6 +4448,18 @@ def monday_report_page(
 ):
     org, user = org_user
     report = monday_report(db, org.id, user.id)
+    task_lookup = {
+        task["task_id"]: task
+        for key in ("worked_last_week_tasks", "pending_tasks", "this_week_tasks", "completed_tasks", "stalled_tasks", "backlog_tasks")
+        for task in report.get(key, [])
+    }
+    weekly_plan = serialize_weekly_task_plan(db, org.id, user.id, report["week_start"], task_lookup)
+    report["weekly_task_plan"] = {
+        "plan_id": weekly_plan["plan_id"],
+        "focus_note": weekly_plan["focus_note"],
+        "items": weekly_plan["items"],
+    }
+    report["planned_task_codes"] = weekly_plan["planned_task_codes"]
     weekly_summary = get_weekly_ai_summary(db, org.id, user.id, report["previous_week_start"])
     report["weekly_ai_summary"] = serialize_weekly_ai_summary(weekly_summary)
     report["previous_week_leave_summary"] = summarize_leave_days(report["previous_week_daily_allocation"])
@@ -4363,6 +4480,147 @@ def monday_report_page(
             "summary_error": summary_error or "",
         },
     )
+
+
+@app.post("/{org_slug}/reports/monday/week-plan/add")
+async def monday_report_add_to_week_plan(
+    org_slug: str,
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    report = monday_report(db, org.id, user.id)
+    selected_task_codes = [str(item).strip() for item in (await request.form()).getlist("selected_task_codes") if str(item).strip()]
+    if not selected_task_codes:
+        return RedirectResponse(url=f"/{org_slug}/reports/monday", status_code=303)
+    allowed_codes = monday_allowed_plan_task_codes(report)
+    valid_codes = [task_code for task_code in selected_task_codes if task_code in allowed_codes]
+    if not valid_codes:
+        raise HTTPException(status_code=400, detail="Selected tasks must come from Pending Tasks or Worked Last Week")
+    tasks = db.scalars(
+        select(Task).where(
+            Task.org_id == org.id,
+            Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
+            Task.status.not_in([TaskStatus.CLOSED, TaskStatus.STALLED]),
+            Task.task_id.in_(valid_codes),
+        )
+    ).all()
+    task_map = {task.task_id: task for task in tasks}
+    plan = get_or_create_weekly_task_plan(db, org.id, user.id, report["week_start"], report["week_end"])
+    existing_task_ids = {
+        task_id
+        for (task_id,) in db.execute(
+            select(WeeklyTaskPlanItem.task_id).where(WeeklyTaskPlanItem.weekly_task_plan_id == plan.id)
+        ).all()
+    }
+    next_order = next_weekly_task_plan_item_sort_order(db, plan.id)
+    for task_code in valid_codes:
+        task = task_map.get(task_code)
+        if not task or task.id in existing_task_ids:
+            continue
+        db.add(
+            WeeklyTaskPlanItem(
+                weekly_task_plan_id=plan.id,
+                task_id=task.id,
+                sort_order=next_order,
+            )
+        )
+        existing_task_ids.add(task.id)
+        next_order += 1
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/reports/monday", status_code=303)
+
+
+@app.post("/{org_slug}/reports/monday/week-plan/focus-note")
+async def monday_report_update_week_plan_focus_note(
+    org_slug: str,
+    focus_note: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    report = monday_report(db, org.id, user.id)
+    plan = get_or_create_weekly_task_plan(db, org.id, user.id, report["week_start"], report["week_end"])
+    plan.focus_note = re.sub(r"\s+", " ", focus_note.strip())
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/reports/monday", status_code=303)
+
+
+@app.post("/{org_slug}/reports/monday/week-plan/items/{plan_item_id}/note")
+async def monday_report_update_week_plan_item_note(
+    org_slug: str,
+    plan_item_id: int,
+    planned_note: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan_item = db.scalar(
+        select(WeeklyTaskPlanItem)
+        .join(WeeklyTaskPlan, WeeklyTaskPlanItem.weekly_task_plan_id == WeeklyTaskPlan.id)
+        .where(
+            WeeklyTaskPlanItem.id == plan_item_id,
+            WeeklyTaskPlan.org_id == org.id,
+            WeeklyTaskPlan.user_id == user.id,
+        )
+    )
+    if not plan_item:
+        raise HTTPException(status_code=404, detail="Planned task not found")
+    plan_item.planned_note = re.sub(r"\s+", " ", planned_note.strip())[:255]
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/reports/monday", status_code=303)
+
+
+@app.post("/{org_slug}/reports/monday/week-plan/items/{plan_item_id}/remove")
+async def monday_report_remove_week_plan_item(
+    org_slug: str,
+    plan_item_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan_item = db.scalar(
+        select(WeeklyTaskPlanItem)
+        .join(WeeklyTaskPlan, WeeklyTaskPlanItem.weekly_task_plan_id == WeeklyTaskPlan.id)
+        .where(
+            WeeklyTaskPlanItem.id == plan_item_id,
+            WeeklyTaskPlan.org_id == org.id,
+            WeeklyTaskPlan.user_id == user.id,
+        )
+    )
+    if not plan_item:
+        raise HTTPException(status_code=404, detail="Planned task not found")
+    db.delete(plan_item)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/reports/monday", status_code=303)
+
+
+@app.post("/{org_slug}/reports/monday/week-plan/reorder")
+async def monday_report_reorder_week_plan(
+    org_slug: str,
+    item_ids: list[int] = Body(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    report = monday_report(db, org.id, user.id)
+    plan = get_weekly_task_plan(db, org.id, user.id, report["week_start"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="Weekly plan not found")
+    plan_items = db.scalars(
+        select(WeeklyTaskPlanItem)
+        .where(WeeklyTaskPlanItem.weekly_task_plan_id == plan.id)
+        .order_by(WeeklyTaskPlanItem.sort_order.asc(), WeeklyTaskPlanItem.id.asc())
+    ).all()
+    item_map = {item.id: item for item in plan_items}
+    if set(item_ids) != set(item_map):
+        raise HTTPException(status_code=400, detail="Item list does not match weekly plan")
+    for index, item_id in enumerate(item_ids, start=1):
+        item_map[item_id].sort_order = index
+    db.commit()
+    return JSONResponse({"ok": True})
 
 
 @app.post("/{org_slug}/reports/monday/ai-summary")

@@ -6,17 +6,28 @@
   {%- else -%}○
   {%- endif -%}
 {%- endmacro %}
-{% macro render_monday_table(tasks, title, copy, empty_text, card_kind="open", section_key="") %}
+{% macro render_monday_table(tasks, title, copy, empty_text, card_kind="open", section_key="", plan_selectable=false) %}
   <section class="panel">
     <div class="panel-head">
-      <h2>{{ title }}</h2>
-      <p>{{ copy }}</p>
+      <div>
+        <h2>{{ title }}</h2>
+        <p>{{ copy }}</p>
+      </div>
+      {% if plan_selectable and tasks %}
+      <div class="page-head-actions">
+        <button type="submit" class="button subtle-button" form="week-plan-form-{{ section_key }}">Add Selected To This Week Plan</button>
+      </div>
+      {% endif %}
     </div>
     {% if tasks %}
+    {% if plan_selectable %}
+    <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/add" id="week-plan-form-{{ section_key }}">
+    {% endif %}
     <div class="dashboard-table-wrap monday-table-wrap">
       <table class="dashboard-task-table monday-task-table">
         <thead>
           <tr>
+            {% if plan_selectable %}<th>Select</th>{% endif %}
             <th>Task</th>
             <th>Status</th>
             <th>Dates</th>
@@ -28,10 +39,21 @@
           {% for task in tasks %}
           {% set detail_id = "monday-task-details-" ~ section_key ~ "-" ~ loop.index %}
           <tr class="monday-task-row is-status-{{ task.status|replace('_', '-') }} is-deadline-{{ task.deadline_tone }}" data-monday-expand-row data-detail-target="{{ detail_id }}">
+            {% if plan_selectable %}
+            <td>
+              <input type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" {% if task.task_id in report.planned_task_codes or task.status in ["closed", "stalled"] %}disabled{% endif %}>
+            </td>
+            {% endif %}
             <td>
               <div class="dashboard-task-table-main">
                 <div class="task-card-headline">
                   <span class="chip">{{ task.task_id }}</span>
+                  {% if task.task_id in report.planned_task_codes %}
+                  <span class="badge info">Planned This Week</span>
+                  {% endif %}
+                  {% if task.status == "closed" or card_kind == "completed" %}
+                  <span class="badge success">Completed</span>
+                  {% endif %}
                 </div>
                 <strong>{{ task.name }}</strong>
                 <small>
@@ -85,7 +107,7 @@
             </td>
           </tr>
           <tr class="monday-task-detail-row" id="{{ detail_id }}" data-monday-expand-panel hidden>
-            <td colspan="5">
+            <td colspan="{{ 6 if plan_selectable else 5 }}">
               <div class="monday-task-details">
                 <div class="monday-task-detail-block">
                   <span class="monday-task-detail-label">Description</span>
@@ -124,6 +146,9 @@
         </tbody>
       </table>
     </div>
+    {% if plan_selectable %}
+    </form>
+    {% endif %}
     {% else %}
     <p class="empty">{{ empty_text }}</p>
     {% endif %}
@@ -211,10 +236,59 @@
     <strong>{{ report.pending_more_than_two_weeks_count }} older than 2 weeks.</strong>
   </p>
 </section>
+<section class="panel monday-plan-panel">
+  <div class="panel-head">
+    <div>
+      <h2>This Week Plan</h2>
+      <p>Use this as your Monday commitment list. It does not change task status or dates.</p>
+    </div>
+  </div>
+  <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/focus-note" class="monday-plan-focus-form">
+    <label class="full">
+      <span class="monday-task-detail-label">Weekly Focus Note</span>
+      <textarea name="focus_note" rows="2" placeholder="Main focus for the week, risks, or support needed.">{{ report.weekly_task_plan.focus_note }}</textarea>
+    </label>
+    <button type="submit" class="button subtle-button">Save Focus Note</button>
+  </form>
+  {% if report.weekly_task_plan.items %}
+  <div class="monday-plan-list" data-monday-plan-list data-sort-url="/{{ org.slug }}/reports/monday/week-plan/reorder">
+    {% for item in report.weekly_task_plan.items %}
+    <article class="monday-plan-item" draggable="true" data-monday-plan-item data-plan-item-id="{{ item.id }}">
+      <div class="monday-plan-item-main">
+        <div class="task-card-headline">
+          <span class="chip">{{ item.task_id }}</span>
+          <span class="badge info">Planned This Week</span>
+          <span class="badge muted">{{ item.status|replace('_', ' ') }}</span>
+        </div>
+        <strong>{{ item.name }}</strong>
+        <small>
+          {% if item.start_date_label %}Start: {{ item.start_date_label }}{% else %}Start: Not set{% endif %}
+          {% if item.end_date_label %} · End: {{ item.end_date_label }}{% endif %}
+          {% if item.deadline_label %} · {{ item.deadline_label }}{% endif %}
+        </small>
+      </div>
+      <div class="monday-plan-item-side">
+        <span class="monday-plan-effort">{{ "%.2f"|format(item.report_hours or 0) }}h last week</span>
+        <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/items/{{ item.id }}/remove">
+          <button type="submit" class="icon-action danger-icon" title="Remove from week plan" aria-label="Remove from week plan">×</button>
+        </form>
+        <button type="button" class="icon-action drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+      </div>
+      <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/items/{{ item.id }}/note" class="monday-plan-note-form">
+        <input type="text" name="planned_note" value="{{ item.planned_note }}" maxlength="255" placeholder="Optional note: continue, close this week, need support...">
+        <button type="submit" class="button subtle-button">Save Note</button>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No tasks are planned for this week yet. Use the selection controls in Worked Last Week or Pending Tasks.</p>
+  {% endif %}
+</section>
 <div class="stack">
-  {{ render_monday_table(report.worked_last_week_tasks, "Worked Last Week", "Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.", "No effort was booked last week.", "open", "worked") }}
+  {{ render_monday_table(report.worked_last_week_tasks, "Worked Last Week", "Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.", "No effort was booked last week.", "open", "worked", true) }}
   {{ render_monday_table(report.completed_tasks, "Completed Tasks", "Tasks closed in the previous week, with estimated versus actual effort.", "No tasks were closed last week.", "completed", "completed") }}
-  {{ render_monday_table(report.pending_tasks, "Pending Tasks", "All open tasks assigned to you that are not stalled and started before this week.", "No pending non-stalled tasks.", "open", "pending") }}
+  {{ render_monday_table(report.pending_tasks, "Pending Tasks", "All open tasks assigned to you that are not stalled and started before this week.", "No pending non-stalled tasks.", "open", "pending", true) }}
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -460,49 +534,101 @@
     });
 
     const form = document.querySelector("[data-backlog-form]");
-    if (!form) {
-      return;
+    if (form) {
+      form.querySelectorAll("[data-backlog-toggle]").forEach((toggle) => {
+        const taskCode = toggle.dataset.backlogToggle;
+        const inputs = form.querySelectorAll(`[data-backlog-input="${taskCode}"]`);
+
+        function syncRow() {
+          inputs.forEach((input) => {
+            input.disabled = !toggle.checked;
+          });
+        }
+
+        toggle.addEventListener("change", syncRow);
+        syncRow();
+      });
     }
-
-    form.querySelectorAll("[data-backlog-toggle]").forEach((toggle) => {
-      const taskCode = toggle.dataset.backlogToggle;
-      const inputs = form.querySelectorAll(`[data-backlog-input="${taskCode}"]`);
-
-      function syncRow() {
-        inputs.forEach((input) => {
-          input.disabled = !toggle.checked;
-        });
-      }
-
-      toggle.addEventListener("change", syncRow);
-      syncRow();
-    });
 
     const aiSummaryForm = document.querySelector("[data-ai-summary-form]");
-    if (!aiSummaryForm) {
-      return;
+    if (aiSummaryForm) {
+      const aiSummaryToggles = [...aiSummaryForm.querySelectorAll("[data-ai-summary-toggle]")];
+      const aiSummarySubmit = aiSummaryForm.querySelector("[data-ai-summary-submit]");
+      const aiSummaryNote = aiSummaryForm.querySelector("[data-ai-summary-selection-note]");
+
+      function syncAiSummarySelection() {
+        const selectedCount = aiSummaryToggles.filter((item) => item.checked).length;
+        if (aiSummarySubmit) {
+          aiSummarySubmit.disabled = selectedCount === 0;
+        }
+        if (aiSummaryNote) {
+          aiSummaryNote.textContent = selectedCount > 0
+            ? `${selectedCount} task${selectedCount === 1 ? "" : "s"} selected for summary generation.`
+            : "Select at least one task.";
+        }
+      }
+
+      aiSummaryToggles.forEach((toggle) => {
+        toggle.addEventListener("change", syncAiSummarySelection);
+      });
+      syncAiSummarySelection();
     }
 
-    const aiSummaryToggles = [...aiSummaryForm.querySelectorAll("[data-ai-summary-toggle]")];
-    const aiSummarySubmit = aiSummaryForm.querySelector("[data-ai-summary-submit]");
-    const aiSummaryNote = aiSummaryForm.querySelector("[data-ai-summary-selection-note]");
+    const planList = document.querySelector("[data-monday-plan-list]");
+    if (planList) {
+      let draggedItem = null;
+      const items = () => Array.from(planList.querySelectorAll("[data-monday-plan-item]"));
+      const dragAfterElement = (container, y) => {
+        const siblings = items().filter((item) => item !== draggedItem);
+        return siblings.reduce((closest, child) => {
+          const box = child.getBoundingClientRect();
+          const offset = y - box.top - box.height / 2;
+          if (offset < 0 && offset > closest.offset) {
+            return { offset, element: child };
+          }
+          return closest;
+        }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+      };
 
-    function syncAiSummarySelection() {
-      const selectedCount = aiSummaryToggles.filter((item) => item.checked).length;
-      if (aiSummarySubmit) {
-        aiSummarySubmit.disabled = selectedCount === 0;
-      }
-      if (aiSummaryNote) {
-        aiSummaryNote.textContent = selectedCount > 0
-          ? `${selectedCount} task${selectedCount === 1 ? "" : "s"} selected for summary generation.`
-          : "Select at least one task.";
-      }
+      const persistOrder = async () => {
+        const response = await fetch(planList.dataset.sortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(items().map((item) => Number(item.dataset.planItemId))),
+        });
+        if (!response.ok) {
+          window.location.reload();
+        }
+      };
+
+      items().forEach((item) => {
+        item.addEventListener("dragstart", () => {
+          draggedItem = item;
+          item.classList.add("is-dragging");
+        });
+        item.addEventListener("dragend", async () => {
+          if (!draggedItem) {
+            return;
+          }
+          item.classList.remove("is-dragging");
+          draggedItem = null;
+          await persistOrder();
+        });
+      });
+
+      planList.addEventListener("dragover", (event) => {
+        if (!draggedItem) {
+          return;
+        }
+        event.preventDefault();
+        const afterElement = dragAfterElement(planList, event.clientY);
+        if (!afterElement) {
+          planList.appendChild(draggedItem);
+          return;
+        }
+        planList.insertBefore(draggedItem, afterElement);
+      });
     }
-
-    aiSummaryToggles.forEach((toggle) => {
-      toggle.addEventListener("change", syncAiSummarySelection);
-    });
-    syncAiSummarySelection();
   })();
 </script>
 {% endblock %}
