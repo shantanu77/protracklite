@@ -250,9 +250,9 @@
     </label>
     <button type="submit" class="button subtle-button">Save Focus Note</button>
   </form>
-  {% if report.weekly_task_plan.items %}
+  {% if report.weekly_task_plan["items"] %}
   <div class="monday-plan-list" data-monday-plan-list data-sort-url="/{{ org.slug }}/reports/monday/week-plan/reorder">
-    {% for item in report.weekly_task_plan.items %}
+    {% for item in report.weekly_task_plan["items"] %}
     <article class="monday-plan-item" draggable="true" data-monday-plan-item data-plan-item-id="{{ item.id }}">
       <div class="monday-plan-item-main">
         <div class="task-card-headline">
