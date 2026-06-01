@@ -24,7 +24,7 @@
     <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/add" id="week-plan-form-{{ section_key }}">
     {% endif %}
     <div class="dashboard-table-wrap monday-table-wrap">
-      <table class="dashboard-task-table monday-task-table">
+      <table class="dashboard-task-table monday-task-table{% if plan_selectable %} is-selectable{% endif %}">
         <thead>
           <tr>
             {% if plan_selectable %}<th class="monday-select-column">Sel</th>{% endif %}
@@ -274,9 +274,6 @@
         </form>
         <button type="button" class="icon-action drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
       </div>
-      <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/items/{{ item.id }}/note" class="monday-plan-note-form" data-monday-plan-note-form>
-        <input type="text" name="planned_note" value="{{ item.planned_note }}" maxlength="255" placeholder="Optional note: continue, close this week, need support...">
-      </form>
     </article>
     {% endfor %}
   </div>
@@ -629,28 +626,6 @@
       });
     }
 
-    document.querySelectorAll("[data-monday-plan-note-form]").forEach((form) => {
-      const input = form.querySelector("input[name='planned_note']");
-      if (!input) {
-        return;
-      }
-      let lastSubmittedValue = input.value;
-      const submitIfChanged = () => {
-        if (input.value === lastSubmittedValue) {
-          return;
-        }
-        lastSubmittedValue = input.value;
-        form.requestSubmit();
-      };
-      input.addEventListener("blur", submitIfChanged);
-      input.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") {
-          return;
-        }
-        event.preventDefault();
-        submitIfChanged();
-      });
-    });
   })();
 </script>
 {% endblock %}
