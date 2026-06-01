@@ -516,7 +516,7 @@
 
     document.querySelectorAll("[data-monday-expand-row]").forEach((row) => {
       row.addEventListener("click", (event) => {
-        if (event.target.closest("button, a, input, textarea, select, label, form")) {
+        if (event.target.closest("button, a, input, textarea, select, label")) {
           return;
         }
         const panelId = row.dataset.detailTarget;

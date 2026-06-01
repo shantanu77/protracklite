@@ -3111,6 +3111,7 @@ mark {
 .monday-task-table.is-selectable th:nth-child(2),
 .monday-task-table.is-selectable td:nth-child(2) {
   width: 46%;
+  text-align: left;
 }
 
 .monday-task-table.is-selectable th:nth-child(3),
