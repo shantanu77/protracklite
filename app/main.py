@@ -475,13 +475,17 @@ def serialize_weekly_task_plan(
                 "task_id": task.task_id,
                 "name": task.name,
                 "status": task.status.value,
-                "planned_note": plan_item.planned_note or "",
                 "sort_order": plan_item.sort_order,
                 "start_date_label": source_task.get("start_date_label") if source_task else (task.start_date.strftime("%d %b %Y") if task.start_date else None),
                 "end_date_label": source_task.get("end_date_label") if source_task else (task.end_date.strftime("%d %b %Y") if task.end_date else None),
                 "deadline_label": deadline_label,
+                "deadline_tone": source_task.get("deadline_tone") if source_task else "muted",
                 "report_hours": float(source_task.get("report_hours") or 0) if source_task else 0.0,
                 "logged_hours": float(source_task.get("logged_hours") or 0) if source_task else float(task.logged_hours or 0),
+                "description": source_task.get("description") if source_task else (task.description or ""),
+                "report_time_logs": source_task.get("report_time_logs") if source_task else [],
+                "start_date": source_task.get("start_date") if source_task else task.start_date,
+                "end_date": source_task.get("end_date") if source_task else task.end_date,
             }
         )
         planned_task_codes.add(task.task_id)

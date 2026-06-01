@@ -3047,45 +3047,17 @@ mark {
 }
 
 .monday-plan-focus-form {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.monday-plan-list {
-  display: grid;
-  gap: 0.8rem;
-}
-
-.monday-plan-item {
-  display: grid;
-  gap: 0.65rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid rgba(15, 118, 110, 0.16);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, rgba(245, 252, 251, 0.98) 0%, rgba(236, 248, 247, 0.96) 100%);
-}
-
-.monday-plan-item.is-dragging {
-  opacity: 0.55;
-}
-
-.monday-plan-item-main {
-  display: grid;
-  gap: 0.32rem;
-}
-
-.monday-plan-item-side {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+  align-items: end;
   gap: 0.65rem;
 }
 
-.monday-plan-effort {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--primary);
+.monday-plan-focus-form .full {
+  flex: 1 1 auto;
+}
+
+.monday-plan-focus-form input {
+  min-height: 42px;
 }
 
 .monday-task-table th.monday-select-column,
@@ -3101,6 +3073,13 @@ mark {
   width: 1rem;
   height: 1rem;
   margin: 0;
+}
+
+.monday-remove-button {
+  width: 1.75rem;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
 }
 
 .monday-task-table.is-selectable th:nth-child(1),

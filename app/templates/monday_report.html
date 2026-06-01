@@ -246,36 +246,94 @@
   <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/focus-note" class="monday-plan-focus-form">
     <label class="full">
       <span class="monday-task-detail-label">Weekly Focus Note</span>
-      <textarea name="focus_note" rows="2" placeholder="Main focus for the week, risks, or support needed.">{{ report.weekly_task_plan.focus_note }}</textarea>
+      <input type="text" name="focus_note" value="{{ report.weekly_task_plan.focus_note }}" maxlength="255" placeholder="Main focus for the week, risks, or support needed.">
     </label>
-    <button type="submit" class="button subtle-button">Save Focus Note</button>
+    <button type="submit" class="button subtle-button">Save</button>
   </form>
   {% if report.weekly_task_plan["items"] %}
-  <div class="monday-plan-list" data-monday-plan-list data-sort-url="/{{ org.slug }}/reports/monday/week-plan/reorder">
-    {% for item in report.weekly_task_plan["items"] %}
-    <article class="monday-plan-item" draggable="true" data-monday-plan-item data-plan-item-id="{{ item.id }}">
-      <div class="monday-plan-item-main">
-        <div class="task-card-headline">
-          <span class="chip">{{ item.task_id }}</span>
-          <span class="badge info">Planned This Week</span>
-          <span class="badge muted">{{ item.status|replace('_', ' ') }}</span>
-        </div>
-        <strong>{{ item.name }}</strong>
-        <small>
-          {% if item.start_date_label %}Start: {{ item.start_date_label }}{% else %}Start: Not set{% endif %}
-          {% if item.end_date_label %} · End: {{ item.end_date_label }}{% endif %}
-          {% if item.deadline_label %} · {{ item.deadline_label }}{% endif %}
-        </small>
-      </div>
-      <div class="monday-plan-item-side">
-        <span class="monday-plan-effort">{{ "%.2f"|format(item.report_hours or 0) }}h last week</span>
-        <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/items/{{ item.id }}/remove">
-          <button type="submit" class="icon-action danger-icon" title="Remove from week plan" aria-label="Remove from week plan">×</button>
-        </form>
-        <button type="button" class="icon-action drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
-      </div>
-    </article>
-    {% endfor %}
+  <div class="dashboard-table-wrap monday-table-wrap">
+    <table class="dashboard-task-table monday-task-table is-selectable">
+      <thead>
+        <tr>
+          <th class="monday-select-column">Rm</th>
+          <th>Task</th>
+          <th>Status</th>
+          <th>Dates</th>
+          <th>Hours</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody data-monday-plan-list data-sort-url="/{{ org.slug }}/reports/monday/week-plan/reorder">
+        {% for item in report.weekly_task_plan["items"] %}
+        {% set detail_id = "monday-task-details-plan-" ~ loop.index %}
+        <tr class="monday-task-row is-status-{{ item.status|replace('_', '-') }} is-deadline-{{ item.deadline_tone }}" data-monday-expand-row data-detail-target="{{ detail_id }}" draggable="true" data-monday-plan-item data-plan-item-id="{{ item.id }}">
+          <td class="monday-select-column">
+            <form method="post" action="/{{ org.slug }}/reports/monday/week-plan/items/{{ item.id }}/remove">
+              <button type="submit" class="icon-action danger-icon monday-remove-button" title="Remove from week plan" aria-label="Remove from week plan">×</button>
+            </form>
+          </td>
+          <td>
+            <div class="dashboard-task-table-main">
+              <div class="task-card-headline">
+                <span class="chip">{{ item.task_id }}</span>
+                <span class="badge info">Planned This Week</span>
+              </div>
+              <strong>{{ item.name }}</strong>
+              <small>{{ item.deadline_label }}</small>
+            </div>
+          </td>
+          <td class="dashboard-task-table-status-cell">
+            <span class="dashboard-task-table-status is-status-{{ item.status|replace('_', '-') }}" title="{{ item.status|replace('_', ' ') }}" aria-label="{{ item.status|replace('_', ' ') }}">{{ monday_status_icon(item, "open") }}</span>
+          </td>
+          <td>
+            {% if item.start_date_label %}Start: {{ item.start_date_label }}{% else %}Start: Not set{% endif %}
+            {% if item.end_date_label %} · End: {{ item.end_date_label }}{% else %} · End: Not set{% endif %}
+          </td>
+          <td>
+            {{ "%.2f"|format(item.report_hours or 0) }}h last week
+            <br>
+            {{ "%.2f"|format(item.logged_hours or 0) }}h total
+          </td>
+          <td>
+            <div class="dashboard-task-table-actions">
+              <button type="button" class="icon-action drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+              <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ item.task_id }}">✎</a>
+            </div>
+          </td>
+        </tr>
+        <tr class="monday-task-detail-row" id="{{ detail_id }}" data-monday-expand-panel hidden>
+          <td colspan="6">
+            <div class="monday-task-details">
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Description</span>
+                {% if item.description %}
+                <div class="monday-task-detail-text">{{ item.description|safe }}</div>
+                {% else %}
+                <p class="empty">No description added.</p>
+                {% endif %}
+              </div>
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Booked Hour Log (Last Week)</span>
+                <div class="dashboard-log-list">
+                  {% for log in item.report_time_logs %}
+                  <article class="dashboard-log-item">
+                    <div class="dashboard-log-meta">
+                      <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
+                      <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
+                    </div>
+                    <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
+                  </article>
+                  {% else %}
+                  <p class="empty">No booked-hour log found.</p>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   {% else %}
   <p class="empty">No tasks are planned for this week yet. Use the selection controls in Worked Last Week or Pending Tasks.</p>
