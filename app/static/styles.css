@@ -4073,20 +4073,90 @@ th {
   min-width: 118px;
 }
 
+.backlog-management-table-wrap {
+  border-radius: 12px;
+}
+
+.backlog-management-table {
+  min-width: 760px;
+}
+
+.backlog-management-table th,
+.backlog-management-table td {
+  padding: 0.58rem 0.62rem;
+  font-size: 0.85rem;
+}
+
+.backlog-management-table th:nth-child(2),
+.backlog-management-table td:nth-child(2) {
+  width: 74px;
+  text-align: center;
+}
+
+.backlog-management-table th:nth-child(3),
+.backlog-management-table td:nth-child(3) {
+  width: 104px;
+  white-space: nowrap;
+}
+
+.backlog-management-table th:last-child,
+.backlog-management-table td:last-child {
+  width: 128px;
+}
+
+.backlog-management-table .task-card-headline {
+  gap: 0.45rem;
+}
+
+.backlog-management-table .task-color-trigger {
+  width: 0.8rem;
+  min-width: 0.8rem;
+  height: 0.8rem;
+}
+
+.backlog-management-table .dashboard-task-badges {
+  margin-top: 0.35rem;
+  gap: 0.35rem;
+}
+
+.backlog-management-table .badge {
+  padding: 0.22rem 0.46rem;
+  font-size: 0.68rem;
+}
+
+.backlog-status-cell {
+  vertical-align: middle;
+}
+
 .backlog-manage-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  min-width: 360px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.38rem;
+  min-width: 116px;
 }
 
 .backlog-manage-actions form {
   margin: 0;
 }
 
-.backlog-manage-actions .button,
-.backlog-action-link {
-  white-space: nowrap;
+.backlog-manage-actions .icon-action {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+}
+
+.backlog-date-cell {
+  max-width: 320px;
+}
+
+.backlog-date-cell small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .modal-head {

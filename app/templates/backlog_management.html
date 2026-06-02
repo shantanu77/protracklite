@@ -16,8 +16,8 @@
     </div>
   </div>
   {% if backlog_tasks %}
-  <div class="table-wrap">
-    <table>
+  <div class="table-wrap backlog-management-table-wrap">
+    <table class="backlog-management-table">
       <thead>
         <tr>
           <th>Task</th>
@@ -44,7 +44,15 @@
             </div>
             {% endif %}
           </td>
-          <td>{{ task.status_label }}</td>
+          <td class="backlog-status-cell">
+            <span
+              class="dashboard-task-table-status is-status-{{ task.status|replace('_', '-') }}"
+              title="{{ task.status_label }}"
+              aria-label="{{ task.status_label }}"
+            >
+              {% if task.status == 'closed' %}✓{% elif task.status == 'stalled' %}!{% elif task.status == 'started' %}▶{% else %}○{% endif %}
+            </span>
+          </td>
           <td>{{ task.created_at.date() }}</td>
           <td class="backlog-date-cell">
             <small>
@@ -53,14 +61,14 @@
             </small>
           </td>
           <td class="backlog-manage-actions">
-            <a class="button secondary backlog-action-link" href="/{{ org.slug }}/tasks/{{ task.task_id }}">Edit</a>
+            <a class="icon-action link-action" href="/{{ org.slug }}/tasks/{{ task.task_id }}" title="Edit task" aria-label="Edit {{ task.task_id }}">✎</a>
             <form method="post" action="/{{ org.slug }}/backlogs/{{ task.task_id }}/add-to-this-week">
               <input type="hidden" name="redirect_to" value="/{{ org.slug }}/backlogs">
-              <button type="submit" class="button secondary">Add To This Week</button>
+              <button type="submit" class="icon-action success-icon" title="Add to this week" aria-label="Add {{ task.task_id }} to this week">＋</button>
             </form>
             <form method="post" action="/{{ org.slug }}/backlogs/{{ task.task_id }}/delete" onsubmit="return confirm('Delete this backlog item permanently?');">
               <input type="hidden" name="redirect_to" value="/{{ org.slug }}/backlogs">
-              <button type="submit" class="button danger">Delete</button>
+              <button type="submit" class="icon-action danger-icon" title="Delete backlog item" aria-label="Delete {{ task.task_id }}">×</button>
             </form>
           </td>
         </tr>
