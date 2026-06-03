@@ -277,10 +277,11 @@
 
     function syncActivityTypes() {
       const selectedProjectId = String(projectSelect.value || "");
-      const allowedIds = new Set((projectActivityMap[selectedProjectId] || []).map((item) => String(item)));
+      const rawAllowedIds = projectActivityMap[selectedProjectId];
+      const allowedIds = Array.isArray(rawAllowedIds) ? new Set(rawAllowedIds.map((item) => String(item))) : null;
       let firstVisible = null;
       activityTypeOptions.forEach((option) => {
-        const matchesProject = !selectedProjectId || allowedIds.size === 0 || allowedIds.has(option.value);
+        const matchesProject = !selectedProjectId || !allowedIds || allowedIds.has(option.value);
         option.hidden = !matchesProject;
         option.disabled = !matchesProject;
         if (matchesProject && !firstVisible) {

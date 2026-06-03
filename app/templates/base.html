@@ -757,9 +757,10 @@
         const selectedProjectId = String(projectSelect?.value || "");
         const selectedCategory = categorySelect.value;
         let firstVisible = null;
+        const rawAllowedIds = projectActivityMap ? projectActivityMap[selectedProjectId] : null;
+        const allowedIds = Array.isArray(rawAllowedIds) ? new Set(rawAllowedIds.map((item) => String(item))) : null;
         options.forEach((option) => {
-          const allowedIds = projectActivityMap ? new Set((projectActivityMap[selectedProjectId] || []).map((item) => String(item))) : null;
-          const matchesProject = !allowedIds || allowedIds.size === 0 || allowedIds.has(option.value);
+          const matchesProject = !projectActivityMap || !allowedIds || allowedIds.has(option.value);
           const matchesCategory = !selectedCategory || option.dataset.category === selectedCategory;
           const matches = matchesProject && matchesCategory;
           option.hidden = !matches;
@@ -822,11 +823,12 @@
       }
       const selectedProjectId = String(quickTaskProjectSelect?.value || "");
       const selectedCategory = quickTaskCategorySelect.value;
-      const allowedIds = new Set(((quickTaskOptions?.project_activity_map || {})[selectedProjectId] || []).map((item) => String(item)));
+      const rawAllowedIds = (quickTaskOptions?.project_activity_map || {})[selectedProjectId];
+      const allowedIds = Array.isArray(rawAllowedIds) ? new Set(rawAllowedIds.map((item) => String(item))) : null;
       const options = Array.from(quickTaskActivityTypeSelect.querySelectorAll("option"));
       let firstVisible = null;
       options.forEach((option) => {
-        const matchesProject = !selectedProjectId || allowedIds.size === 0 || allowedIds.has(option.value);
+        const matchesProject = !selectedProjectId || !allowedIds || allowedIds.has(option.value);
         const matchesCategory = !selectedCategory || option.dataset.category === selectedCategory;
         const matches = matchesProject && matchesCategory;
         option.hidden = !matches;

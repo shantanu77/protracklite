@@ -2090,11 +2090,11 @@ def project_activity_type_ids_map_for_user(
     user: User,
     projects: list[Project],
     activity_types: list[ActivityType],
-) -> dict[int, list[int]]:
+) -> dict[int, list[int] | None]:
     project_ids = [item.id for item in projects]
     visible_activity_ids = [item.id for item in activity_types]
-    mapping = {project_id: [] for project_id in project_ids}
-    if not project_ids or not visible_activity_ids:
+    mapping: dict[int, list[int] | None] = {project_id: [] for project_id in project_ids}
+    if not project_ids:
         return mapping
 
     rows = db.execute(
@@ -2105,11 +2105,18 @@ def project_activity_type_ids_map_for_user(
             ActivityType.org_id == org_id,
             ProjectActivityType.activity_type_id.in_(visible_activity_ids),
         )
-    ).all()
-    linked_project_ids: set[int] = set()
+    ).all() if visible_activity_ids else []
+    linked_project_ids = set(
+        db.scalars(
+            select(ProjectActivityType.project_id)
+            .where(ProjectActivityType.project_id.in_(project_ids))
+            .distinct()
+        ).all()
+    )
     for project_id, activity_type_id in rows:
-        mapping.setdefault(project_id, []).append(activity_type_id)
-        linked_project_ids.add(project_id)
+        activity_ids = mapping.setdefault(project_id, [])
+        if activity_ids is not None:
+            activity_ids.append(activity_type_id)
 
     project_creator_department_ids = {
         project.id: db.scalar(select(User.department_id).where(User.id == project.created_by))
@@ -2120,10 +2127,9 @@ def project_activity_type_ids_map_for_user(
             creator_department_id = project_creator_department_ids.get(project_id)
             if creator_department_id:
                 department_activity_ids = [item.id for item in activity_types if item.department_id == creator_department_id]
-                if department_activity_ids:
-                    mapping[project_id] = department_activity_ids
-                    continue
-            mapping[project_id] = list(visible_activity_ids)
+                mapping[project_id] = department_activity_ids
+                continue
+            mapping[project_id] = None
     return mapping
 
 
