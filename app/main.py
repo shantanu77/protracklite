@@ -919,6 +919,8 @@ def on_startup() -> None:
         backfill_activity_type_categories(db)
         backfill_project_activity_type_links(db)
         backfill_project_activity_type_defaults(db)
+        backfill_project_activity_type_department_links(db)
+        backfill_active_project_activity_type_links(db)
     finally:
         db.close()
 
@@ -1685,6 +1687,110 @@ def backfill_project_activity_type_defaults(db: Session) -> None:
         db.commit()
 
 
+def link_department_activity_types_to_projects(
+    db: Session,
+    org_id: int,
+    department_id: int,
+    activity_type_ids: list[int] | None = None,
+) -> None:
+    query = (
+        select(Project.id, ActivityType.id)
+        .join(User, User.id == Project.created_by)
+        .join(ActivityType, ActivityType.org_id == Project.org_id)
+        .where(
+            Project.org_id == org_id,
+            Project.is_active.is_(True),
+            User.department_id == department_id,
+            ActivityType.department_id == department_id,
+            ActivityType.is_active.is_(True),
+        )
+    )
+    if activity_type_ids is not None:
+        query = query.where(ActivityType.id.in_(activity_type_ids))
+
+    desired_pairs = set(db.execute(query).all())
+    if not desired_pairs:
+        return
+
+    project_ids = {project_id for project_id, _activity_type_id in desired_pairs}
+    selected_activity_type_ids = {activity_type_id for _project_id, activity_type_id in desired_pairs}
+    existing_pairs = {
+        (project_id, activity_type_id)
+        for project_id, activity_type_id in db.execute(
+            select(ProjectActivityType.project_id, ProjectActivityType.activity_type_id).where(
+                ProjectActivityType.project_id.in_(project_ids),
+                ProjectActivityType.activity_type_id.in_(selected_activity_type_ids),
+            )
+        ).all()
+    }
+    links_to_add = [
+        ProjectActivityType(project_id=project_id, activity_type_id=activity_type_id)
+        for project_id, activity_type_id in desired_pairs
+        if (project_id, activity_type_id) not in existing_pairs
+    ]
+    if links_to_add:
+        db.add_all(links_to_add)
+
+
+def backfill_project_activity_type_department_links(db: Session) -> None:
+    department_rows = db.execute(
+        select(ActivityType.org_id, ActivityType.department_id)
+        .where(ActivityType.department_id.is_not(None), ActivityType.is_active.is_(True))
+        .distinct()
+    ).all()
+    for org_id, department_id in department_rows:
+        link_department_activity_types_to_projects(db, org_id, department_id)
+    db.commit()
+
+
+def link_active_activity_types_to_active_projects(
+    db: Session,
+    org_id: int,
+    activity_type_ids: list[int] | None = None,
+) -> None:
+    query = (
+        select(Project.id, ActivityType.id)
+        .join(ActivityType, ActivityType.org_id == Project.org_id)
+        .where(
+            Project.org_id == org_id,
+            Project.is_active.is_(True),
+            ActivityType.is_active.is_(True),
+        )
+    )
+    if activity_type_ids is not None:
+        query = query.where(ActivityType.id.in_(activity_type_ids))
+
+    desired_pairs = set(db.execute(query).all())
+    if not desired_pairs:
+        return
+
+    project_ids = {project_id for project_id, _activity_type_id in desired_pairs}
+    selected_activity_type_ids = {activity_type_id for _project_id, activity_type_id in desired_pairs}
+    existing_pairs = {
+        (project_id, activity_type_id)
+        for project_id, activity_type_id in db.execute(
+            select(ProjectActivityType.project_id, ProjectActivityType.activity_type_id).where(
+                ProjectActivityType.project_id.in_(project_ids),
+                ProjectActivityType.activity_type_id.in_(selected_activity_type_ids),
+            )
+        ).all()
+    }
+    links_to_add = [
+        ProjectActivityType(project_id=project_id, activity_type_id=activity_type_id)
+        for project_id, activity_type_id in desired_pairs
+        if (project_id, activity_type_id) not in existing_pairs
+    ]
+    if links_to_add:
+        db.add_all(links_to_add)
+
+
+def backfill_active_project_activity_type_links(db: Session) -> None:
+    org_ids = db.scalars(select(Organization.id)).all()
+    for org_id in org_ids:
+        link_active_activity_types_to_active_projects(db, org_id)
+    db.commit()
+
+
 def select_activity_type_for_ai_task(
     activity_types: list[ActivityType],
     default_activity_type: ActivityType,
@@ -2045,6 +2151,16 @@ def org_projects(db: Session, org_id: int) -> list[Project]:
 
 def all_org_projects(db: Session, org_id: int) -> list[Project]:
     return db.scalars(select(Project).where(Project.org_id == org_id).order_by(Project.name.asc())).all()
+
+
+def task_edit_projects(db: Session, org_id: int, current_project_id: int) -> list[Project]:
+    projects = org_projects(db, org_id)
+    if any(project.id == current_project_id for project in projects):
+        return projects
+    current_project = db.get(Project, current_project_id)
+    if current_project and current_project.org_id == org_id:
+        projects.append(current_project)
+    return sorted(projects, key=lambda project: project.name.lower())
 
 
 def org_activity_types(db: Session, org_id: int, include_inactive: bool = False) -> list[ActivityType]:
@@ -3706,7 +3822,7 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc(), TimeLog.created_at.desc())).all()
-    projects = all_org_projects(db, org.id)
+    projects = task_edit_projects(db, org.id, task.project_id)
     activity_types = visible_activity_types_for_user(db, org.id, user, {task.activity_type_id})
     activity_type_option_items = activity_type_options(activity_types)
     project_activity_map = project_activity_type_ids_map_for_user(db, org.id, user, projects, activity_types)
@@ -3960,6 +4076,8 @@ def update_task_page(
     project = db.get(Project, project_id)
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    if not project.is_active and project.id != task.project_id:
+        raise HTTPException(status_code=400, detail="Project is inactive")
     parsed_start_date = None if is_backlog else parse_optional_date(start_date)
     parsed_end_date = None if is_backlog else parse_optional_date(end_date)
     parsed_estimated_hours = None if is_backlog else parse_optional_decimal(estimated_hours)
@@ -4144,6 +4262,8 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
     project = db.get(Project, payload["project_id"])
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    if not project.is_active:
+        raise HTTPException(status_code=400, detail="Project is inactive")
     activity_type = activity_type_for_user(db, org.id, user, payload["activity_type_id"])
     if not activity_type:
         raise HTTPException(status_code=400, detail="Invalid activity type")
@@ -4235,6 +4355,8 @@ def api_update_task(task_code: str, payload: dict, org_user: tuple[Organization,
     project = db.get(Project, project_id)
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    if not project.is_active and project.id != task.project_id:
+        raise HTTPException(status_code=400, detail="Project is inactive")
     activity_type = activity_type_for_user(db, org.id, user, activity_type_id)
     if not activity_type:
         raise HTTPException(status_code=400, detail="Invalid activity type")
@@ -5267,18 +5389,20 @@ def admin_create_activity_type(
     duplicate = db.scalar(select(ActivityType).where(ActivityType.org_id == org.id, ActivityType.code == normalized_code))
     if duplicate:
         raise HTTPException(status_code=400, detail="Activity type code already exists")
-    db.add(
-        ActivityType(
-            org_id=org.id,
-            department_id=department.id,
-            code=normalized_code,
-            name=normalized_name,
-            category=category if category in ACTIVITY_CATEGORY_LABELS else "others",
-            is_chargeable=is_chargeable,
-            is_active=is_active,
-            is_default=False,
-        )
+    activity_type = ActivityType(
+        org_id=org.id,
+        department_id=department.id,
+        code=normalized_code,
+        name=normalized_name,
+        category=category if category in ACTIVITY_CATEGORY_LABELS else "others",
+        is_chargeable=is_chargeable,
+        is_active=is_active,
+        is_default=False,
     )
+    db.add(activity_type)
+    db.flush()
+    if activity_type.is_active:
+        link_active_activity_types_to_active_projects(db, org.id, [activity_type.id])
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/admin/activity-types", status_code=303)
 
@@ -5321,6 +5445,8 @@ def admin_update_activity_type(
     activity_type.category = category if category in ACTIVITY_CATEGORY_LABELS else "others"
     activity_type.is_chargeable = is_chargeable
     activity_type.is_active = is_active
+    if activity_type.is_active:
+        link_active_activity_types_to_active_projects(db, org.id, [activity_type.id])
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/admin/activity-types", status_code=303)
 
