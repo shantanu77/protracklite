@@ -6,7 +6,7 @@
   {%- else -%}○
   {%- endif -%}
 {%- endmacro %}
-{% macro dashboard_table(tasks, org, today, empty_text, sortable=false) %}
+{% macro dashboard_table(tasks, org, today, empty_text, sortable=false, section_key="general") %}
   <div class="dashboard-table-wrap" data-dashboard-table-wrap hidden>
     <table class="dashboard-task-table">
       <thead>
@@ -20,7 +20,7 @@
       </thead>
       <tbody {% if sortable %}data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order"{% endif %}>
         {% for task in tasks %}
-        {% set detail_id = "dashboard-task-detail-" ~ task.task_id ~ "-" ~ loop.index %}
+        {% set detail_id = "dashboard-task-detail-" ~ section_key ~ "-" ~ task.task_id ~ "-" ~ loop.index %}
         <tr
           class="dashboard-task-table-row"
           data-dashboard-task-row
@@ -105,6 +105,40 @@
     <p class="empty" data-dashboard-table-empty {% if tasks %}hidden{% endif %}>{{ empty_text }}</p>
   </div>
 {% endmacro %}
+{% macro dashboard_compact_cards(tasks, org, today, empty_text) %}
+  <div class="dashboard-card-list">
+  {% for task in tasks %}
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.start_date or '') ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+      <div class="dashboard-task-main">
+        <div class="task-card-headline">
+          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
+          <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
+        </div>
+        <strong data-dashboard-highlight>{{ task.name }}</strong>
+        <small data-dashboard-highlight>
+          {{ task.status_label }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged
+          {% if task.start_date or task.end_date %} · {{ task.start_date or "Not set" }}{% if task.end_date %} to {{ task.end_date }}{% endif %}{% else %} · Backlog{% endif %}
+        </small>
+        <div class="dashboard-task-badges" data-dashboard-highlight>
+          <span class="badge {{ task.status_tone }}">{{ task.status_icon }} {{ task.status_label }}</span>
+          <span class="deadline-pill {{ task.deadline_tone }}">{{ task.deadline_label }}</span>
+          {% for tag in task.tags %}
+          <span class="badge muted">#{{ tag }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="dashboard-task-actions">
+        <button type="button" class="icon-action" title="Quick view" data-modal-open="dashboard-view-modal" data-modal-payload='{{ {"task_id_text": task.task_id, "task_name_text": task.name, "status_text": task.status_label, "deadline_text": task.deadline_label, "hours_text": "%.2f"|format(task.logged_hours or 0) ~ "h logged", "description_text": task.description or "No description", "stalled_reason_text": task.stalled_reason or "None"}|tojson|e }}'>👁</button>
+        <button type="button" class="icon-action" title="Add hours" data-modal-open="dashboard-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "", "notes": "", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'>＋</button>
+        <button type="button" class="icon-action success-icon" title="Mark completed" data-modal-open="complete-task-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/complete", "completion_date": today.isoformat(), "redirect_to": "/" ~ org.slug ~ "/dashboard", "task_name_text": task.task_id ~ " · " ~ task.name, "task_schedule_text": "Choose a completion date from " ~ (task.completion_min_date.isoformat()) ~ " to " ~ (task.completion_max_date.isoformat()) ~ ".", "_fieldAttributes": {"completion_date": {"min": task.completion_min_date.isoformat(), "max": task.completion_max_date.isoformat()}}}|tojson|e }}'>✓</button>
+        <a class="icon-action link-action" title="Edit task" href="/{{ org.slug }}/tasks/{{ task.task_id }}">✎</a>
+      </div>
+    </div>
+  {% else %}
+    <p class="empty">{{ empty_text }}</p>
+  {% endfor %}
+  </div>
+{% endmacro %}
 {% block content %}
 <section class="page-head">
   <div>
@@ -149,7 +183,8 @@
   <div class="dashboard-visibility-toggles">
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="today">Today's Focus</label>
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="overdue" checked>Overdue</label>
-    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="pending" checked>Pending</label>
+    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="all_unclosed" checked>All Unclosed Tasks</label>
+    <label class="checkbox"><input type="checkbox" data-dashboard-toggle="pending">Pending</label>
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="completed">Task Completed</label>
   </div>
 </section>
@@ -294,8 +329,18 @@
     </div>
     {% else %}<p class="empty">Nothing targeted this week.</p>{% endfor %}
     </div>
-    {{ dashboard_table(groups.week, org, today, "Nothing targeted this week.") }}
+    {{ dashboard_table(groups.week, org, today, "Nothing targeted this week.", section_key="week") }}
     <p class="empty" data-dashboard-week-empty hidden>No visible tasks for this week.</p>
+  </section>
+  <section class="panel dashboard-optional-section" data-dashboard-section="all_unclosed">
+    <div class="panel-head">
+      <div>
+        <h2>All Unclosed Tasks</h2>
+        <p>Every open task in one searchable list for quick effort allocation. Logging hours starts a not-started task on the selected log date.</p>
+      </div>
+    </div>
+    {{ dashboard_compact_cards(groups.all_unclosed, org, today, "No unclosed tasks.") }}
+    {{ dashboard_table(groups.all_unclosed, org, today, "No unclosed tasks.", section_key="all-unclosed") }}
   </section>
   <section class="panel dashboard-optional-section" data-dashboard-section="today">
     <div class="panel-head">
@@ -351,7 +396,7 @@
     </div>
     {% else %}<p class="empty">No tasks landing today.</p>{% endfor %}
     </div>
-    {{ dashboard_table(groups.today, org, today, "No tasks landing today.", sortable=true) }}
+    {{ dashboard_table(groups.today, org, today, "No tasks landing today.", sortable=true, section_key="today") }}
   </section>
   <section class="panel dashboard-optional-section" data-dashboard-section="overdue">
     <div class="panel-head">
@@ -406,7 +451,7 @@
     </div>
     {% else %}<p class="empty">No overdue work.</p>{% endfor %}
     </div>
-    {{ dashboard_table(groups.overdue, org, today, "No overdue work.") }}
+    {{ dashboard_table(groups.overdue, org, today, "No overdue work.", section_key="overdue") }}
   </section>
   <section class="panel dashboard-optional-section" data-dashboard-section="pending">
     <div class="panel-head">
@@ -461,7 +506,7 @@
     </div>
     {% else %}<p class="empty">No backlog items.</p>{% endfor %}
     </div>
-    {{ dashboard_table(groups.pending, org, today, "No backlog items.") }}
+    {{ dashboard_table(groups.pending, org, today, "No backlog items.", section_key="pending") }}
   </section>
   <section class="panel dashboard-optional-section" data-dashboard-section="completed">
     <div class="panel-head">
@@ -502,7 +547,7 @@
     </div>
     {% else %}<p class="empty">No tasks completed this week.</p>{% endfor %}
     </div>
-    {{ dashboard_table(groups.completed, org, today, "No tasks completed this week.") }}
+    {{ dashboard_table(groups.completed, org, today, "No tasks completed this week.", section_key="completed") }}
   </section>
 </div>
 

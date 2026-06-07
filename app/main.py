@@ -1951,10 +1951,11 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
         .limit(12)
     ).all()
 
-    groups = {"today": [], "week": [], "overdue": [], "pending": [], "completed": []}
+    groups = {"today": [], "week": [], "overdue": [], "pending": [], "all_unclosed": [], "completed": []}
     today = date.today()
     for task in tasks:
         summary = dashboard_task_summary(task, today)
+        groups["all_unclosed"].append(summary)
         in_this_week = task.id in week_logged_task_ids
         if in_this_week:
             groups["week"].append(summary)
@@ -1969,6 +1970,15 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
 
     groups["week"].sort(
         key=lambda item: (
+            item["end_date"] is None,
+            item["end_date"] or date.max,
+            item["start_date"] or date.max,
+            item["task_id"],
+        )
+    )
+    groups["all_unclosed"].sort(
+        key=lambda item: (
+            item["status"] == TaskStatus.STALLED.value,
             item["end_date"] is None,
             item["end_date"] or date.max,
             item["start_date"] or date.max,
@@ -4126,9 +4136,10 @@ def add_time_log_page(
     normalized_notes = normalize_time_log_notes(notes)
     db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
     db.flush()
-    if task.status == TaskStatus.NOT_STARTED:
+    was_not_started = task.status == TaskStatus.NOT_STARTED
+    if was_not_started:
         task.status = TaskStatus.STARTED
-    if task.start_date is None or log_date < task.start_date:
+    if was_not_started or task.start_date is None or log_date < task.start_date:
         task.start_date = log_date
     if mark_completed:
         earliest_completion_date = task.start_date or task.created_at.date()
@@ -4414,9 +4425,10 @@ def api_add_time_log(task_code: str, payload: dict, org_user: tuple[Organization
     )
     db.flush()
     first_log_date = date.fromisoformat(payload["log_date"])
-    if task.status == TaskStatus.NOT_STARTED:
+    was_not_started = task.status == TaskStatus.NOT_STARTED
+    if was_not_started:
         task.status = TaskStatus.STARTED
-    if task.start_date is None:
+    if was_not_started or task.start_date is None:
         task.start_date = first_log_date
     task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
     db.commit()
