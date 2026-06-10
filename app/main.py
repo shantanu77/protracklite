@@ -1977,14 +1977,31 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
         summary["booked_this_week_hours"] = round(week_hours_by_task_id.get(task.id, 0.0), 2)
         groups["completed"].append(summary)
 
-    groups["planned_week"].sort(
-        key=lambda item: (
-            item["end_date"] is None,
-            item["end_date"] or date.max,
-            item["start_date"] or date.max,
-            item["task_id"],
+    weekly_plan = get_weekly_task_plan(db, org.id, user.id, monday)
+    if weekly_plan:
+        plan_rows = db.execute(
+            select(WeeklyTaskPlanItem, Task)
+            .join(Task, WeeklyTaskPlanItem.task_id == Task.id)
+            .where(WeeklyTaskPlanItem.weekly_task_plan_id == weekly_plan.id, Task.org_id == org.id, Task.assigned_to == user.id)
+            .order_by(WeeklyTaskPlanItem.sort_order.asc(), WeeklyTaskPlanItem.id.asc())
+        ).all()
+        groups["planned_week"] = []
+        for plan_item, task in plan_rows:
+            if task.is_archived:
+                continue
+            summary = dashboard_task_summary(task, today)
+            summary["booked_this_week_hours"] = round(week_hours_by_task_id.get(task.id, 0.0), 2)
+            summary["planned_note"] = plan_item.planned_note or ""
+            groups["planned_week"].append(summary)
+    else:
+        groups["planned_week"].sort(
+            key=lambda item: (
+                item["end_date"] is None,
+                item["end_date"] or date.max,
+                item["start_date"] or date.max,
+                item["task_id"],
+            )
         )
-    )
     groups["week"].sort(
         key=lambda item: (
             item["end_date"] is None,
