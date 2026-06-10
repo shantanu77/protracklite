@@ -6,7 +6,7 @@
   {%- else -%}○
   {%- endif -%}
 {%- endmacro %}
-{% macro dashboard_table(tasks, org, today, empty_text, sortable=false, section_key="general") %}
+{% macro dashboard_table(tasks, org, today, empty_text, sortable=false, section_key="general", hours_mode="logged") %}
   <div class="dashboard-table-wrap" data-dashboard-table-wrap hidden>
     <table class="dashboard-task-table">
       <thead>
@@ -50,7 +50,14 @@
             >{{ dashboard_status_icon(task) }}</span>
           </td>
           <td data-dashboard-highlight>{{ task.deadline_label }}</td>
-          <td>{{ "%.2f"|format(task.logged_hours or 0) }}h logged</td>
+          <td>
+            {% if hours_mode == "booked_this_week" %}
+            {{ "%.2f"|format(task.booked_this_week_hours or 0) }}h booked
+            <small>Total {{ "%.2f"|format(task.logged_hours or 0) }}h</small>
+            {% else %}
+            {{ "%.2f"|format(task.logged_hours or 0) }}h logged
+            {% endif %}
+          </td>
           <td>
             <div class="dashboard-task-table-actions">
               {% if sortable %}
@@ -105,7 +112,7 @@
     <p class="empty" data-dashboard-table-empty {% if tasks %}hidden{% endif %}>{{ empty_text }}</p>
   </div>
 {% endmacro %}
-{% macro dashboard_compact_cards(tasks, org, today, empty_text) %}
+{% macro dashboard_compact_cards(tasks, org, today, empty_text, show_week_booked=false) %}
   <div class="dashboard-card-list">
   {% for task in tasks %}
     <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.start_date or '') ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
@@ -116,7 +123,12 @@
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
         <small data-dashboard-highlight>
-          {{ task.status_label }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged
+          {{ task.status_label }} ·
+          {% if show_week_booked %}
+          {{ "%.2f"|format(task.booked_this_week_hours or 0) }}h booked this week · {{ "%.2f"|format(task.logged_hours or 0) }}h total
+          {% else %}
+          {{ "%.2f"|format(task.logged_hours or 0) }}h logged
+          {% endif %}
           {% if task.start_date or task.end_date %} · {{ task.start_date or "Not set" }}{% if task.end_date %} to {{ task.end_date }}{% endif %}{% else %} · Backlog{% endif %}
         </small>
         <div class="dashboard-task-badges" data-dashboard-highlight>
@@ -264,6 +276,16 @@
 </section>
 
 <div class="dashboard-grid" data-dashboard-grid>
+  <section class="panel dashboard-focus-section" data-dashboard-section="planned_week">
+    <div class="panel-head">
+      <div>
+        <h2>Planned For This Week</h2>
+        <p>Open planned tasks starting this week, with hours booked this week.</p>
+      </div>
+    </div>
+    {{ dashboard_compact_cards(groups.planned_week, org, today, "No planned tasks for this week.", show_week_booked=true) }}
+    {{ dashboard_table(groups.planned_week, org, today, "No planned tasks for this week.", section_key="planned-week", hours_mode="booked_this_week") }}
+  </section>
   <section class="panel dashboard-focus-section" data-dashboard-section="week">
     <div class="panel-head">
       <div>

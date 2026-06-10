@@ -1911,10 +1911,8 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
 
 def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
     monday, sunday = current_week_bounds()
-    week_logged_task_ids = {
-        task_id
-        for task_id in db.scalars(
-            select(TimeLog.task_id)
+    week_logged_rows = db.execute(
+        select(TimeLog.task_id, func.coalesce(func.sum(TimeLog.hours), 0))
             .join(Task, TimeLog.task_id == Task.id)
             .where(
                 Task.org_id == org.id,
@@ -1923,9 +1921,10 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
                 TimeLog.log_date >= monday,
                 TimeLog.log_date <= sunday,
             )
-            .distinct()
-        )
-    }
+            .group_by(TimeLog.task_id)
+    ).all()
+    week_hours_by_task_id = {task_id: float(hours or 0) for task_id, hours in week_logged_rows}
+    week_logged_task_ids = set(week_hours_by_task_id)
     tasks = db.scalars(
         select(Task)
         .where(
@@ -1951,11 +1950,19 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
         .limit(12)
     ).all()
 
-    groups = {"today": [], "week": [], "overdue": [], "pending": [], "all_unclosed": [], "completed": []}
+    groups = {"planned_week": [], "today": [], "week": [], "overdue": [], "pending": [], "all_unclosed": [], "completed": []}
     today = date.today()
     for task in tasks:
         summary = dashboard_task_summary(task, today)
+        summary["booked_this_week_hours"] = round(week_hours_by_task_id.get(task.id, 0.0), 2)
         groups["all_unclosed"].append(summary)
+        if (
+            task.status != TaskStatus.STALLED
+            and task.start_date
+            and monday <= task.start_date <= sunday
+            and task.end_date is not None
+        ):
+            groups["planned_week"].append(summary)
         in_this_week = task.id in week_logged_task_ids
         if in_this_week:
             groups["week"].append(summary)
@@ -1966,8 +1973,18 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
         else:
             groups["pending"].append(summary)
     for task in completed_tasks:
-        groups["completed"].append(dashboard_task_summary(task, today))
+        summary = dashboard_task_summary(task, today)
+        summary["booked_this_week_hours"] = round(week_hours_by_task_id.get(task.id, 0.0), 2)
+        groups["completed"].append(summary)
 
+    groups["planned_week"].sort(
+        key=lambda item: (
+            item["end_date"] is None,
+            item["end_date"] or date.max,
+            item["start_date"] or date.max,
+            item["task_id"],
+        )
+    )
     groups["week"].sort(
         key=lambda item: (
             item["end_date"] is None,
