@@ -33,6 +33,18 @@ class SharedTaskStatus(str, Enum):
     CLOSED = "closed"
 
 
+class DevReleaseStatus(str, Enum):
+    DRAFT = "draft"
+    SUBMITTED_TO_QA = "submitted_to_qa"
+    QA_IN_PROGRESS = "qa_in_progress"
+    QA_FAILED = "qa_failed"
+    REWORK_NEEDED = "rework_needed"
+    RESUBMITTED = "resubmitted"
+    QA_PASSED = "qa_passed"
+    READY_FOR_RELEASE = "ready_for_release"
+    RELEASED = "released"
+
+
 class LeaveType(str, Enum):
     FULL = "full"
     HALF_AM = "half_am"
@@ -316,6 +328,47 @@ class TaskComment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     task: Mapped[Task] = relationship(back_populates="comments")
+
+
+class DevRelease(Base):
+    __tablename__ = "dev_releases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    related_tasks_text: Mapped[str] = mapped_column(String(1000), default="")
+    developer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    qa_owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
+    environment: Mapped[str] = mapped_column(String(30), default="qa")
+    change_summary: Mapped[str] = mapped_column(Text, default="")
+    test_instructions: Mapped[str] = mapped_column(Text, default="")
+    unit_test_reference: Mapped[str] = mapped_column(String(1000), default="")
+    risk_level: Mapped[str] = mapped_column(String(20), default="medium")
+    target_release_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default=DevReleaseStatus.DRAFT.value)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    project: Mapped[Project] = relationship()
+    events: Mapped[list["DevReleaseEvent"]] = relationship(back_populates="release", cascade="all, delete-orphan")
+
+
+class DevReleaseEvent(Base):
+    __tablename__ = "dev_release_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    release_id: Mapped[int] = mapped_column(ForeignKey("dev_releases.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    previous_status: Mapped[str] = mapped_column(String(30), default="")
+    new_status: Mapped[str] = mapped_column(String(30), default="")
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    release: Mapped[DevRelease] = relationship(back_populates="events")
 
 
 class WeeklyAISummary(Base):

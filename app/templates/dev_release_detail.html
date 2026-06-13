@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">REL-{{ release.id }}</p>
+    <h1>{{ release.title }}</h1>
+    <p>{{ status_label }} · {{ release.project.name if release.project else "Unknown project" }}</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="button secondary" href="/{{ org.slug }}/releases">Back to Releases</a>
+    {% if can_qa_release and not release.qa_owner_id and release.status != "draft" %}
+    <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/assign-self">
+      <button type="submit" class="button secondary">Assign To Me</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="task-detail-layout">
+  <div class="stack">
+    <section class="panel task-detail-summary">
+      <div class="task-detail-summary-head">
+        <div>
+          <div class="task-card-headline">
+            <span class="chip">REL-{{ release.id }}</span>
+            <span class="badge muted">{{ release.environment|replace('_', ' ') }}</span>
+            <span class="badge {% if release.risk_level == 'high' %}danger{% elif release.risk_level == 'low' %}success{% else %}warning{% endif %}">{{ release.risk_level|title }}</span>
+          </div>
+          <h2>{{ release.title }}</h2>
+        </div>
+        <span class="badge muted">{{ status_label }}</span>
+      </div>
+      <div class="task-detail-stats">
+        <div class="task-detail-stat">
+          <span>Developer</span>
+          <strong>{{ people_map.get(release.developer_id).full_name if people_map.get(release.developer_id) else "Unknown" }}</strong>
+        </div>
+        <div class="task-detail-stat">
+          <span>QA Owner</span>
+          <strong>{{ people_map.get(release.qa_owner_id).full_name if release.qa_owner_id and people_map.get(release.qa_owner_id) else "Unassigned" }}</strong>
+        </div>
+        <div class="task-detail-stat">
+          <span>Target</span>
+          <strong>{{ release.target_release_date or "Not set" }}</strong>
+        </div>
+      </div>
+      <div class="task-detail-description">
+        <span>Change Summary</span>
+        <p>{{ release.change_summary|safe if release.change_summary else "Not provided." }}</p>
+      </div>
+      <div class="task-detail-description">
+        <span>Test Instructions</span>
+        <p>{{ release.test_instructions|safe if release.test_instructions else "Not provided." }}</p>
+      </div>
+      <div class="task-detail-description">
+        <span>Unit Test Cases</span>
+        <p>{{ release.unit_test_reference or "Not provided." }}</p>
+      </div>
+      {% if release.related_tasks_text %}
+      <div class="task-detail-description">
+        <span>Related Tasks</span>
+        <p>{{ release.related_tasks_text }}</p>
+      </div>
+      {% endif %}
+      {% if release.notes %}
+      <div class="task-detail-description">
+        <span>Notes</span>
+        <p>{{ release.notes|safe }}</p>
+      </div>
+      {% endif %}
+    </section>
+
+    {% if can_edit_release %}
+    <form method="post" class="panel form-grid">
+      <div class="panel-head full">
+        <div>
+          <h2>Edit Release</h2>
+          <p>Developer handoff details and QA assignment.</p>
+        </div>
+      </div>
+      <label>Project
+        <select name="project_id" required>
+          {% for project in projects %}
+          <option value="{{ project.id }}" {% if project.id == release.project_id %}selected{% endif %}>{{ project.name }} ({{ project.code }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>QA Owner
+        <select name="qa_owner_id">
+          <option value="">Unassigned</option>
+          {% for person in qa_people %}
+          <option value="{{ person.id }}" {% if release.qa_owner_id == person.id %}selected{% endif %}>{{ person.full_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="full">Release Title<input name="title" value="{{ release.title }}" required></label>
+      <label class="full">Related Tasks<input name="related_tasks_text" value="{{ release.related_tasks_text or '' }}"></label>
+      <label>Environment
+        <select name="environment">
+          {% for value, label in environments %}
+          <option value="{{ value }}" {% if release.environment == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Risk Level
+        <select name="risk_level">
+          {% for value, label in risk_levels %}
+          <option value="{{ value }}" {% if release.risk_level == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Target Release Date<input name="target_release_date" type="date" value="{{ release.target_release_date or '' }}"></label>
+      <label class="full">Change Summary<textarea name="change_summary" rows="4">{{ release.change_summary|safe }}</textarea></label>
+      <label class="full">Test Instructions<textarea name="test_instructions" rows="4">{{ release.test_instructions|safe }}</textarea></label>
+      <label class="full">Unit Test Cases<input name="unit_test_reference" value="{{ release.unit_test_reference or '' }}"></label>
+      <label class="full">Notes<textarea name="notes" rows="3">{{ release.notes|safe }}</textarea></label>
+      <button type="submit">Update Release</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <section class="panel task-timeline-panel" id="history">
+    <div class="panel-head">
+      <div>
+        <h2>Workflow</h2>
+        <p>Status changes, QA notes, and release history.</p>
+      </div>
+    </div>
+
+    <div class="stack">
+      {% if can_edit_release and release.status in ["draft", "qa_failed", "rework_needed"] %}
+      <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/status" class="form-grid task-comment-form">
+        <input type="hidden" name="new_status" value="{{ 'resubmitted' if release.status in ['qa_failed', 'rework_needed'] else 'submitted_to_qa' }}">
+        <label class="full">Submit Note<textarea name="comment" rows="3" placeholder="What should QA know?"></textarea></label>
+        <button type="submit">{{ "Resubmit to QA" if release.status in ["qa_failed", "rework_needed"] else "Submit to QA" }}</button>
+      </form>
+      {% endif %}
+
+      {% if can_qa_release and release.status in ["submitted_to_qa", "resubmitted"] %}
+      <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/status" class="form-grid task-comment-form">
+        <input type="hidden" name="new_status" value="qa_in_progress">
+        <label class="full">QA Note<textarea name="comment" rows="3" placeholder="Testing started note"></textarea></label>
+        <button type="submit">Start QA</button>
+      </form>
+      {% endif %}
+
+      {% if can_qa_release and release.status == "qa_in_progress" %}
+      <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/status" class="form-grid task-comment-form">
+        <label>Status
+          <select name="new_status">
+            <option value="qa_passed">QA Passed</option>
+            <option value="qa_failed">QA Failed</option>
+            <option value="rework_needed">Rework Needed</option>
+          </select>
+        </label>
+        <label class="full">QA Result<textarea name="comment" rows="3" placeholder="Test result, defects, or pass notes" required></textarea></label>
+        <button type="submit">Save QA Result</button>
+      </form>
+      {% endif %}
+
+      {% if can_release_manage and release.status == "qa_passed" %}
+      <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/status" class="form-grid task-comment-form">
+        <input type="hidden" name="new_status" value="ready_for_release">
+        <label class="full">Manager Note<textarea name="comment" rows="3" placeholder="Ready for release note"></textarea></label>
+        <button type="submit">Mark Ready</button>
+      </form>
+      {% endif %}
+
+      {% if can_release_manage and release.status == "ready_for_release" %}
+      <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/status" class="form-grid task-comment-form">
+        <input type="hidden" name="new_status" value="released">
+        <label class="full">Release Note<textarea name="comment" rows="3" placeholder="Release confirmation"></textarea></label>
+        <button type="submit">Mark Released</button>
+      </form>
+      {% endif %}
+
+      <form method="post" action="/{{ org.slug }}/releases/{{ release.id }}/comment" class="form-grid task-comment-form">
+        <label class="full">Comment<textarea name="comment" rows="3" placeholder="Add a handoff or QA comment" required></textarea></label>
+        <button type="submit" class="secondary">Add Comment</button>
+      </form>
+    </div>
+
+    <div class="task-timeline">
+      {% for event in events %}
+      <article class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-card">
+          <div class="timeline-head">
+            <strong>{{ people_map.get(event.user_id).full_name if people_map.get(event.user_id) else "Unknown" }}</strong>
+            <span>{{ event.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
+          </div>
+          {% if event.previous_status != event.new_status %}
+          <p><strong>{{ statuses.get(event.previous_status, event.previous_status|replace('_', ' ')|title) if event.previous_status else "New" }}</strong> → <strong>{{ statuses.get(event.new_status, event.new_status|replace('_', ' ')|title) }}</strong></p>
+          {% endif %}
+          {% if event.comment %}
+          <p>{{ event.comment|safe }}</p>
+          {% endif %}
+        </div>
+      </article>
+      {% else %}
+      <p class="empty">No release history yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

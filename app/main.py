@@ -27,6 +27,9 @@ from app.database import Base, engine, get_db
 from app.models import (
     ActivityType,
     Department,
+    DevRelease,
+    DevReleaseEvent,
+    DevReleaseStatus,
     Holiday,
     Leave,
     LeaveType,
@@ -149,6 +152,28 @@ SHARED_TASK_STATUS_LABELS = {
     SharedTaskStatus.STALLED.value: "Stalled",
     SharedTaskStatus.CLOSED.value: "Closed",
 }
+DEV_RELEASE_STATUS_LABELS = {
+    DevReleaseStatus.DRAFT.value: "Draft",
+    DevReleaseStatus.SUBMITTED_TO_QA.value: "Submitted to QA",
+    DevReleaseStatus.QA_IN_PROGRESS.value: "QA In Progress",
+    DevReleaseStatus.QA_FAILED.value: "QA Failed",
+    DevReleaseStatus.REWORK_NEEDED.value: "Rework Needed",
+    DevReleaseStatus.RESUBMITTED.value: "Resubmitted",
+    DevReleaseStatus.QA_PASSED.value: "QA Passed",
+    DevReleaseStatus.READY_FOR_RELEASE.value: "Ready for Release",
+    DevReleaseStatus.RELEASED.value: "Released",
+}
+DEV_RELEASE_ENVIRONMENTS = (
+    ("dev", "Dev"),
+    ("qa", "QA"),
+    ("uat", "UAT"),
+    ("production", "Production"),
+)
+DEV_RELEASE_RISK_LEVELS = (
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+)
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
 WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v1"
@@ -901,6 +926,26 @@ def ensure_query_indexes() -> None:
             "ix_weekly_task_plan_items_plan_sort": (
                 "CREATE INDEX ix_weekly_task_plan_items_plan_sort "
                 "ON weekly_task_plan_items (weekly_task_plan_id, sort_order)"
+            ),
+        },
+        "dev_releases": {
+            "ix_dev_releases_org_status_updated": (
+                "CREATE INDEX ix_dev_releases_org_status_updated "
+                "ON dev_releases (org_id, status, updated_at)"
+            ),
+            "ix_dev_releases_org_developer_updated": (
+                "CREATE INDEX ix_dev_releases_org_developer_updated "
+                "ON dev_releases (org_id, developer_id, updated_at)"
+            ),
+            "ix_dev_releases_org_qa_owner_updated": (
+                "CREATE INDEX ix_dev_releases_org_qa_owner_updated "
+                "ON dev_releases (org_id, qa_owner_id, updated_at)"
+            ),
+        },
+        "dev_release_events": {
+            "ix_dev_release_events_release_created": (
+                "CREATE INDEX ix_dev_release_events_release_created "
+                "ON dev_release_events (release_id, created_at)"
             ),
         },
     }
@@ -2240,6 +2285,75 @@ def shared_status_label(task: Task) -> str:
 
 def add_task_event(db: Session, task: Task, user: User, body: str, comment_type: str = "system") -> None:
     db.add(TaskComment(task_id=task.id, user_id=user.id, comment_type=comment_type, body=body.strip()))
+
+
+def release_status_label(status_value: str) -> str:
+    return DEV_RELEASE_STATUS_LABELS.get(status_value or "", status_value.replace("_", " ").title())
+
+
+def release_environment_label(value: str) -> str:
+    labels = dict(DEV_RELEASE_ENVIRONMENTS)
+    return labels.get(value or "", value.replace("_", " ").title())
+
+
+def release_risk_label(value: str) -> str:
+    labels = dict(DEV_RELEASE_RISK_LEVELS)
+    return labels.get(value or "", value.replace("_", " ").title())
+
+
+def is_qa_user(user: User) -> bool:
+    token = f"{user.full_name} {user.email} {user.department.name if user.department else ''}".lower()
+    return user.role in {Role.MANAGER, Role.ADMIN} or "qa" in token or "test" in token
+
+
+def can_view_release(release: DevRelease, user: User) -> bool:
+    if release.org_id != user.org_id:
+        return False
+    if user.role in {Role.ADMIN, Role.MANAGER}:
+        return True
+    if release.developer_id == user.id or release.qa_owner_id == user.id:
+        return True
+    return release.status != DevReleaseStatus.DRAFT.value and is_qa_user(user)
+
+
+def can_edit_release(release: DevRelease, user: User) -> bool:
+    if user.role in {Role.ADMIN, Role.MANAGER}:
+        return release.org_id == user.org_id and release.status != DevReleaseStatus.RELEASED.value
+    editable_statuses = {DevReleaseStatus.DRAFT.value, DevReleaseStatus.REWORK_NEEDED.value, DevReleaseStatus.QA_FAILED.value}
+    return release.developer_id == user.id and release.status in editable_statuses
+
+
+def can_qa_release(release: DevRelease, user: User) -> bool:
+    if release.org_id != user.org_id:
+        return False
+    if user.role in {Role.ADMIN, Role.MANAGER}:
+        return True
+    if release.qa_owner_id == user.id:
+        return True
+    return release.status != DevReleaseStatus.DRAFT.value and is_qa_user(user)
+
+
+def can_release_manage(release: DevRelease, user: User) -> bool:
+    return release.org_id == user.org_id and user.role in {Role.ADMIN, Role.MANAGER}
+
+
+def add_release_event(
+    db: Session,
+    release: DevRelease,
+    user: User,
+    previous_status: str,
+    new_status: str,
+    comment: str = "",
+) -> None:
+    db.add(
+        DevReleaseEvent(
+            release_id=release.id,
+            user_id=user.id,
+            previous_status=previous_status or "",
+            new_status=new_status or "",
+            comment=comment.strip(),
+        )
+    )
 
 
 def org_people(db: Session, org_id: int) -> list[User]:
@@ -3948,6 +4062,291 @@ def create_bulk_backlog_tasks(
         url=f"{redirect_base}?created_task_id={created_task_ids[0]}&created_count={len(created_task_ids)}&created_summary={created_summary}",
         status_code=303,
     )
+
+
+def release_summary(release: DevRelease, people_map: dict[int, User]) -> dict[str, Any]:
+    return {
+        "id": release.id,
+        "title": release.title,
+        "project": release.project,
+        "developer_name": people_map.get(release.developer_id).full_name if people_map.get(release.developer_id) else "Unknown",
+        "qa_owner_name": people_map.get(release.qa_owner_id).full_name if release.qa_owner_id and people_map.get(release.qa_owner_id) else "Unassigned",
+        "status": release.status,
+        "status_label": release_status_label(release.status),
+        "environment_label": release_environment_label(release.environment),
+        "risk_label": release_risk_label(release.risk_level),
+        "target_release_date": release.target_release_date,
+        "updated_at": release.updated_at,
+    }
+
+
+@app.get("/{org_slug}/releases", response_class=HTMLResponse)
+def releases_page(
+    request: Request,
+    org_slug: str,
+    status_filter: str = "",
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    people = org_people(db, org.id)
+    people_map = {person.id: person for person in people}
+    query = (
+        select(DevRelease)
+        .options(selectinload(DevRelease.project))
+        .where(DevRelease.org_id == org.id)
+        .order_by(DevRelease.updated_at.desc(), DevRelease.id.desc())
+    )
+    if status_filter in DEV_RELEASE_STATUS_LABELS:
+        query = query.where(DevRelease.status == status_filter)
+    releases = [release for release in db.scalars(query).all() if can_view_release(release, user)]
+    default_project, _ = resolve_default_task_targets(db, org.id, user)
+    return templates.TemplateResponse(
+        "dev_releases.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "projects": org_projects(db, org.id),
+            "default_project_id": default_project.id,
+            "people": people,
+            "qa_people": [person for person in people if is_qa_user(person)],
+            "releases": [release_summary(release, people_map) for release in releases],
+            "status_filter": status_filter,
+            "statuses": DEV_RELEASE_STATUS_LABELS,
+            "environments": DEV_RELEASE_ENVIRONMENTS,
+            "risk_levels": DEV_RELEASE_RISK_LEVELS,
+            "today": date.today(),
+        },
+    )
+
+
+@app.post("/{org_slug}/releases")
+def create_release_page(
+    org_slug: str,
+    project_id: int = Form(...),
+    title: str = Form(...),
+    related_tasks_text: str = Form(""),
+    qa_owner_id: int | None = Form(None),
+    environment: str = Form("qa"),
+    change_summary: str = Form(""),
+    test_instructions: str = Form(""),
+    unit_test_reference: str = Form(""),
+    risk_level: str = Form("medium"),
+    target_release_date: str = Form(""),
+    notes: str = Form(""),
+    submit_to_qa: bool = Form(False),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    project = db.get(Project, project_id)
+    if not project or project.org_id != org.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if environment not in dict(DEV_RELEASE_ENVIRONMENTS):
+        raise HTTPException(status_code=400, detail="Invalid environment")
+    if risk_level not in dict(DEV_RELEASE_RISK_LEVELS):
+        raise HTTPException(status_code=400, detail="Invalid risk level")
+    qa_owner = db.get(User, qa_owner_id) if qa_owner_id else None
+    if qa_owner and (qa_owner.org_id != org.id or not qa_owner.is_active):
+        raise HTTPException(status_code=400, detail="Invalid QA owner")
+    if submit_to_qa and (not change_summary.strip() or not test_instructions.strip() or not unit_test_reference.strip()):
+        raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
+    status_value = DevReleaseStatus.SUBMITTED_TO_QA.value if submit_to_qa else DevReleaseStatus.DRAFT.value
+    release = DevRelease(
+        org_id=org.id,
+        project_id=project.id,
+        title=title.strip()[:200],
+        related_tasks_text=related_tasks_text.strip()[:1000],
+        developer_id=user.id,
+        qa_owner_id=qa_owner.id if qa_owner else None,
+        environment=environment,
+        change_summary=sanitize_html(change_summary),
+        test_instructions=sanitize_html(test_instructions),
+        unit_test_reference=unit_test_reference.strip()[:1000],
+        risk_level=risk_level,
+        target_release_date=parse_optional_date(target_release_date),
+        notes=sanitize_html(notes),
+        status=status_value,
+        submitted_at=datetime.utcnow() if submit_to_qa else None,
+    )
+    db.add(release)
+    db.flush()
+    add_release_event(db, release, user, "", status_value, "Release created." if not submit_to_qa else "Release submitted to QA.")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/releases/{release.id}", status_code=303)
+
+
+@app.get("/{org_slug}/releases/{release_id}", response_class=HTMLResponse)
+def release_detail_page(
+    request: Request,
+    org_slug: str,
+    release_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    release = db.scalar(
+        select(DevRelease)
+        .options(selectinload(DevRelease.project), selectinload(DevRelease.events))
+        .where(DevRelease.id == release_id, DevRelease.org_id == org.id)
+    )
+    if not release or not can_view_release(release, user):
+        raise HTTPException(status_code=404, detail="Release not found")
+    people = org_people(db, org.id)
+    people_map = {person.id: person for person in people}
+    events = sorted(release.events, key=lambda item: item.created_at, reverse=True)
+    return templates.TemplateResponse(
+        "dev_release_detail.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "release": release,
+            "projects": task_edit_projects(db, org.id, release.project_id),
+            "people": people,
+            "people_map": people_map,
+            "qa_people": [person for person in people if is_qa_user(person)],
+            "events": events,
+            "can_edit_release": can_edit_release(release, user),
+            "can_qa_release": can_qa_release(release, user),
+            "can_release_manage": can_release_manage(release, user),
+            "status_label": release_status_label(release.status),
+            "statuses": DEV_RELEASE_STATUS_LABELS,
+            "environments": DEV_RELEASE_ENVIRONMENTS,
+            "risk_levels": DEV_RELEASE_RISK_LEVELS,
+            "today": date.today(),
+        },
+    )
+
+
+@app.post("/{org_slug}/releases/{release_id}")
+def update_release_page(
+    org_slug: str,
+    release_id: int,
+    project_id: int = Form(...),
+    title: str = Form(...),
+    related_tasks_text: str = Form(""),
+    qa_owner_id: int | None = Form(None),
+    environment: str = Form("qa"),
+    change_summary: str = Form(""),
+    test_instructions: str = Form(""),
+    unit_test_reference: str = Form(""),
+    risk_level: str = Form("medium"),
+    target_release_date: str = Form(""),
+    notes: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    release = db.scalar(select(DevRelease).where(DevRelease.id == release_id, DevRelease.org_id == org.id))
+    if not release or not can_edit_release(release, user):
+        raise HTTPException(status_code=404, detail="Release not found")
+    project = db.get(Project, project_id)
+    if not project or project.org_id != org.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    qa_owner = db.get(User, qa_owner_id) if qa_owner_id else None
+    if qa_owner and (qa_owner.org_id != org.id or not qa_owner.is_active):
+        raise HTTPException(status_code=400, detail="Invalid QA owner")
+    if environment not in dict(DEV_RELEASE_ENVIRONMENTS) or risk_level not in dict(DEV_RELEASE_RISK_LEVELS):
+        raise HTTPException(status_code=400, detail="Invalid release option")
+    release.project_id = project.id
+    release.title = title.strip()[:200]
+    release.related_tasks_text = related_tasks_text.strip()[:1000]
+    release.qa_owner_id = qa_owner.id if qa_owner else None
+    release.environment = environment
+    release.change_summary = sanitize_html(change_summary)
+    release.test_instructions = sanitize_html(test_instructions)
+    release.unit_test_reference = unit_test_reference.strip()[:1000]
+    release.risk_level = risk_level
+    release.target_release_date = parse_optional_date(target_release_date)
+    release.notes = sanitize_html(notes)
+    add_release_event(db, release, user, release.status, release.status, "Release details updated.")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/releases/{release.id}", status_code=303)
+
+
+@app.post("/{org_slug}/releases/{release_id}/status")
+def update_release_status_page(
+    org_slug: str,
+    release_id: int,
+    new_status: str = Form(...),
+    comment: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    release = db.scalar(select(DevRelease).where(DevRelease.id == release_id, DevRelease.org_id == org.id))
+    if not release or not can_view_release(release, user):
+        raise HTTPException(status_code=404, detail="Release not found")
+    if new_status not in DEV_RELEASE_STATUS_LABELS:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    previous_status = release.status
+    allowed = False
+    if new_status == DevReleaseStatus.SUBMITTED_TO_QA.value:
+        allowed = release.developer_id == user.id or user.role in {Role.ADMIN, Role.MANAGER}
+        if not release.change_summary.strip() or not release.test_instructions.strip() or not release.unit_test_reference.strip():
+            raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
+        release.submitted_at = release.submitted_at or datetime.utcnow()
+    elif new_status in {DevReleaseStatus.QA_IN_PROGRESS.value, DevReleaseStatus.QA_FAILED.value, DevReleaseStatus.QA_PASSED.value}:
+        allowed = can_qa_release(release, user)
+        if new_status == DevReleaseStatus.QA_IN_PROGRESS.value and not release.qa_owner_id:
+            release.qa_owner_id = user.id
+    elif new_status == DevReleaseStatus.REWORK_NEEDED.value:
+        allowed = can_qa_release(release, user)
+    elif new_status == DevReleaseStatus.RESUBMITTED.value:
+        allowed = release.developer_id == user.id or user.role in {Role.ADMIN, Role.MANAGER}
+        release.submitted_at = datetime.utcnow()
+    elif new_status in {DevReleaseStatus.READY_FOR_RELEASE.value, DevReleaseStatus.RELEASED.value}:
+        allowed = can_release_manage(release, user)
+        if new_status == DevReleaseStatus.RELEASED.value:
+            release.released_at = datetime.utcnow()
+    elif new_status == DevReleaseStatus.DRAFT.value:
+        allowed = can_edit_release(release, user)
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not allowed to update this release status")
+    release.status = new_status
+    add_release_event(db, release, user, previous_status, new_status, comment or f"Status changed to {release_status_label(new_status)}.")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/releases/{release.id}", status_code=303)
+
+
+@app.post("/{org_slug}/releases/{release_id}/assign-self")
+def assign_release_to_self_page(
+    org_slug: str,
+    release_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    release = db.scalar(select(DevRelease).where(DevRelease.id == release_id, DevRelease.org_id == org.id))
+    if not release or not can_qa_release(release, user):
+        raise HTTPException(status_code=404, detail="Release not found")
+    release.qa_owner_id = user.id
+    add_release_event(db, release, user, release.status, release.status, "QA owner assigned.")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/releases/{release.id}", status_code=303)
+
+
+@app.post("/{org_slug}/releases/{release_id}/comment")
+def add_release_comment_page(
+    org_slug: str,
+    release_id: int,
+    comment: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    release = db.scalar(select(DevRelease).where(DevRelease.id == release_id, DevRelease.org_id == org.id))
+    if not release or not can_view_release(release, user):
+        raise HTTPException(status_code=404, detail="Release not found")
+    if not comment.strip():
+        raise HTTPException(status_code=400, detail="Comment is required")
+    add_release_event(db, release, user, release.status, release.status, sanitize_html(comment))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/releases/{release.id}#history", status_code=303)
 
 
 @app.get("/{org_slug}/tasks/{task_code}", response_class=HTMLResponse)

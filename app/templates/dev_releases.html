@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Dev to QA</p>
+    <h1>Releases</h1>
+    <p>Create release handoffs with test instructions and unit test references.</p>
+  </div>
+</section>
+
+<div class="stack">
+  <form method="post" class="panel form-grid">
+    <div class="panel-head full">
+      <div>
+        <h2>New Release Handoff</h2>
+        <p>Keep the handoff short, complete, and testable.</p>
+      </div>
+    </div>
+    <label>Project
+      <select name="project_id" required>
+        {% for project in projects %}
+        <option value="{{ project.id }}" {% if project.id == default_project_id %}selected{% endif %}>{{ project.name }} ({{ project.code }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>QA Owner
+      <select name="qa_owner_id">
+        <option value="">Unassigned</option>
+        {% for person in qa_people %}
+        <option value="{{ person.id }}">{{ person.full_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="full">Release Title<input name="title" placeholder="Feature or fix name" required></label>
+    <label class="full">Related Tasks<input name="related_tasks_text" placeholder="Task IDs, PR links, or issue references"></label>
+    <label>Environment
+      <select name="environment">
+        {% for value, label in environments %}
+        <option value="{{ value }}" {% if value == "qa" %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Risk Level
+      <select name="risk_level">
+        {% for value, label in risk_levels %}
+        <option value="{{ value }}" {% if value == "medium" %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Target Release Date<input name="target_release_date" type="date"></label>
+    <label class="full">Change Summary<textarea name="change_summary" rows="4" placeholder="What changed and why"></textarea></label>
+    <label class="full">Test Instructions<textarea name="test_instructions" rows="4" placeholder="Steps QA should follow"></textarea></label>
+    <label class="full">Unit Test Cases<input name="unit_test_reference" placeholder="Upload reference, document URL, repo test file, or CI report link"></label>
+    <label class="full">Notes<textarea name="notes" rows="3" placeholder="Known issues, config notes, rollback notes"></textarea></label>
+    <label class="checkbox full"><input name="submit_to_qa" type="checkbox">Submit to QA immediately</label>
+    <div class="full task-create-actions">
+      <button type="submit">Save Release</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-head manage-tasks-head">
+      <div>
+        <h2>Release Handoffs</h2>
+        <p>Track submitted releases, QA ownership, and release readiness.</p>
+      </div>
+      <form method="get" class="manage-task-filter">
+        <label>Status
+          <select name="status_filter" onchange="this.form.submit()">
+            <option value="">All statuses</option>
+            {% for value, label in statuses.items() %}
+            <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    </div>
+    <div class="dashboard-table-wrap monday-table-wrap">
+      <table class="dashboard-task-table monday-task-table">
+        <thead>
+          <tr>
+            <th>Release</th>
+            <th>Status</th>
+            <th>Project</th>
+            <th>Owners</th>
+            <th>Target</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for release in releases %}
+          <tr class="monday-task-row">
+            <td>
+              <div class="dashboard-task-table-main">
+                <div class="task-card-headline">
+                  <span class="chip">REL-{{ release.id }}</span>
+                  <span class="badge muted">{{ release.environment_label }}</span>
+                  <span class="badge {% if release.risk_label == 'High' %}danger{% elif release.risk_label == 'Low' %}success{% else %}warning{% endif %}">{{ release.risk_label }}</span>
+                </div>
+                <strong><a href="/{{ org.slug }}/releases/{{ release.id }}">{{ release.title }}</a></strong>
+              </div>
+            </td>
+            <td><span class="badge muted">{{ release.status_label }}</span></td>
+            <td>{{ release.project.name if release.project else "Unknown" }}</td>
+            <td>
+              Dev: {{ release.developer_name }}
+              <br>
+              QA: {{ release.qa_owner_name }}
+            </td>
+            <td>{% if release.target_release_date %}{{ release.target_release_date }}{% else %}Not set{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5"><p class="empty">No release handoffs yet.</p></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
