@@ -55,9 +55,10 @@
     </label>
     <label class="full">Unit Test Reference<input name="unit_test_reference" placeholder="Optional document URL, repo test file, or CI report link"></label>
     <label class="full">Notes<textarea name="notes" rows="3" placeholder="Known issues, config notes, rollback notes"></textarea></label>
-    <label class="checkbox full"><input name="submit_to_qa" type="checkbox">Submit to QA immediately</label>
+    <p class="form-helper full">Save Draft keeps the handoff editable while details are incomplete. Submit to QA sends the handoff for testing and requires summary, test instructions, and unit test cases/results.</p>
     <div class="full task-create-actions">
-      <button type="submit">Save Release</button>
+      <button type="submit" name="submit_action" value="draft" class="secondary">Save Draft</button>
+      <button type="submit" name="submit_action" value="qa">Submit to QA</button>
     </div>
   </form>
 

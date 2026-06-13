@@ -4194,7 +4194,7 @@ def create_release_page(
     risk_level: str = Form("medium"),
     target_release_date: str = Form(""),
     notes: str = Form(""),
-    submit_to_qa: bool = Form(False),
+    submit_action: str = Form("draft"),
     unit_test_file: UploadFile | None = File(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4211,6 +4211,7 @@ def create_release_page(
     if qa_owner and (qa_owner.org_id != org.id or not qa_owner.is_active):
         raise HTTPException(status_code=400, detail="Invalid QA owner")
     has_test_file = upload_has_file(unit_test_file)
+    submit_to_qa = submit_action == "qa"
     if submit_to_qa and (not change_summary.strip() or not test_instructions.strip() or (not unit_test_reference.strip() and not has_test_file)):
         raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
     status_value = DevReleaseStatus.SUBMITTED_TO_QA.value if submit_to_qa else DevReleaseStatus.DRAFT.value
