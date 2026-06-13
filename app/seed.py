@@ -15,6 +15,7 @@ DEFAULT_DEPARTMENTS = (
     "Techops/Devops",
     "Support",
     "IT",
+    "QA",
 )
 
 SOLULEVER_DEPARTMENT_ASSIGNMENTS = {
@@ -99,6 +100,17 @@ DEPARTMENT_ACTIVITY_DEFINITIONS = {
         ("IT-RSK", "General: Research & Skill Development", "others", False),
         ("IT-MENT", "General: Team Support & Mentorship", "people_management", False),
         ("IT-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "QA": [
+        ("QA-PLAN", "Test Planning", "software_development", True),
+        ("QA-CASE", "Test Case Design", "software_development", True),
+        ("QA-EXEC", "Test Execution", "software_development", True),
+        ("QA-REG", "Regression Testing", "software_development", True),
+        ("QA-UAT", "UAT Support", "project_delivery_management", True),
+        ("QA-BUG", "Defect Verification", "software_development", True),
+        ("QA-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("QA-RSK", "General: Research & Skill Development", "others", False),
+        ("QA-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
     ],
 }
 

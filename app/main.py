@@ -2324,8 +2324,7 @@ def release_risk_label(value: str) -> str:
 
 
 def is_qa_user(user: User) -> bool:
-    token = f"{user.full_name} {user.email} {user.department.name if user.department else ''}".lower()
-    return user.role in {Role.MANAGER, Role.ADMIN} or "qa" in token or "test" in token
+    return bool(user.department and user.department.name.strip().casefold() == "qa")
 
 
 def can_view_release(release: DevRelease, user: User) -> bool:
