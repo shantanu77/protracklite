@@ -7,7 +7,7 @@ import logging
 import re
 import secrets
 import smtplib
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
 from typing import Any
@@ -39,7 +39,9 @@ from app.models import (
     Project,
     ProjectActivityType,
     Role,
+    SharedTaskStatus,
     Task,
+    TaskComment,
     TaskStatus,
     TimeLog,
     User,
@@ -75,6 +77,7 @@ app = FastAPI(title=settings.app_name)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
+UTC = timezone.utc
 
 SAFE_TAGS = ["p", "b", "strong", "i", "em", "ul", "ol", "li", "br", "a", "code", "pre"]
 AUTH_REDIRECT_ERRORS = {
@@ -137,6 +140,15 @@ TASK_COLOR_CHOICES = [
 DEFAULT_USER_DEPARTMENT = "Engineering"
 TASK_COLOR_MAP = {color: label for color, label in TASK_COLOR_CHOICES}
 TASK_COLOR_VALUES = set(TASK_COLOR_MAP)
+SHARED_TASK_STATUS_LABELS = {
+    SharedTaskStatus.ASSIGNED.value: "Assigned",
+    SharedTaskStatus.IN_PROGRESS.value: "In Progress",
+    SharedTaskStatus.WORK_DONE.value: "Work Done",
+    SharedTaskStatus.ACCEPTED.value: "Accepted",
+    SharedTaskStatus.REWORK_NEEDED.value: "Rework Needed",
+    SharedTaskStatus.STALLED.value: "Stalled",
+    SharedTaskStatus.CLOSED.value: "Closed",
+}
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
 WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v1"
@@ -590,6 +602,8 @@ def ensure_tasks_schema() -> None:
         "dashboard_rank": "ALTER TABLE tasks ADD COLUMN dashboard_rank INTEGER NOT NULL DEFAULT 0",
         "task_color": f"ALTER TABLE tasks ADD COLUMN task_color VARCHAR(7) NOT NULL DEFAULT '{DEFAULT_TASK_COLOR}'",
         "tags_text": "ALTER TABLE tasks ADD COLUMN tags_text VARCHAR(1000) NOT NULL DEFAULT ''",
+        "is_shared": "ALTER TABLE tasks ADD COLUMN is_shared BOOLEAN NOT NULL DEFAULT FALSE",
+        "shared_status": "ALTER TABLE tasks ADD COLUMN shared_status VARCHAR(30) NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -621,6 +635,8 @@ def migrate_sqlite_tasks_table(connection) -> None:
                 status VARCHAR(30) NOT NULL,
                 task_color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
                 tags_text VARCHAR(1000) NOT NULL DEFAULT '',
+                is_shared BOOLEAN NOT NULL DEFAULT FALSE,
+                shared_status VARCHAR(30) NOT NULL DEFAULT '',
                 is_private BOOLEAN NOT NULL DEFAULT FALSE,
                 is_archived BOOLEAN NOT NULL DEFAULT FALSE,
                 dashboard_rank INTEGER NOT NULL DEFAULT 0,
@@ -646,12 +662,12 @@ def migrate_sqlite_tasks_table(connection) -> None:
             """
             INSERT INTO tasks (
                 id, task_id, org_id, project_id, assigned_to, created_by, name, description, activity_type_id,
-                status, task_color, tags_text, is_private, is_archived, dashboard_rank, start_date, end_date, estimated_hours,
+                status, task_color, tags_text, is_shared, shared_status, is_private, is_archived, dashboard_rank, start_date, end_date, estimated_hours,
                 logged_hours, stalled_reason, created_at, updated_at, closed_at
             )
             SELECT
                 id, task_id, org_id, project_id, assigned_to, created_by, name, description, activity_type_id,
-                status, COALESCE(task_color, '#22c55e'), COALESCE(tags_text, ''), is_private, COALESCE(is_archived, FALSE), COALESCE(dashboard_rank, 0), start_date, end_date, estimated_hours,
+                status, COALESCE(task_color, '#22c55e'), COALESCE(tags_text, ''), COALESCE(is_shared, FALSE), COALESCE(shared_status, ''), is_private, COALESCE(is_archived, FALSE), COALESCE(dashboard_rank, 0), start_date, end_date, estimated_hours,
                 COALESCE(logged_hours, 0), COALESCE(stalled_reason, ''), created_at, updated_at, closed_at
             FROM tasks__old
             """
@@ -1244,6 +1260,11 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
         "description": bleach.clean(task.description or "", tags=[], strip=True),
         "created_at": task.created_at,
         "status": task.status.value,
+        "is_shared": task.is_shared,
+        "shared_status": task.shared_status or "",
+        "shared_status_label": shared_status_label(task),
+        "created_by": task.created_by,
+        "assigned_to": task.assigned_to,
         "task_color": color,
         "task_color_label": TASK_COLOR_MAP.get(color, "Green"),
         "tags": tags,
@@ -2176,6 +2197,51 @@ def safe_org_redirect(org_slug: str, redirect_to: str | None, fallback: str) -> 
     return fallback
 
 
+def managed_user_ids(db: Session, org_id: int, manager: User) -> set[int]:
+    if manager.role == Role.ADMIN:
+        return {item.id for item in org_people(db, org_id)}
+    if manager.role != Role.MANAGER:
+        return set()
+    return {
+        user_id
+        for user_id in db.scalars(
+            select(User.id).where(User.org_id == org_id, User.manager_id == manager.id, User.is_active.is_(True))
+        ).all()
+    }
+
+
+def can_control_task(db: Session, task: Task, user: User) -> bool:
+    if user.role == Role.ADMIN:
+        return True
+    if task.created_by == user.id:
+        return True
+    if user.role == Role.MANAGER and task.assigned_to in managed_user_ids(db, task.org_id, user):
+        return True
+    return False
+
+
+def can_view_task(db: Session, task: Task, user: User) -> bool:
+    if task.org_id != user.org_id:
+        return False
+    if can_control_task(db, task, user):
+        return True
+    if task.assigned_to == user.id:
+        return True
+    return not task.is_private and not task.is_shared
+
+
+def can_log_task(db: Session, task: Task, user: User) -> bool:
+    return task.assigned_to == user.id or can_control_task(db, task, user)
+
+
+def shared_status_label(task: Task) -> str:
+    return SHARED_TASK_STATUS_LABELS.get(task.shared_status or "", "")
+
+
+def add_task_event(db: Session, task: Task, user: User, body: str, comment_type: str = "system") -> None:
+    db.add(TaskComment(task_id=task.id, user_id=user.id, comment_type=comment_type, body=body.strip()))
+
+
 def org_people(db: Session, org_id: int) -> list[User]:
     return db.scalars(
         select(User)
@@ -2352,17 +2418,29 @@ def user_tasks(db: Session, org_id: int, user_id: int) -> list[Task]:
 def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str, Any]]:
     tasks = db.scalars(
         select(Task)
-        .where(Task.org_id == org_id, Task.assigned_to == user_id, Task.is_archived.is_(False))
+        .where(
+            Task.org_id == org_id,
+            Task.is_archived.is_(False),
+            or_(Task.assigned_to == user_id, Task.created_by == user_id),
+        )
         .order_by(Task.updated_at.desc(), Task.id.desc())
     ).all()
     project_map = {project.id: project for project in all_org_projects(db, org_id)}
     activity_type_map = {item.id: item for item in org_activity_types(db, org_id)}
+    people_map = {person.id: person for person in org_people(db, org_id)}
     return [
         {
             "task_id": task.task_id,
             "name": task.name,
             "description": task.description or "",
             "status": task.status.value,
+            "is_shared": task.is_shared,
+            "shared_status": task.shared_status or "",
+            "shared_status_label": shared_status_label(task),
+            "created_by": task.created_by,
+            "created_by_name": people_map.get(task.created_by).full_name if people_map.get(task.created_by) else "",
+            "assigned_to": task.assigned_to,
+            "assigned_to_name": people_map.get(task.assigned_to).full_name if people_map.get(task.assigned_to) else "",
             "task_color": normalize_task_color(task.task_color),
             "task_color_label": TASK_COLOR_MAP.get(normalize_task_color(task.task_color), "Green"),
             "tags": task_tags(task),
@@ -3742,6 +3820,7 @@ def new_task_page(
             "default_project_id": default_project.id,
             "default_activity_type_id": default_activity_type.id,
             "tasks": recent_task_summaries(db, org.id, user.id),
+            "people": org_people(db, org.id),
             "created_task_id": created_task_id,
             "created_count": created_count,
             "created_summary": created_summary,
@@ -3763,6 +3842,8 @@ def create_task_page(
     estimated_hours: str = Form(""),
     tags: str = Form(""),
     status_value: TaskStatus = Form(TaskStatus.NOT_STARTED, alias="status"),
+    assigned_to: int | None = Form(None),
+    is_shared: bool = Form(False),
     is_backlog: bool = Form(False),
     is_private: bool = Form(False),
     org_user: tuple[Organization, User] = Depends(get_org_user),
@@ -3781,26 +3862,37 @@ def create_task_page(
     parsed_start_date = None if is_backlog else parse_optional_date(start_date)
     parsed_end_date = None if is_backlog else parse_optional_date(end_date)
     parsed_estimated_hours = None if is_backlog else parse_optional_decimal(estimated_hours)
+    assignee_id = user.id
+    if is_shared and assigned_to:
+        assignee = db.get(User, assigned_to)
+        if not assignee or assignee.org_id != org.id or not assignee.is_active:
+            raise HTTPException(status_code=400, detail="Invalid shared task assignee")
+        assignee_id = assignee.id
 
     task = Task(
         task_id=next_task_id(project),
         org_id=org.id,
         project_id=project.id,
-        assigned_to=user.id,
+        assigned_to=assignee_id,
         created_by=user.id,
         name=name,
         description=sanitize_html(description),
         activity_type_id=activity_type.id,
         status=status_value,
+        is_shared=is_shared,
+        shared_status=SharedTaskStatus.ASSIGNED.value if is_shared else "",
         tags_text=serialize_task_tags(parse_task_tags(tags)),
         is_private=is_private,
-        dashboard_rank=next_dashboard_rank(db, org.id, user.id),
+        dashboard_rank=next_dashboard_rank(db, org.id, assignee_id),
         start_date=parsed_start_date,
         end_date=parsed_end_date,
         estimated_hours=parsed_estimated_hours,
         closed_at=datetime.utcnow() if status_value == TaskStatus.CLOSED else None,
     )
     db.add(task)
+    db.flush()
+    if task.is_shared:
+        add_task_event(db, task, user, f"Shared task assigned to user #{task.assigned_to}.")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/tasks/new?created_task_id={task.task_id}", status_code=303)
 
@@ -3863,9 +3955,12 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
     org, user = org_user
     settings_obj = get_org_settings(db, org.id)
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
-    if not task:
+    if not task or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc(), TimeLog.created_at.desc())).all()
+    comments = db.scalars(select(TaskComment).where(TaskComment.task_id == task.id).order_by(TaskComment.created_at.desc())).all()
+    people = org_people(db, org.id)
+    people_map = {person.id: person for person in people}
     projects = task_edit_projects(db, org.id, task.project_id)
     activity_types = visible_activity_types_for_user(db, org.id, user, {task.activity_type_id})
     activity_type_option_items = activity_type_options(activity_types)
@@ -3878,6 +3973,7 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
             "user": user,
             "task": task,
             "logs": logs,
+            "comments": comments,
             "projects": projects,
             "activity_types": activity_types,
             "activity_type_options": activity_type_option_items,
@@ -3885,7 +3981,12 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
             "activity_categories": active_activity_categories(db, org.id, user, {task.activity_type_id}),
             "current_activity_category": db.get(ActivityType, task.activity_type_id).category if db.get(ActivityType, task.activity_type_id) else "others",
             "statuses": list(TaskStatus),
-            "people": org_people(db, org.id),
+            "people": people,
+            "people_map": people_map,
+            "can_edit_task": can_control_task(db, task, user),
+            "can_log_task": can_log_task(db, task, user),
+            "is_task_assignee": task.assigned_to == user.id,
+            "shared_status_label": shared_status_label(task),
             "settings": settings_obj,
             "today": date.today(),
         },
@@ -3895,11 +3996,8 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
 @app.get("/{org_slug}/tasks/{task_code}/calendar.ics")
 def download_task_calendar(org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     ical_body = build_task_ical(task, org)
     filename = f"{task.task_id.lower()}-calendar.ics"
@@ -3919,11 +4017,8 @@ def archive_task_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_control_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     task.is_archived = True
     db.commit()
@@ -3989,11 +4084,8 @@ def complete_task_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not ((not task.is_shared and task.assigned_to == user.id) or can_control_task(db, task, user)):
         raise HTTPException(status_code=404, detail="Task not found")
 
     today = date.today()
@@ -4002,6 +4094,9 @@ def complete_task_page(
         raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
 
     task.status = TaskStatus.CLOSED
+    if task.is_shared:
+        task.shared_status = SharedTaskStatus.CLOSED.value
+        add_task_event(db, task, user, "Accepted and closed the shared task.")
     task.closed_at = datetime.combine(completion_date, datetime.max.time().replace(microsecond=0))
     if task.start_date is None:
         task.start_date = completion_date
@@ -4021,11 +4116,8 @@ def stall_task_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_log_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status == TaskStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Completed tasks cannot be marked stalled")
@@ -4035,6 +4127,9 @@ def stall_task_page(
         raise HTTPException(status_code=400, detail="Stalled reason is required")
 
     task.status = TaskStatus.STALLED
+    if task.is_shared:
+        task.shared_status = SharedTaskStatus.STALLED.value
+        add_task_event(db, task, user, f"Marked stalled: {reason}")
     task.stalled_reason = reason
     task.closed_at = None
     db.commit()
@@ -4044,11 +4139,8 @@ def stall_task_page(
 @app.post("/{org_slug}/tasks/{task_code}/unarchive")
 def unarchive_task_page(org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_control_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     task.is_archived = False
     db.commit()
@@ -4111,11 +4203,8 @@ def update_task_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_control_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     project = db.get(Project, project_id)
     if not project or project.org_id != org.id:
@@ -4142,11 +4231,21 @@ def update_task_page(
     task.status = status_value
     task.stalled_reason = stalled_reason.strip() if status_value == TaskStatus.STALLED else ""
     task.is_private = is_private
-    if user.role == Role.ADMIN and assigned_to:
+    if assigned_to:
         assignee = db.get(User, assigned_to)
         if assignee and assignee.org_id == org.id and assignee.is_active:
+            old_assignee = task.assigned_to
             task.assigned_to = assignee.id
+            if task.is_shared and old_assignee != assignee.id:
+                add_task_event(db, task, user, f"Changed assignee from user #{old_assignee} to user #{assignee.id}.")
     task.closed_at = datetime.utcnow() if status_value == TaskStatus.CLOSED else None
+    if task.is_shared:
+        if status_value == TaskStatus.CLOSED:
+            task.shared_status = SharedTaskStatus.CLOSED.value
+        elif status_value == TaskStatus.STALLED:
+            task.shared_status = SharedTaskStatus.STALLED.value
+        elif task.shared_status in {SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value} and status_value == TaskStatus.STARTED:
+            task.shared_status = SharedTaskStatus.IN_PROGRESS.value
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/tasks/{task_code}", status_code=303)
 
@@ -4164,8 +4263,8 @@ def add_time_log_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_log_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     normalized_notes = normalize_time_log_notes(notes)
     db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
@@ -4173,14 +4272,23 @@ def add_time_log_page(
     was_not_started = task.status == TaskStatus.NOT_STARTED
     if was_not_started:
         task.status = TaskStatus.STARTED
+    if task.is_shared and task.shared_status in {"", SharedTaskStatus.ASSIGNED.value, SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value}:
+        task.shared_status = SharedTaskStatus.IN_PROGRESS.value
     if was_not_started or task.start_date is None or log_date < task.start_date:
         task.start_date = log_date
     if mark_completed:
         earliest_completion_date = task.start_date or task.created_at.date()
         if log_date < earliest_completion_date or log_date > date.today():
             raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
-        task.status = TaskStatus.CLOSED
-        task.closed_at = datetime.combine(log_date, datetime.max.time().replace(microsecond=0))
+        if task.is_shared and task.assigned_to == user.id and not can_control_task(db, task, user):
+            task.shared_status = SharedTaskStatus.WORK_DONE.value
+            add_task_event(db, task, user, "Marked the shared task as work done.")
+        else:
+            task.status = TaskStatus.CLOSED
+            if task.is_shared:
+                task.shared_status = SharedTaskStatus.CLOSED.value
+                add_task_event(db, task, user, "Accepted and closed the shared task.")
+            task.closed_at = datetime.combine(log_date, datetime.max.time().replace(microsecond=0))
         if task.end_date is None:
             task.end_date = log_date
     task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
@@ -4205,8 +4313,8 @@ def update_time_log_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_log_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
 
     log_entry = db.scalar(select(TimeLog).where(TimeLog.id == log_id, TimeLog.task_id == task.id, TimeLog.user_id == user.id))
@@ -4226,8 +4334,15 @@ def update_time_log_page(
         earliest_completion_date = task.start_date or task.created_at.date()
         if log_date < earliest_completion_date or log_date > date.today():
             raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
-        task.status = TaskStatus.CLOSED
-        task.closed_at = datetime.combine(log_date, datetime.max.time().replace(microsecond=0))
+        if task.is_shared and task.assigned_to == user.id and not can_control_task(db, task, user):
+            task.shared_status = SharedTaskStatus.WORK_DONE.value
+            add_task_event(db, task, user, "Marked the shared task as work done.")
+        else:
+            task.status = TaskStatus.CLOSED
+            if task.is_shared:
+                task.shared_status = SharedTaskStatus.CLOSED.value
+                add_task_event(db, task, user, "Accepted and closed the shared task.")
+            task.closed_at = datetime.combine(log_date, datetime.max.time().replace(microsecond=0))
         if task.end_date is None:
             task.end_date = log_date
 
@@ -4237,6 +4352,101 @@ def update_time_log_page(
         url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}"),
         status_code=303,
     )
+
+
+@app.post("/{org_slug}/tasks/{task_code}/comments")
+def add_task_comment_page(
+    org_slug: str,
+    task_code: str,
+    body: str = Form(""),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_view_task(db, task, user):
+        raise HTTPException(status_code=404, detail="Task not found")
+    comment = body.strip()
+    if not comment:
+        raise HTTPException(status_code=400, detail="Comment is required")
+    add_task_event(db, task, user, sanitize_html(comment), "comment")
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}#discussion"), status_code=303)
+
+
+@app.post("/{org_slug}/tasks/{task_code}/work-done")
+def mark_shared_task_work_done_page(
+    org_slug: str,
+    task_code: str,
+    note: str = Form(""),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not task.is_shared or not can_log_task(db, task, user):
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.shared_status = SharedTaskStatus.WORK_DONE.value
+    if task.status == TaskStatus.NOT_STARTED:
+        task.status = TaskStatus.STARTED
+    comment = note.strip()
+    add_task_event(db, task, user, f"Marked work done.{(' ' + comment) if comment else ''}")
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}"), status_code=303)
+
+
+@app.post("/{org_slug}/tasks/{task_code}/rework")
+def request_shared_task_rework_page(
+    org_slug: str,
+    task_code: str,
+    note: str = Form(""),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not task.is_shared or not can_control_task(db, task, user):
+        raise HTTPException(status_code=404, detail="Task not found")
+    comment = note.strip()
+    if not comment:
+        raise HTTPException(status_code=400, detail="Rework note is required")
+    task.shared_status = SharedTaskStatus.REWORK_NEEDED.value
+    task.status = TaskStatus.STARTED
+    task.closed_at = None
+    add_task_event(db, task, user, f"Requested rework: {comment}")
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}"), status_code=303)
+
+
+@app.post("/{org_slug}/tasks/{task_code}/accept")
+def accept_shared_task_page(
+    org_slug: str,
+    task_code: str,
+    completion_date: date = Form(...),
+    note: str = Form(""),
+    redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not task.is_shared or not can_control_task(db, task, user):
+        raise HTTPException(status_code=404, detail="Task not found")
+    earliest_completion_date = task.start_date or task.created_at.date()
+    if completion_date < earliest_completion_date or completion_date > date.today():
+        raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
+    task.shared_status = SharedTaskStatus.CLOSED.value
+    task.status = TaskStatus.CLOSED
+    task.closed_at = datetime.combine(completion_date, datetime.max.time().replace(microsecond=0))
+    if task.end_date is None:
+        task.end_date = completion_date
+    comment = note.strip()
+    add_task_event(db, task, user, f"Accepted and closed the shared task.{(' ' + comment) if comment else ''}")
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}"), status_code=303)
 
 
 @app.get("/api/v1/tasks/")
@@ -4252,7 +4462,11 @@ def api_list_tasks(
         select(Task)
         .join(Project, Task.project_id == Project.id)
         .join(ActivityType, Task.activity_type_id == ActivityType.id, isouter=True)
-        .where(Task.org_id == org.id, Task.assigned_to == user.id, Task.is_archived.is_(False))
+        .where(
+            Task.org_id == org.id,
+            Task.is_archived.is_(False),
+            or_(Task.assigned_to == user.id, Task.created_by == user.id),
+        )
     )
     if status:
         query = query.where(Task.status == TaskStatus(status))
@@ -4272,6 +4486,7 @@ def api_list_tasks(
     tasks = db.scalars(query.order_by(Task.updated_at.desc(), Task.id.desc())).all()
     project_map = {project.id: project for project in all_org_projects(db, org.id)}
     activity_type_map = {item.id: item for item in org_activity_types(db, org.id)}
+    people_map = {person.id: person for person in org_people(db, org.id)}
     today = date.today()
     return [
         {
@@ -4279,6 +4494,13 @@ def api_list_tasks(
             "name": task.name,
             "description": task.description or "",
             "status": task.status.value,
+            "is_shared": task.is_shared,
+            "shared_status": task.shared_status or "",
+            "shared_status_label": shared_status_label(task),
+            "created_by": task.created_by,
+            "created_by_name": people_map.get(task.created_by).full_name if people_map.get(task.created_by) else "",
+            "assigned_to": task.assigned_to,
+            "assigned_to_name": people_map.get(task.assigned_to).full_name if people_map.get(task.assigned_to) else "",
             "task_color": normalize_task_color(task.task_color),
             "task_color_label": TASK_COLOR_MAP.get(normalize_task_color(task.task_color), "Green"),
             "tags": task_tags(task),
@@ -4374,13 +4596,16 @@ def api_quick_create_task_options(org_user: tuple[Organization, User] = Depends(
 def api_get_task(task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
-    if not task or (task.assigned_to != user.id and task.is_private):
+    if not task or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     return {
         "task_id": task.task_id,
         "name": task.name,
         "description": task.description,
         "status": task.status.value,
+        "is_shared": task.is_shared,
+        "shared_status": task.shared_status or "",
+        "shared_status_label": shared_status_label(task),
         "task_color": normalize_task_color(task.task_color),
         "tags": task_tags(task),
         "logged_hours": float(task.logged_hours or 0),
@@ -4392,8 +4617,8 @@ def api_get_task(task_code: str, org_user: tuple[Organization, User] = Depends(g
 @app.put("/api/v1/tasks/{task_code}")
 def api_update_task(task_code: str, payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_control_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     project_id = int(payload["project_id"]) if "project_id" in payload else task.project_id
     activity_type_id = int(payload["activity_type_id"]) if "activity_type_id" in payload else task.activity_type_id
@@ -4444,8 +4669,8 @@ def api_update_task(task_code: str, payload: dict, org_user: tuple[Organization,
 @app.post("/api/v1/tasks/{task_code}/time-log")
 def api_add_time_log(task_code: str, payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id, Task.assigned_to == user.id))
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_log_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     normalized_notes = normalize_time_log_notes(payload.get("notes"))
     db.add(
@@ -4462,6 +4687,8 @@ def api_add_time_log(task_code: str, payload: dict, org_user: tuple[Organization
     was_not_started = task.status == TaskStatus.NOT_STARTED
     if was_not_started:
         task.status = TaskStatus.STARTED
+    if task.is_shared and task.shared_status in {"", SharedTaskStatus.ASSIGNED.value, SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value}:
+        task.shared_status = SharedTaskStatus.IN_PROGRESS.value
     if was_not_started or task.start_date is None:
         task.start_date = first_log_date
     task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
@@ -4473,7 +4700,7 @@ def api_add_time_log(task_code: str, payload: dict, org_user: tuple[Organization
 def api_list_time_logs(task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
-    if not task or (task.assigned_to != user.id and task.is_private):
+    if not task or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc())).all()
     return [{"id": item.id, "date": item.log_date.isoformat(), "hours": float(item.hours), "notes": item.notes} for item in logs]
@@ -4488,11 +4715,8 @@ def api_task_tag_options(org_user: tuple[Organization, User] = Depends(get_org_u
 @app.post("/api/v1/tasks/{task_code}/color")
 def api_update_task_color(task_code: str, payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    task_query = select(Task).where(Task.task_id == task_code, Task.org_id == org.id)
-    if user.role != Role.ADMIN:
-        task_query = task_query.where(Task.assigned_to == user.id)
-    task = db.scalar(task_query)
-    if not task:
+    task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
+    if not task or not can_control_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     task.task_color = normalize_task_color(payload.get("color"))
     db.commit()

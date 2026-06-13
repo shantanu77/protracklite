@@ -7,8 +7,18 @@
     <p>{{ task.status.value|replace('_', ' ') }} · {{ "%.2f"|format(task.logged_hours or 0) }}h logged{% if task.start_date is none and task.end_date is none %} · backlog{% endif %}{% if task.is_archived %} · archived{% endif %}</p>
   </div>
   <div class="page-head-actions">
+    {% if can_log_task %}
     <button type="button" class="button" data-modal-open="task-log-modal">＋ Log Hours</button>
-    {% if task.status.value != "closed" %}
+    {% endif %}
+    {% if task.is_shared and can_log_task and task.status.value != "closed" %}
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/work-done">
+      <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/{{ task.task_id }}">
+      <button type="submit" class="button secondary">Mark Work Done</button>
+    </form>
+    {% endif %}
+    {% if task.is_shared and can_edit_task and task.status.value != "closed" %}
+    <button type="button" class="button secondary" data-modal-open="accept-shared-task-modal">Accept & Close</button>
+    {% elif not task.is_shared and task.status.value != "closed" and can_log_task %}
     <button
       type="button"
       class="button secondary"
@@ -46,7 +56,13 @@
           </div>
           <h2>{{ task.name }}</h2>
         </div>
-        <span class="badge {% if task.status.value == 'started' %}success{% elif task.status.value == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status.value|replace('_', ' ') }}</span>
+        <div class="dashboard-task-badges">
+          {% if task.is_shared %}
+          <span class="badge muted">Shared</span>
+          <span class="badge {% if task.shared_status == 'work_done' %}warning{% elif task.shared_status == 'closed' %}success{% elif task.shared_status == 'stalled' or task.shared_status == 'rework_needed' %}danger{% else %}muted{% endif %}">{{ shared_status_label }}</span>
+          {% endif %}
+          <span class="badge {% if task.status.value == 'started' %}success{% elif task.status.value == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status.value|replace('_', ' ') }}</span>
+        </div>
       </div>
       <div class="task-detail-stats">
         <div class="task-detail-stat">
@@ -69,7 +85,8 @@
       <div class="task-detail-meta">
         <div><span>Project</span><strong>{{ task.project.name }} ({{ task.project.code }})</strong></div>
         <div><span>Activity</span><strong>{% for item in activity_types %}{% if item.id == task.activity_type_id %}{{ item.name }}{% endif %}{% endfor %}</strong></div>
-        <div><span>Assigned To</span><strong>{% for person in people %}{% if person.id == task.assigned_to %}{{ person.full_name }}{% endif %}{% endfor %}</strong></div>
+        <div><span>Creator</span><strong>{{ people_map.get(task.created_by).full_name if people_map.get(task.created_by) else "Unknown" }}</strong></div>
+        <div><span>Assigned To</span><strong>{{ people_map.get(task.assigned_to).full_name if people_map.get(task.assigned_to) else "Unknown" }}</strong></div>
       </div>
       {% set task_tag_list = task.tags_text.split(', ') if task.tags_text else [] %}
       {% if task_tag_list %}
@@ -87,6 +104,7 @@
       {% endif %}
     </section>
 
+    {% if can_edit_task %}
     <form method="post" class="panel form-grid task-detail-form" id="edit-task">
       <div class="panel-head full">
         <div>
@@ -123,7 +141,6 @@
           {% endfor %}
         </select>
       </label>
-      {% if user.role.value == "admin" %}
       <label>Assign To
         <select name="assigned_to">
           {% for person in people %}
@@ -131,7 +148,6 @@
           {% endfor %}
         </select>
       </label>
-      {% endif %}
       <label class="checkbox"><input name="is_backlog" type="checkbox" data-backlog-toggle {% if task.start_date is none and task.end_date is none %}checked{% endif %}>Backlog task</label>
       <label>Start Date<input name="start_date" type="date" value="{{ task.start_date or '' }}" data-backlog-field></label>
       <label>End Date<input name="end_date" type="date" value="{{ task.end_date or '' }}" data-backlog-field></label>
@@ -149,16 +165,50 @@
       <p class="full empty">Backlog tasks do not carry schedule or effort until they are planned.</p>
       <button type="submit">Update Task</button>
     </form>
+    {% elif task.is_shared %}
+    <section class="panel" id="edit-task">
+      <div class="panel-head">
+        <div>
+          <h2>Shared Task Control</h2>
+          <p>The creator or manager controls task details. You can log hours, comment, and mark work done.</p>
+        </div>
+      </div>
+    </section>
+    {% endif %}
   </div>
 
-  <section class="panel task-timeline-panel">
+  <section class="panel task-timeline-panel" id="discussion">
     <div class="panel-head">
       <div>
-        <h2>Work Log Timeline</h2>
-        <p>Latest logged time with comments in timeline view.</p>
+        <h2>Discussion & Timeline</h2>
+        <p>Comments, status changes, and latest logged time.</p>
       </div>
     </div>
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/comments" class="form-grid task-comment-form">
+      <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/{{ task.task_id }}#discussion">
+      <label class="full">Comment<textarea name="body" rows="3" placeholder="Add a clarification, update, or question" required></textarea></label>
+      <button type="submit">Add Comment</button>
+    </form>
+    {% if task.is_shared and can_edit_task and task.shared_status == "work_done" and task.status.value != "closed" %}
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/rework" class="form-grid task-comment-form">
+      <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/{{ task.task_id }}#discussion">
+      <label class="full">Rework Note<textarea name="note" rows="3" placeholder="What needs to be changed before acceptance?" required></textarea></label>
+      <button type="submit" class="secondary">Request Rework</button>
+    </form>
+    {% endif %}
     <div class="task-timeline">
+      {% for comment in comments %}
+      <article class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-card">
+          <div class="timeline-head">
+            <strong>{{ people_map.get(comment.user_id).full_name if people_map.get(comment.user_id) else "Unknown" }}</strong>
+            <span>{{ comment.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
+          </div>
+          <p>{{ comment.body|safe }}</p>
+        </div>
+      </article>
+      {% endfor %}
       {% for log in logs %}
       <article class="timeline-item">
         <div class="timeline-dot"></div>
@@ -171,12 +221,15 @@
         </div>
       </article>
       {% else %}
-      <p class="empty">No time logged yet.</p>
+      {% if not comments %}
+      <p class="empty">No comments or time logged yet.</p>
+      {% endif %}
       {% endfor %}
     </div>
   </section>
 </section>
 
+{% if can_log_task %}
 <div class="modal-backdrop" id="task-log-modal" data-modal aria-hidden="true">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="task-log-title">
     <div class="modal-head">
@@ -191,10 +244,34 @@
       <label>Hours<input name="hours" type="number" step="0.25" min="0.25" value="4" required></label>
       <label class="full">Comments<textarea name="notes" rows="4" minlength="80" placeholder="What was done today?" required data-log-notes-input aria-describedby="task-log-notes-helper"></textarea></label>
       <p class="form-helper full" id="task-log-notes-helper" data-log-notes-helper>Minimum 80 characters. 80 characters left.</p>
+      {% if not task.is_shared %}
+      <label class="checkbox full"><input name="mark_completed" type="checkbox">Mark this task as completed with the same date</label>
+      {% endif %}
       <button type="submit">Add Time Log</button>
     </form>
   </div>
 </div>
+{% endif %}
+
+{% if task.is_shared and can_edit_task %}
+<div class="modal-backdrop" id="accept-shared-task-modal" data-modal aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="accept-shared-task-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="accept-shared-task-title">Accept Shared Task</h2>
+        <p>{{ task.task_id }} · {{ task.name }}</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close accept task modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/accept" class="form-grid">
+      <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/{{ task.task_id }}">
+      <label>Completed On<input name="completion_date" type="date" value="{{ today.isoformat() }}" min="{{ (task.start_date or task.created_at.date()).isoformat() }}" max="{{ today.isoformat() }}" required></label>
+      <label class="full">Note<textarea name="note" rows="3" placeholder="Optional acceptance note"></textarea></label>
+      <button type="submit">Accept & Close</button>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <script>
   (() => {

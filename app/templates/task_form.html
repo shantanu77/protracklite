@@ -55,6 +55,14 @@
       <summary>More</summary>
       <div class="task-create-more-grid">
         <label class="checkbox full"><input name="is_backlog" type="checkbox" data-backlog-toggle>Add as Backlog item</label>
+        <label class="checkbox full"><input name="is_shared" type="checkbox" data-shared-task-toggle>Shared / delegated task</label>
+        <label data-shared-task-field>Assign To
+          <select name="assigned_to">
+            {% for person in people %}
+            <option value="{{ person.id }}" {% if person.id == user.id %}selected{% endif %}>{{ person.full_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <label>Status
           <select name="status" data-backlog-field>
             {% for item in statuses %}
@@ -143,9 +151,14 @@
                 aria-label="Task color"
               ></span>
               <span class="chip">{{ task.task_id }}</span>
+              {% if task.is_shared %}
+              <span class="badge muted">Shared</span>
+              {% endif %}
             </div>
             <strong>{{ task.name }}</strong>
             <small>
+              {% if task.is_shared %}{{ task.shared_status_label }} · {{ task.created_by_name }} → {{ task.assigned_to_name }}{% endif %}
+              {% if task.is_shared and task.activity_type_name %} · {% endif %}
               {% if task.activity_type_name %}{{ task.activity_type_name }}{% endif %}
               {% if task.tags %}
               ·
@@ -172,6 +185,7 @@
             {% if task.end_date %} · End: {{ task.end_date }}{% else %} · End: Not set{% endif %}
             {% endif %}
             {% if task.is_private %} · Private{% endif %}
+            {% if task.is_shared %} · Shared{% endif %}
           </small>
         </td>
         <td>
@@ -199,7 +213,7 @@
             data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/stall", "stalled_reason": "", "redirect_to": "/" ~ org.slug ~ "/tasks/new", "task_name_text": task.task_id ~ " · " ~ task.name}|tojson|e }}'
           >!</button>
           {% endif %}
-          {% if task.status != "closed" %}
+          {% if task.status != "closed" and not task.is_shared %}
           <button
             type="button"
             class="icon-action success-icon"
@@ -270,6 +284,8 @@
     const activityTypeSelect = form?.querySelector("[data-activity-type-select]");
     const activityTypeOptions = activityTypeSelect ? Array.from(activityTypeSelect.querySelectorAll("option")) : [];
     const backlogToggle = form?.querySelector("[data-backlog-toggle]");
+    const sharedToggle = form?.querySelector("[data-shared-task-toggle]");
+    const sharedField = form?.querySelector("[data-shared-task-field]");
     const fields = form ? Array.from(form.querySelectorAll("[data-backlog-field]")) : [];
     if (!form || !backlogToggle || !projectSelect || !activityTypeSelect) {
       return;
@@ -314,10 +330,23 @@
       });
     }
 
+    function syncSharedState() {
+      if (!sharedToggle || !sharedField) {
+        return;
+      }
+      sharedField.hidden = !sharedToggle.checked;
+      const select = sharedField.querySelector("select");
+      if (select) {
+        select.disabled = !sharedToggle.checked;
+      }
+    }
+
     projectSelect.addEventListener("change", syncActivityTypes);
     backlogToggle.addEventListener("change", syncBacklogState);
+    sharedToggle?.addEventListener("change", syncSharedState);
     syncActivityTypes();
     syncBacklogState();
+    syncSharedState();
   })();
 
   (() => {
@@ -368,7 +397,7 @@
             task_name_text: `${task.task_id} · ${task.name}`,
           }))}'>!</button>`
         : "";
-      const completeButton = task.status !== "closed"
+      const completeButton = task.status !== "closed" && !task.is_shared
         ? `<button
             type="button"
             class="icon-action success-icon"
@@ -404,9 +433,10 @@
               <div class="task-card-headline">
                 <span class="task-color-trigger" data-task-color-trigger data-task-code="${escapeHtml(task.task_id)}" data-task-color="${escapeHtml(task.task_color)}" data-task-color-label="${escapeHtml(task.task_color_label)}" style="--task-color: ${escapeHtml(task.task_color)}; background: ${escapeHtml(task.task_color)}; background-color: ${escapeHtml(task.task_color)};" role="button" tabindex="0" aria-label="Task color"></span>
                 <span class="chip">${escapeHtml(task.task_id)}</span>
+                ${task.is_shared ? '<span class="badge muted">Shared</span>' : ""}
               </div>
               <strong>${escapeHtml(task.name)}</strong>
-              <small>${escapeHtml(task.activity_type_name || "")}${tagsText ? ` · ${escapeHtml(tagsText)}` : ""}</small>
+              <small>${task.is_shared ? `${escapeHtml(task.shared_status_label || "Shared")} · ${escapeHtml(task.created_by_name || "")} → ${escapeHtml(task.assigned_to_name || "")}${task.activity_type_name ? " · " : ""}` : ""}${escapeHtml(task.activity_type_name || "")}${tagsText ? ` · ${escapeHtml(tagsText)}` : ""}</small>
             </div>
           </td>
           <td class="dashboard-task-table-status-cell">
@@ -417,7 +447,7 @@
           <td>
             ${escapeHtml(task.project_code || "")}${task.project_name ? ` · ${escapeHtml(task.project_name)}` : ""}
             <br>
-            <small>${task.is_backlog ? "Backlog" : `${task.start_date ? `Start: ${escapeHtml(task.start_date)}` : "Start: Not set"}${task.end_date ? ` · End: ${escapeHtml(task.end_date)}` : " · End: Not set"}`}${task.is_private ? " · Private" : ""}</small>
+            <small>${task.is_backlog ? "Backlog" : `${task.start_date ? `Start: ${escapeHtml(task.start_date)}` : "Start: Not set"}${task.end_date ? ` · End: ${escapeHtml(task.end_date)}` : " · End: Not set"}`}${task.is_private ? " · Private" : ""}${task.is_shared ? " · Shared" : ""}</small>
           </td>
           <td>
             ${task.estimated_hours !== null && task.estimated_hours !== undefined ? `Plan ${Number(task.estimated_hours).toFixed(2)}h` : "Plan not set"}

@@ -23,6 +23,16 @@ class TaskStatus(str, Enum):
     CLOSED = "closed"
 
 
+class SharedTaskStatus(str, Enum):
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    WORK_DONE = "work_done"
+    ACCEPTED = "accepted"
+    REWORK_NEEDED = "rework_needed"
+    STALLED = "stalled"
+    CLOSED = "closed"
+
+
 class LeaveType(str, Enum):
     FULL = "full"
     HALF_AM = "half_am"
@@ -159,6 +169,8 @@ class Task(Base):
     status: Mapped[TaskStatus] = mapped_column(SqlEnum(TaskStatus), default=TaskStatus.NOT_STARTED)
     task_color: Mapped[str] = mapped_column(String(7), default="#22c55e")
     tags_text: Mapped[str] = mapped_column(String(1000), default="")
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    shared_status: Mapped[str] = mapped_column(String(30), default="")
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     dashboard_rank: Mapped[int] = mapped_column(default=0)
@@ -173,6 +185,7 @@ class Task(Base):
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     time_logs: Mapped[list["TimeLog"]] = relationship(back_populates="task", cascade="all, delete-orphan")
+    comments: Mapped[list["TaskComment"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 
 
 class WorkList(Base):
@@ -290,6 +303,19 @@ class TimeLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     task: Mapped[Task] = relationship(back_populates="time_logs")
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    comment_type: Mapped[str] = mapped_column(String(30), default="comment")
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    task: Mapped[Task] = relationship(back_populates="comments")
 
 
 class WeeklyAISummary(Base):
