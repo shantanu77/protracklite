@@ -53,8 +53,15 @@
         <p>{{ release.test_instructions|safe if release.test_instructions else "Not provided." }}</p>
       </div>
       <div class="task-detail-description">
-        <span>Unit Test Cases</span>
-        <p>{{ release.unit_test_reference or "Not provided." }}</p>
+        <span>Unit Test Cases / Results</span>
+        {% if release.unit_test_file_path %}
+        <p><a href="/{{ org.slug }}/releases/{{ release.id }}/unit-test-file">{{ release.unit_test_file_name or "Download file" }}</a>{% if release.unit_test_file_size %} · {{ "%.1f"|format(release.unit_test_file_size / 1024) }} KB{% endif %}</p>
+        {% endif %}
+        {% if release.unit_test_reference %}
+        <p>{{ release.unit_test_reference }}</p>
+        {% elif not release.unit_test_file_path %}
+        <p>Not provided.</p>
+        {% endif %}
       </div>
       {% if release.related_tasks_text %}
       <div class="task-detail-description">
@@ -71,7 +78,7 @@
     </section>
 
     {% if can_edit_release %}
-    <form method="post" class="panel form-grid">
+    <form method="post" class="panel form-grid" enctype="multipart/form-data">
       <div class="panel-head full">
         <div>
           <h2>Edit Release</h2>
@@ -112,7 +119,13 @@
       <label>Target Release Date<input name="target_release_date" type="date" value="{{ release.target_release_date or '' }}"></label>
       <label class="full">Change Summary<textarea name="change_summary" rows="4">{{ release.change_summary|safe }}</textarea></label>
       <label class="full">Test Instructions<textarea name="test_instructions" rows="4">{{ release.test_instructions|safe }}</textarea></label>
-      <label class="full">Unit Test Cases<input name="unit_test_reference" value="{{ release.unit_test_reference or '' }}"></label>
+      <label class="full">Unit Test Cases / Results
+        <input name="unit_test_file" type="file" accept=".xlsx,.xls,.csv">
+      </label>
+      {% if release.unit_test_file_path %}
+      <p class="full empty">Current file: <a href="/{{ org.slug }}/releases/{{ release.id }}/unit-test-file">{{ release.unit_test_file_name or "Download file" }}</a></p>
+      {% endif %}
+      <label class="full">Unit Test Reference<input name="unit_test_reference" value="{{ release.unit_test_reference or '' }}"></label>
       <label class="full">Notes<textarea name="notes" rows="3">{{ release.notes|safe }}</textarea></label>
       <button type="submit">Update Release</button>
     </form>

@@ -4,19 +4,21 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import smtplib
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import bleach
 import httpx
-from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import and_, func, inspect, or_, select, text
@@ -174,6 +176,8 @@ DEV_RELEASE_RISK_LEVELS = (
     ("medium", "Medium"),
     ("high", "High"),
 )
+DEV_RELEASE_TEST_FILE_EXTENSIONS = {".xlsx", ".xls", ".csv"}
+DEV_RELEASE_TEST_FILE_MAX_BYTES = 10 * 1024 * 1024
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
 WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v1"
@@ -785,6 +789,23 @@ def ensure_time_logs_schema() -> None:
             connection.execute(text("ALTER TABLE time_logs MODIFY COLUMN notes TEXT NOT NULL"))
 
 
+def ensure_dev_releases_schema() -> None:
+    inspector = inspect(engine)
+    if "dev_releases" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("dev_releases")}
+    ddl_by_column = {
+        "unit_test_file_path": "ALTER TABLE dev_releases ADD COLUMN unit_test_file_path VARCHAR(1000) NOT NULL DEFAULT ''",
+        "unit_test_file_name": "ALTER TABLE dev_releases ADD COLUMN unit_test_file_name VARCHAR(255) NOT NULL DEFAULT ''",
+        "unit_test_file_content_type": "ALTER TABLE dev_releases ADD COLUMN unit_test_file_content_type VARCHAR(120) NOT NULL DEFAULT ''",
+        "unit_test_file_size": "ALTER TABLE dev_releases ADD COLUMN unit_test_file_size INTEGER NOT NULL DEFAULT 0",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in ddl_by_column.items():
+            if column_name not in columns:
+                connection.execute(text(ddl))
+
+
 def ensure_query_indexes() -> None:
     inspector = inspect(engine)
     index_plan = {
@@ -971,6 +992,7 @@ def on_startup() -> None:
     ensure_work_lists_schema()
     ensure_work_list_items_schema()
     ensure_time_logs_schema()
+    ensure_dev_releases_schema()
     ensure_query_indexes()
     db = next(get_db())
     try:
@@ -2354,6 +2376,44 @@ def add_release_event(
             comment=comment.strip(),
         )
     )
+
+
+def dev_release_upload_root() -> Path:
+    return Path(settings.dev_release_upload_dir).expanduser()
+
+
+def upload_has_file(upload: UploadFile | None) -> bool:
+    return bool(upload and upload.filename and upload.filename.strip())
+
+
+def save_release_test_file(release: DevRelease, upload: UploadFile) -> None:
+    filename = os.path.basename(upload.filename or "").strip()
+    extension = Path(filename).suffix.lower()
+    if extension not in DEV_RELEASE_TEST_FILE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unit test cases must be an Excel or CSV file")
+
+    release_dir = dev_release_upload_root() / str(release.org_id) / str(release.id)
+    release_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"unit-tests-{secrets.token_hex(8)}{extension}"
+    target_path = release_dir / stored_name
+
+    total_bytes = 0
+    with target_path.open("wb") as target:
+        while True:
+            chunk = upload.file.read(1024 * 1024)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > DEV_RELEASE_TEST_FILE_MAX_BYTES:
+                target.close()
+                target_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail="Unit test case file must be 10 MB or smaller")
+            target.write(chunk)
+
+    release.unit_test_file_path = str(target_path)
+    release.unit_test_file_name = filename[:255]
+    release.unit_test_file_content_type = (upload.content_type or "application/octet-stream")[:120]
+    release.unit_test_file_size = total_bytes
 
 
 def org_people(db: Session, org_id: int) -> list[User]:
@@ -4136,6 +4196,7 @@ def create_release_page(
     target_release_date: str = Form(""),
     notes: str = Form(""),
     submit_to_qa: bool = Form(False),
+    unit_test_file: UploadFile | None = File(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4150,7 +4211,8 @@ def create_release_page(
     qa_owner = db.get(User, qa_owner_id) if qa_owner_id else None
     if qa_owner and (qa_owner.org_id != org.id or not qa_owner.is_active):
         raise HTTPException(status_code=400, detail="Invalid QA owner")
-    if submit_to_qa and (not change_summary.strip() or not test_instructions.strip() or not unit_test_reference.strip()):
+    has_test_file = upload_has_file(unit_test_file)
+    if submit_to_qa and (not change_summary.strip() or not test_instructions.strip() or (not unit_test_reference.strip() and not has_test_file)):
         raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
     status_value = DevReleaseStatus.SUBMITTED_TO_QA.value if submit_to_qa else DevReleaseStatus.DRAFT.value
     release = DevRelease(
@@ -4172,6 +4234,8 @@ def create_release_page(
     )
     db.add(release)
     db.flush()
+    if unit_test_file and has_test_file:
+        save_release_test_file(release, unit_test_file)
     add_release_event(db, release, user, "", status_value, "Release created." if not submit_to_qa else "Release submitted to QA.")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/releases/{release.id}", status_code=303)
@@ -4220,6 +4284,36 @@ def release_detail_page(
     )
 
 
+@app.get("/{org_slug}/releases/{release_id}/unit-test-file")
+def download_release_unit_test_file(
+    org_slug: str,
+    release_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    release = db.scalar(select(DevRelease).where(DevRelease.id == release_id, DevRelease.org_id == org.id))
+    if not release or not can_view_release(release, user):
+        raise HTTPException(status_code=404, detail="Release not found")
+    if not release.unit_test_file_path:
+        raise HTTPException(status_code=404, detail="Unit test file not found")
+    file_path = Path(release.unit_test_file_path)
+    upload_root = dev_release_upload_root().resolve()
+    try:
+        resolved_path = file_path.resolve()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Unit test file not found") from exc
+    if upload_root not in resolved_path.parents:
+        raise HTTPException(status_code=404, detail="Unit test file not found")
+    if not resolved_path.exists() or not resolved_path.is_file():
+        raise HTTPException(status_code=404, detail="Unit test file not found")
+    return FileResponse(
+        resolved_path,
+        media_type=release.unit_test_file_content_type or "application/octet-stream",
+        filename=release.unit_test_file_name or resolved_path.name,
+    )
+
+
 @app.post("/{org_slug}/releases/{release_id}")
 def update_release_page(
     org_slug: str,
@@ -4235,6 +4329,7 @@ def update_release_page(
     risk_level: str = Form("medium"),
     target_release_date: str = Form(""),
     notes: str = Form(""),
+    unit_test_file: UploadFile | None = File(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4258,6 +4353,8 @@ def update_release_page(
     release.change_summary = sanitize_html(change_summary)
     release.test_instructions = sanitize_html(test_instructions)
     release.unit_test_reference = unit_test_reference.strip()[:1000]
+    if unit_test_file and upload_has_file(unit_test_file):
+        save_release_test_file(release, unit_test_file)
     release.risk_level = risk_level
     release.target_release_date = parse_optional_date(target_release_date)
     release.notes = sanitize_html(notes)
@@ -4286,7 +4383,7 @@ def update_release_status_page(
     allowed = False
     if new_status == DevReleaseStatus.SUBMITTED_TO_QA.value:
         allowed = release.developer_id == user.id or user.role in {Role.ADMIN, Role.MANAGER}
-        if not release.change_summary.strip() or not release.test_instructions.strip() or not release.unit_test_reference.strip():
+        if not release.change_summary.strip() or not release.test_instructions.strip() or (not release.unit_test_reference.strip() and not release.unit_test_file_path):
             raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
         release.submitted_at = release.submitted_at or datetime.utcnow()
     elif new_status in {DevReleaseStatus.QA_IN_PROGRESS.value, DevReleaseStatus.QA_FAILED.value, DevReleaseStatus.QA_PASSED.value}:
@@ -4297,6 +4394,8 @@ def update_release_status_page(
         allowed = can_qa_release(release, user)
     elif new_status == DevReleaseStatus.RESUBMITTED.value:
         allowed = release.developer_id == user.id or user.role in {Role.ADMIN, Role.MANAGER}
+        if not release.change_summary.strip() or not release.test_instructions.strip() or (not release.unit_test_reference.strip() and not release.unit_test_file_path):
+            raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
         release.submitted_at = datetime.utcnow()
     elif new_status in {DevReleaseStatus.READY_FOR_RELEASE.value, DevReleaseStatus.RELEASED.value}:
         allowed = can_release_manage(release, user)

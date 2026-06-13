@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     base_domain: str = "task.omnihire.in"
     openai_api_key: str = ""
     openai_backlog_model: str = "gpt-5.4-mini"
+    dev_release_upload_dir: str = "/var/lib/protracklite/uploads/dev-releases"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
