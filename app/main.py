@@ -4279,7 +4279,7 @@ def create_release_page(
     project_id: int = Form(...),
     title: str = Form(...),
     related_tasks_text: str = Form(""),
-    qa_owner_id: int | None = Form(None),
+    qa_owner_id: str | None = Form(None),
     environment: str = Form("qa"),
     change_summary: str = Form(""),
     test_instructions: str = Form(""),
@@ -4300,7 +4300,8 @@ def create_release_page(
         raise HTTPException(status_code=400, detail="Invalid environment")
     if risk_level not in dict(DEV_RELEASE_RISK_LEVELS):
         raise HTTPException(status_code=400, detail="Invalid risk level")
-    qa_owner = db.get(User, qa_owner_id) if qa_owner_id else None
+    parsed_qa_owner_id = parse_optional_form_int(qa_owner_id, "QA owner")
+    qa_owner = db.get(User, parsed_qa_owner_id) if parsed_qa_owner_id else None
     if qa_owner and (qa_owner.org_id != org.id or not qa_owner.is_active):
         raise HTTPException(status_code=400, detail="Invalid QA owner")
     has_test_file = upload_has_file(unit_test_file)
@@ -4414,7 +4415,7 @@ def update_release_page(
     project_id: int = Form(...),
     title: str = Form(...),
     related_tasks_text: str = Form(""),
-    qa_owner_id: int | None = Form(None),
+    qa_owner_id: str | None = Form(None),
     environment: str = Form("qa"),
     change_summary: str = Form(""),
     test_instructions: str = Form(""),
@@ -4433,7 +4434,8 @@ def update_release_page(
     project = db.get(Project, project_id)
     if not project or project.org_id != org.id:
         raise HTTPException(status_code=404, detail="Project not found")
-    qa_owner = db.get(User, qa_owner_id) if qa_owner_id else None
+    parsed_qa_owner_id = parse_optional_form_int(qa_owner_id, "QA owner")
+    qa_owner = db.get(User, parsed_qa_owner_id) if parsed_qa_owner_id else None
     if qa_owner and (qa_owner.org_id != org.id or not qa_owner.is_active):
         raise HTTPException(status_code=400, detail="Invalid QA owner")
     if environment not in dict(DEV_RELEASE_ENVIRONMENTS) or risk_level not in dict(DEV_RELEASE_RISK_LEVELS):
