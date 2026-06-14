@@ -6,7 +6,7 @@ FastAPI implementation of the `protrackLite.md` specification with:
 - task creation, editing, and time logging
 - work-rate and Monday report pages
 - admin dashboard with team metrics
-- MySQL-ready SQLAlchemy models with SQLite fallback for local development
+- MySQL-backed SQLAlchemy models
 
 ## Local run
 
@@ -49,13 +49,6 @@ DATABASE_URL=mysql+pymysql://USER:PASSWORD@127.0.0.1:3307/protracklite
 BASE_DOMAIN=tasks.omnihire.in
 ```
 
-If you use SQLite in production, do not keep the database inside `/opt/protracklite`, because release extracts can overwrite it. Use a persistent path outside the app directory, for example:
-
-```env
-DATABASE_URL=sqlite:////var/lib/protracklite/protracklite.db
-BASE_DOMAIN=tasks.omnihire.in
-```
-
 That matches your SSH tunnel pattern:
 
 ```bash
@@ -75,7 +68,7 @@ The script:
 - uploads the current `HEAD` as a tarball to the VPS
 - refreshes `/opt/protracklite`
 - preserves runtime settings by reading environment variables from `/etc/protracklite.env`
-- preserves production data because `git archive` does not include ignored files such as local `*.db`
+- preserves production data because runtime data is stored outside the refreshed app directory
 - reinstalls Python dependencies in `/opt/protracklite/.venv`
 - reloads systemd and restarts `protracklite`
 - installs and enables the Friday 3 PM weekly effort reminder timer

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import os
 import smtplib
 from dataclasses import dataclass
 from datetime import date, datetime
 from email.message import EmailMessage
-from pathlib import Path
 
 from sqlalchemy import inspect, select, text
 
@@ -14,13 +12,6 @@ from app.config import get_settings
 
 
 settings = get_settings()
-
-if not settings.database_url.strip():
-    local_db = Path("protracklite.db")
-    if local_db.exists():
-        os.environ["DATABASE_URL"] = "sqlite:///./protracklite.db"
-        get_settings.cache_clear()
-        settings = get_settings()
 
 from app.database import SessionLocal, engine
 from app.models import Organization, User

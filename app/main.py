@@ -607,36 +607,20 @@ def ensure_departments_schema() -> None:
     table_names = inspector.get_table_names()
     with engine.begin() as connection:
         if "departments" not in table_names:
-            if engine.dialect.name == "sqlite":
-                connection.execute(
-                    text(
-                        """
-                        CREATE TABLE departments (
-                            id INTEGER NOT NULL PRIMARY KEY,
-                            org_id INTEGER NOT NULL,
-                            name VARCHAR(150) NOT NULL,
-                            created_at DATETIME NOT NULL,
-                            FOREIGN KEY(org_id) REFERENCES organizations (id),
-                            CONSTRAINT uq_department_name_per_org UNIQUE (org_id, name)
-                        )
-                        """
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE departments (
+                        id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        org_id INTEGER NOT NULL,
+                        name VARCHAR(150) NOT NULL,
+                        created_at DATETIME NOT NULL,
+                        CONSTRAINT uq_department_name_per_org UNIQUE (org_id, name),
+                        FOREIGN KEY(org_id) REFERENCES organizations (id)
                     )
+                    """
                 )
-            else:
-                connection.execute(
-                    text(
-                        """
-                        CREATE TABLE departments (
-                            id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                            org_id INTEGER NOT NULL,
-                            name VARCHAR(150) NOT NULL,
-                            created_at DATETIME NOT NULL,
-                            CONSTRAINT uq_department_name_per_org UNIQUE (org_id, name),
-                            FOREIGN KEY(org_id) REFERENCES organizations (id)
-                        )
-                        """
-                    )
-                )
+            )
 
 
 def ensure_org_settings_schema() -> None:
@@ -679,72 +663,6 @@ def ensure_tasks_schema() -> None:
         start_date_column = task_columns.get("start_date")
         if start_date_column and not start_date_column.get("nullable", True) and engine.dialect.name == "mysql":
             connection.execute(text("ALTER TABLE tasks MODIFY COLUMN start_date DATE NULL"))
-        if start_date_column and not start_date_column.get("nullable", True) and engine.dialect.name == "sqlite":
-            migrate_sqlite_tasks_table(connection)
-
-
-def migrate_sqlite_tasks_table(connection) -> None:
-    connection.execute(text("PRAGMA foreign_keys=OFF"))
-    connection.execute(text("ALTER TABLE tasks RENAME TO tasks__old"))
-    connection.execute(
-        text(
-            """
-            CREATE TABLE tasks (
-                id INTEGER NOT NULL PRIMARY KEY,
-                task_id VARCHAR(20) NOT NULL,
-                org_id INTEGER NOT NULL,
-                project_id INTEGER NOT NULL,
-                assigned_to INTEGER NOT NULL,
-                created_by INTEGER NOT NULL,
-                name VARCHAR(300) NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                activity_type_id INTEGER NOT NULL,
-                status VARCHAR(30) NOT NULL,
-                task_color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
-                tags_text VARCHAR(1000) NOT NULL DEFAULT '',
-                is_shared BOOLEAN NOT NULL DEFAULT FALSE,
-                shared_status VARCHAR(30) NOT NULL DEFAULT '',
-                is_private BOOLEAN NOT NULL DEFAULT FALSE,
-                is_archived BOOLEAN NOT NULL DEFAULT FALSE,
-                dashboard_rank INTEGER NOT NULL DEFAULT 0,
-                start_date DATE NULL,
-                end_date DATE NULL,
-                estimated_hours NUMERIC(5, 2) NULL,
-                logged_hours NUMERIC(6, 2) NOT NULL DEFAULT 0,
-                stalled_reason VARCHAR(500) NOT NULL DEFAULT '',
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL,
-                closed_at DATETIME NULL,
-                FOREIGN KEY(org_id) REFERENCES organizations (id),
-                FOREIGN KEY(project_id) REFERENCES projects (id),
-                FOREIGN KEY(assigned_to) REFERENCES users (id),
-                FOREIGN KEY(created_by) REFERENCES users (id),
-                FOREIGN KEY(activity_type_id) REFERENCES activity_types (id)
-            )
-            """
-        )
-    )
-    connection.execute(
-        text(
-            """
-            INSERT INTO tasks (
-                id, task_id, org_id, project_id, assigned_to, created_by, name, description, activity_type_id,
-                status, task_color, tags_text, is_shared, shared_status, is_private, is_archived, dashboard_rank, start_date, end_date, estimated_hours,
-                logged_hours, stalled_reason, created_at, updated_at, closed_at
-            )
-            SELECT
-                id, task_id, org_id, project_id, assigned_to, created_by, name, description, activity_type_id,
-                status, COALESCE(task_color, '#22c55e'), COALESCE(tags_text, ''), COALESCE(is_shared, FALSE), COALESCE(shared_status, ''), is_private, COALESCE(is_archived, FALSE), COALESCE(dashboard_rank, 0), start_date, end_date, estimated_hours,
-                COALESCE(logged_hours, 0), COALESCE(stalled_reason, ''), created_at, updated_at, closed_at
-            FROM tasks__old
-            """
-        )
-    )
-    connection.execute(text("DROP TABLE tasks__old"))
-    connection.execute(text("CREATE UNIQUE INDEX ix_tasks_task_id ON tasks (task_id)"))
-    connection.execute(text("CREATE INDEX ix_tasks_org_id ON tasks (org_id)"))
-    connection.execute(text("CREATE INDEX ix_tasks_assigned_to ON tasks (assigned_to)"))
-    connection.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def ensure_activity_types_schema() -> None:
