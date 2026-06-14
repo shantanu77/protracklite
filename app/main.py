@@ -50,6 +50,7 @@ from app.models import (
     TaskStatus,
     TimeLog,
     User,
+    UserAnnouncementView,
     WeeklyAISummary,
     WeeklyTaskPlan,
     WeeklyTaskPlanItem,
@@ -178,6 +179,43 @@ DEV_RELEASE_RISK_LEVELS = (
 )
 DEV_RELEASE_TEST_FILE_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 DEV_RELEASE_TEST_FILE_MAX_BYTES = 10 * 1024 * 1024
+WHATS_NEW_ANNOUNCEMENTS = [
+    {
+        "key": "2026-06-shared-tasks-release-handoff",
+        "title": "What's New: Shared Tasks and Dev Release Handoffs",
+        "eyebrow": "New major release",
+        "summary": (
+            "ProtrackLite now supports delegated shared tasks and a structured Dev to QA release handoff flow. "
+            "These changes make ownership, QA readiness, and collaboration clearer before work moves forward."
+        ),
+        "items": [
+            {
+                "title": "Shared tasks for delegated work",
+                "body": "Create a task for someone else while the original creator keeps control over scope, assignment, and final closure.",
+            },
+            {
+                "title": "Built-in discussion on shared tasks",
+                "body": "Creator and assignee can discuss clarifications, blockers, rework, and completion directly on the task.",
+            },
+            {
+                "title": "Assignee effort logging",
+                "body": "The assigned person can log hours against the shared task, so reports show who actually performed the work.",
+            },
+            {
+                "title": "Dev release handoff",
+                "body": "Developers can create release handoffs with project, risk, summary, test instructions, QA owner, and related tasks.",
+            },
+            {
+                "title": "QA-ready test evidence",
+                "body": "Developers can upload an Excel or CSV file with AI-generated test cases and developer test results for QA review.",
+            },
+        ],
+        "primary_link": "/{org_slug}/releases",
+        "primary_label": "Open Releases",
+        "secondary_link": "/{org_slug}/tasks/new",
+        "secondary_label": "Create Shared Task",
+    }
+]
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
 WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v1"
@@ -969,6 +1007,12 @@ def ensure_query_indexes() -> None:
                 "ON dev_release_events (release_id, created_at)"
             ),
         },
+        "user_announcement_views": {
+            "ix_user_announcement_views_user_key": (
+                "CREATE INDEX ix_user_announcement_views_user_key "
+                "ON user_announcement_views (user_id, announcement_key)"
+            ),
+        },
     }
     with engine.begin() as connection:
         for table_name, statements in index_plan.items():
@@ -1123,6 +1167,41 @@ def issue_auth_cookies(response: RedirectResponse | JSONResponse, user: User, or
 def clear_auth_cookies(response: RedirectResponse | JSONResponse) -> None:
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
+
+
+def pending_whats_new_announcement(db: Session, user: User, org_slug: str) -> dict[str, Any] | None:
+    if not WHATS_NEW_ANNOUNCEMENTS:
+        return None
+    announcement = WHATS_NEW_ANNOUNCEMENTS[0]
+    existing = db.scalar(
+        select(UserAnnouncementView).where(
+            UserAnnouncementView.user_id == user.id,
+            UserAnnouncementView.announcement_key == announcement["key"],
+        )
+    )
+    if existing:
+        return None
+    payload = dict(announcement)
+    for link_key in ("primary_link", "secondary_link"):
+        if payload.get(link_key):
+            payload[link_key] = payload[link_key].format(org_slug=org_slug)
+    return payload
+
+
+def mark_whats_new_seen(db: Session, user: User, announcement_key: str) -> bool:
+    valid_keys = {item["key"] for item in WHATS_NEW_ANNOUNCEMENTS}
+    if announcement_key not in valid_keys:
+        return False
+    existing = db.scalar(
+        select(UserAnnouncementView).where(
+            UserAnnouncementView.user_id == user.id,
+            UserAnnouncementView.announcement_key == announcement_key,
+        )
+    )
+    if not existing:
+        db.add(UserAnnouncementView(user_id=user.id, announcement_key=announcement_key))
+        db.commit()
+    return True
 
 
 def is_browser_page_request(request: Request) -> bool:
@@ -3088,8 +3167,22 @@ def dashboard(
             "created_count": created_count,
             "created_summary": created_summary,
             "created_task_ids": created_task_ids,
+            "whats_new_announcement": pending_whats_new_announcement(db, user, org.slug),
         },
     )
+
+
+@app.post("/{org_slug}/whats-new/ack")
+def acknowledge_whats_new(
+    org_slug: str,
+    announcement_key: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    _, user = org_user
+    if not mark_whats_new_seen(db, user, announcement_key):
+        raise HTTPException(status_code=400, detail="Unknown announcement")
+    return JSONResponse({"ok": True})
 
 
 @app.get("/{org_slug}/today", response_class=HTMLResponse)

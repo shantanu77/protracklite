@@ -375,6 +375,16 @@ class DevReleaseEvent(Base):
     release: Mapped[DevRelease] = relationship(back_populates="events")
 
 
+class UserAnnouncementView(Base):
+    __tablename__ = "user_announcement_views"
+    __table_args__ = (UniqueConstraint("user_id", "announcement_key", name="uq_user_announcement_view"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    announcement_key: Mapped[str] = mapped_column(String(120), index=True)
+    viewed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class WeeklyAISummary(Base):
     __tablename__ = "weekly_ai_summaries"
     __table_args__ = (UniqueConstraint("org_id", "user_id", "week_start", name="uq_weekly_ai_summary_org_user_week"),)

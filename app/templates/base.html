@@ -208,6 +208,44 @@
       </form>
     </div>
   </div>
+  {% if whats_new_announcement %}
+  <div
+    class="modal-backdrop is-open"
+    id="whats-new-modal"
+    data-modal
+    data-whats-new-modal
+    data-ack-url="/{{ org.slug }}/whats-new/ack"
+    data-announcement-key="{{ whats_new_announcement.key }}"
+    aria-hidden="false"
+  >
+    <div class="modal-card wide whats-new-card" role="dialog" aria-modal="true" aria-labelledby="whats-new-title">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">{{ whats_new_announcement.eyebrow }}</p>
+          <h2 id="whats-new-title">{{ whats_new_announcement.title }}</h2>
+          <p>{{ whats_new_announcement.summary }}</p>
+        </div>
+      </div>
+      <div class="whats-new-list">
+        {% for item in whats_new_announcement["items"] %}
+        <article class="whats-new-item">
+          <strong>{{ item.title }}</strong>
+          <p>{{ item.body }}</p>
+        </article>
+        {% endfor %}
+      </div>
+      <div class="quick-task-actions">
+        {% if whats_new_announcement.secondary_link %}
+        <a class="button secondary" href="{{ whats_new_announcement.secondary_link }}">{{ whats_new_announcement.secondary_label }}</a>
+        {% endif %}
+        {% if whats_new_announcement.primary_link %}
+        <a class="button secondary" href="{{ whats_new_announcement.primary_link }}">{{ whats_new_announcement.primary_label }}</a>
+        {% endif %}
+        <button type="button" data-whats-new-ack>Got it</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   <div class="task-color-popover" data-task-color-popover hidden>
     <div class="task-color-popover-card">
       <div class="task-color-popover-head">
@@ -273,6 +311,29 @@
       modal.classList.toggle("is-open", open);
       modal.setAttribute("aria-hidden", open ? "false" : "true");
       document.body.classList.toggle("modal-open", open);
+    }
+
+    const whatsNewModal = document.querySelector("[data-whats-new-modal]");
+    if (whatsNewModal?.classList.contains("is-open")) {
+      document.body.classList.add("modal-open");
+    }
+
+    async function acknowledgeWhatsNew(modal) {
+      const announcementKey = modal?.dataset.announcementKey || "";
+      const ackUrl = modal?.dataset.ackUrl || "";
+      if (!announcementKey || !ackUrl) {
+        return;
+      }
+      const formData = new FormData();
+      formData.set("announcement_key", announcementKey);
+      const response = await fetch(ackUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(`Announcement acknowledgement failed: ${response.status}`);
+      }
     }
 
     function fillModal(modal, opener) {
@@ -375,6 +436,26 @@
         const modal = button.closest("[data-modal]");
         if (modal) {
           setModalState(modal, false);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-whats-new-ack]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const modal = button.closest("[data-modal]");
+        if (!modal) {
+          return;
+        }
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = "Saving...";
+        try {
+          await acknowledgeWhatsNew(modal);
+          setModalState(modal, false);
+        } catch (error) {
+          console.error(error);
+          button.disabled = false;
+          button.textContent = originalText || "Got it";
         }
       });
     });
