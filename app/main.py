@@ -4876,7 +4876,7 @@ def add_task_comment_page(
 ):
     org, user = org_user
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
-    if not task or not can_view_task(db, task, user):
+    if not task or not task.is_shared or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
     comment = body.strip()
     if not comment:

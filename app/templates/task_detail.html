@@ -177,6 +177,7 @@
     {% endif %}
   </div>
 
+  {% if task.is_shared %}
   <section class="panel task-timeline-panel" id="discussion">
     <div class="panel-head">
       <div>
@@ -227,6 +228,7 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
 </section>
 
 {% if can_log_task %}
