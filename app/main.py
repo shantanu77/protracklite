@@ -21,7 +21,7 @@ from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, 
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import and_, func, inspect, or_, select, text
+from sqlalchemy import and_, case, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
@@ -5827,6 +5827,33 @@ def api_list_leaves(org_user: tuple[Organization, User] = Depends(get_org_user),
     return [{"id": item.id, "leave_date": item.leave_date.isoformat(), "leave_type": item.leave_type.value, "reason": item.reason} for item in leaves]
 
 
+def bounded_page(value: int, total_pages: int) -> int:
+    return max(1, min(value or 1, max(total_pages, 1)))
+
+
+def bounded_page_size(value: int, default: int = 25, maximum: int = 100) -> int:
+    if value not in {10, 25, 50, 100}:
+        value = default
+    return min(value, maximum)
+
+
+def pagination_payload(request: Request, total: int, page: int, page_size: int) -> dict[str, Any]:
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = bounded_page(page, total_pages)
+    params = dict(request.query_params)
+    params.pop("page", None)
+    params["page_size"] = str(page_size)
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "start": ((page - 1) * page_size + 1) if total else 0,
+        "end": min(page * page_size, total),
+        "query_string": urlencode(params),
+    }
+
+
 @app.post("/api/v1/leaves/")
 def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     _, user = org_user
@@ -5929,12 +5956,55 @@ def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User]
 
 
 @app.get("/{org_slug}/admin/users", response_class=HTMLResponse)
-def admin_users_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+def admin_users_page(
+    request: Request,
+    q: str | None = None,
+    department_id: str | None = None,
+    role_filter: str | None = None,
+    status_filter: str | None = None,
+    page: int = 1,
+    page_size: int = 25,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
     org, user = org_user
     must_be_admin(user)
-    people = db.scalars(select(User).options(selectinload(User.department)).where(User.org_id == org.id).order_by(User.created_at.desc())).all()
+    page_size = bounded_page_size(page_size)
+    query = select(User).options(selectinload(User.department)).where(User.org_id == org.id)
+    search_term = (q or "").strip()
+    selected_department_id = int(department_id) if department_id and department_id.isdigit() else None
+    selected_role = role_filter if role_filter in {item.value for item in Role} else None
+    if search_term:
+        pattern = f"%{search_term}%"
+        query = query.where(or_(User.full_name.ilike(pattern), User.email.ilike(pattern)))
+    if selected_department_id:
+        query = query.where(User.department_id == selected_department_id)
+    if selected_role:
+        query = query.where(User.role == Role(selected_role))
+    if status_filter == "active":
+        query = query.where(User.is_active.is_(True))
+    elif status_filter == "inactive":
+        query = query.where(User.is_active.is_(False))
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    pagination = pagination_payload(request, total, page, page_size)
+    people = db.scalars(
+        query.order_by(User.created_at.desc())
+        .offset((pagination["page"] - 1) * page_size)
+        .limit(page_size)
+    ).all()
     departments = org_departments(db, org.id)
-    managers = [person for person in people if person.role in {Role.ADMIN, Role.MANAGER} and person.is_active]
+    managers = db.scalars(
+        select(User)
+        .where(User.org_id == org.id, User.is_active.is_(True), User.role.in_([Role.ADMIN, Role.MANAGER]))
+        .order_by(User.full_name.asc())
+    ).all()
+    manager_ids = {person.manager_id for person in people if person.manager_id}
+    manager_map = {}
+    if manager_ids:
+        manager_map = {
+            manager.id: manager.full_name
+            for manager in db.scalars(select(User).where(User.org_id == org.id, User.id.in_(manager_ids))).all()
+        }
     default_department = next((item for item in departments if item.name == DEFAULT_USER_DEPARTMENT), departments[0] if departments else None)
     return templates.TemplateResponse(
         "admin_users.html",
@@ -5946,7 +6016,13 @@ def admin_users_page(request: Request, org_user: tuple[Organization, User] = Dep
             "roles": list(Role),
             "departments": departments,
             "managers": managers,
+            "manager_map": manager_map,
             "default_department_id": default_department.id if default_department else None,
+            "q": search_term,
+            "department_id": selected_department_id,
+            "role_filter": selected_role,
+            "status_filter": status_filter,
+            "pagination": pagination,
         },
     )
 
@@ -6346,108 +6422,158 @@ def admin_tasks_page(
     assignee_id: str | None = None,
     project_id: str | None = None,
     status_filter: str | None = None,
+    color: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 25,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     must_be_admin(user)
     today = date.today()
+    page_size = bounded_page_size(page_size)
+    search_term = (q or "").strip()
+    selected_assignee_id = int(assignee_id) if assignee_id and assignee_id.isdigit() else None
+    selected_project_id = int(project_id) if project_id and project_id.isdigit() else None
+    selected_status = status_filter if status_filter in {item.value for item in TaskStatus} else None
+    selected_color = color if color in TASK_COLOR_VALUES else None
+    filters = [
+        Task.org_id == org.id,
+        Task.is_archived.is_(False),
+        User.org_id == org.id,
+        User.is_active.is_(True),
+    ]
+    if selected_assignee_id:
+        filters.append(Task.assigned_to == selected_assignee_id)
+    if selected_project_id:
+        filters.append(Task.project_id == selected_project_id)
+    if selected_status:
+        filters.append(Task.status == TaskStatus(selected_status))
+    if selected_color:
+        filters.append(Task.task_color == selected_color)
+    if search_term:
+        pattern = f"%{search_term}%"
+        filters.append(
+            or_(
+                Task.name.ilike(pattern),
+                Task.task_id.ilike(pattern),
+                Task.tags_text.ilike(pattern),
+                User.full_name.ilike(pattern),
+                User.email.ilike(pattern),
+                Project.code.ilike(pattern),
+                Project.name.ilike(pattern),
+            )
+        )
     query = (
         select(Task)
+        .options(selectinload(Task.project))
         .join(User, Task.assigned_to == User.id)
-        .where(
-            Task.org_id == org.id,
-            Task.is_archived.is_(False),
-            User.org_id == org.id,
-            User.is_active.is_(True),
-        )
+        .join(Project, Task.project_id == Project.id)
+        .where(*filters)
     )
-    if assignee_id:
-        query = query.where(Task.assigned_to == int(assignee_id))
-    if project_id:
-        query = query.where(Task.project_id == int(project_id))
-    if status_filter:
-        query = query.where(Task.status == TaskStatus(status_filter))
-    tasks = db.scalars(query.order_by(Task.created_at.desc())).all()
-    assignee_ids = sorted({task.assigned_to for task in tasks})
     people = db.scalars(
-        select(User).where(User.org_id == org.id, User.is_active.is_(True), User.id.in_(assignee_ids)).order_by(User.full_name.asc())
-    ).all() if assignee_ids else []
-    total_logged_hours = sum(float(task.logged_hours or 0) for task in tasks)
-    open_tasks = [task for task in tasks if task.status != TaskStatus.CLOSED]
-    overdue_tasks = [task for task in open_tasks if task.end_date and task.end_date < today]
-    backlog_tasks = [task for task in open_tasks if task.start_date is None and task.end_date is None]
-    stalled_tasks = [task for task in tasks if task.status == TaskStatus.STALLED]
-    completed_tasks = [task for task in tasks if task.status == TaskStatus.CLOSED]
+        select(User).where(User.org_id == org.id, User.is_active.is_(True)).order_by(User.full_name.asc())
+    ).all()
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    pagination = pagination_payload(request, total, page, page_size)
+    tasks = db.scalars(
+        query.order_by(Task.created_at.desc(), Task.id.desc())
+        .offset((pagination["page"] - 1) * page_size)
+        .limit(page_size)
+    ).all()
     week_start, week_end = current_week_bounds(today)
     previous_week_start, previous_week_end = previous_week_bounds(today)
     month_start = today.replace(day=1)
-    due_this_week = [
-        task for task in open_tasks if task.end_date and week_start <= task.end_date <= week_end
-    ]
-
-    assignee_summary_map: dict[int, dict[str, Any]] = {}
-    task_ids = [task.id for task in tasks]
-    current_week_hours_by_user: dict[int, float] = {}
-    previous_week_hours_by_user: dict[int, float] = {}
-    month_hours_by_user: dict[int, float] = {}
-    if task_ids:
-        current_week_rows = db.execute(
-            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0))
-            .where(
-                TimeLog.task_id.in_(task_ids),
-                TimeLog.log_date >= week_start,
-                TimeLog.log_date <= today,
-            )
-            .group_by(TimeLog.user_id)
+    summary_row = db.execute(
+        select(
+            func.count(Task.id),
+            func.coalesce(func.sum(case((Task.status != TaskStatus.CLOSED, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((and_(Task.status != TaskStatus.CLOSED, Task.end_date < today), 1), else_=0)), 0),
+            func.coalesce(
+                func.sum(case((and_(Task.status != TaskStatus.CLOSED, Task.end_date >= week_start, Task.end_date <= week_end), 1), else_=0)),
+                0,
+            ),
+            func.coalesce(
+                func.sum(case((and_(Task.status != TaskStatus.CLOSED, Task.start_date.is_(None), Task.end_date.is_(None)), 1), else_=0)),
+                0,
+            ),
+            func.coalesce(func.sum(case((Task.status == TaskStatus.STALLED, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Task.status == TaskStatus.CLOSED, 1), else_=0)), 0),
+            func.coalesce(func.sum(Task.logged_hours), 0),
+        )
+        .select_from(Task)
+        .join(User, Task.assigned_to == User.id)
+        .join(Project, Task.project_id == Project.id)
+        .where(*filters)
+    ).one()
+    assignee_rows = db.execute(
+        select(
+            User.id,
+            User.full_name,
+            func.count(Task.id).label("total"),
+            func.coalesce(func.sum(case((Task.status != TaskStatus.CLOSED, 1), else_=0)), 0).label("open"),
+            func.coalesce(func.sum(case((and_(Task.status != TaskStatus.CLOSED, Task.end_date < today), 1), else_=0)), 0).label("overdue"),
+            func.coalesce(func.sum(case((Task.status == TaskStatus.CLOSED, 1), else_=0)), 0).label("completed"),
+        )
+        .select_from(Task)
+        .join(User, Task.assigned_to == User.id)
+        .join(Project, Task.project_id == Project.id)
+        .where(*filters, User.send_effort_reminder.is_(True))
+        .group_by(User.id, User.full_name)
+    ).all()
+    current_week_hours_by_user = {
+        user_id: float(hours or 0)
+        for user_id, hours in db.execute(
+            select(Task.assigned_to, func.coalesce(func.sum(TimeLog.hours), 0))
+            .select_from(Task)
+            .join(User, Task.assigned_to == User.id)
+            .join(Project, Task.project_id == Project.id)
+            .join(TimeLog, TimeLog.task_id == Task.id)
+            .where(*filters, TimeLog.log_date >= week_start, TimeLog.log_date <= today)
+            .group_by(Task.assigned_to)
         ).all()
-        previous_week_rows = db.execute(
-            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0))
-            .where(
-                TimeLog.task_id.in_(task_ids),
-                TimeLog.log_date >= previous_week_start,
-                TimeLog.log_date <= previous_week_end,
-            )
-            .group_by(TimeLog.user_id)
+    }
+    previous_week_hours_by_user = {
+        user_id: float(hours or 0)
+        for user_id, hours in db.execute(
+            select(Task.assigned_to, func.coalesce(func.sum(TimeLog.hours), 0))
+            .select_from(Task)
+            .join(User, Task.assigned_to == User.id)
+            .join(Project, Task.project_id == Project.id)
+            .join(TimeLog, TimeLog.task_id == Task.id)
+            .where(*filters, TimeLog.log_date >= previous_week_start, TimeLog.log_date <= previous_week_end)
+            .group_by(Task.assigned_to)
         ).all()
-        month_rows = db.execute(
-            select(TimeLog.user_id, func.coalesce(func.sum(TimeLog.hours), 0))
-            .where(
-                TimeLog.task_id.in_(task_ids),
-                TimeLog.log_date >= month_start,
-                TimeLog.log_date <= today,
-            )
-            .group_by(TimeLog.user_id)
+    }
+    month_hours_by_user = {
+        user_id: float(hours or 0)
+        for user_id, hours in db.execute(
+            select(Task.assigned_to, func.coalesce(func.sum(TimeLog.hours), 0))
+            .select_from(Task)
+            .join(User, Task.assigned_to == User.id)
+            .join(Project, Task.project_id == Project.id)
+            .join(TimeLog, TimeLog.task_id == Task.id)
+            .where(*filters, TimeLog.log_date >= month_start, TimeLog.log_date <= today)
+            .group_by(Task.assigned_to)
         ).all()
-        current_week_hours_by_user = {user_id: float(hours or 0) for user_id, hours in current_week_rows}
-        previous_week_hours_by_user = {user_id: float(hours or 0) for user_id, hours in previous_week_rows}
-        month_hours_by_user = {user_id: float(hours or 0) for user_id, hours in month_rows}
-
-    snapshot_people = [person for person in people if person.send_effort_reminder]
-    for person in snapshot_people:
-        assignee_summary_map[person.id] = {
-            "person": person,
-            "total": 0,
-            "open": 0,
-            "overdue": 0,
-            "completed": 0,
-            "current_week_hours": current_week_hours_by_user.get(person.id, 0.0),
-            "previous_week_hours": previous_week_hours_by_user.get(person.id, 0.0),
-            "month_hours": month_hours_by_user.get(person.id, 0.0),
-        }
-    for task in tasks:
-        summary = assignee_summary_map.get(task.assigned_to)
-        if not summary:
-            continue
-        summary["total"] += 1
-        if task.status == TaskStatus.CLOSED:
-            summary["completed"] += 1
-        else:
-            summary["open"] += 1
-            if task.end_date and task.end_date < today:
-                summary["overdue"] += 1
+    }
+    people_by_id = {person.id: person for person in people}
     assignee_summary = sorted(
-        assignee_summary_map.values(),
+        [
+            {
+                "person": people_by_id[user_id],
+                "total": int(total_count or 0),
+                "open": int(open_count or 0),
+                "overdue": int(overdue_count or 0),
+                "completed": int(completed_count or 0),
+                "current_week_hours": current_week_hours_by_user.get(user_id, 0.0),
+                "previous_week_hours": previous_week_hours_by_user.get(user_id, 0.0),
+                "month_hours": month_hours_by_user.get(user_id, 0.0),
+            }
+            for user_id, full_name, total_count, open_count, overdue_count, completed_count in assignee_rows
+            if user_id in people_by_id
+        ],
         key=lambda item: (item["month_hours"], item["current_week_hours"], item["overdue"], item["open"], item["completed"]),
         reverse=True,
     )
@@ -6463,18 +6589,21 @@ def admin_tasks_page(
             "people_map": {person.id: person.full_name for person in people},
             "projects": all_org_projects(db, org.id),
             "statuses": list(TaskStatus),
-            "assignee_id": int(assignee_id) if assignee_id else None,
-            "project_id": int(project_id) if project_id else None,
-            "status_filter": status_filter,
+            "assignee_id": selected_assignee_id,
+            "project_id": selected_project_id,
+            "status_filter": selected_status,
+            "selected_color": selected_color,
+            "q": search_term,
+            "pagination": pagination,
             "task_summary": {
-                "total": len(tasks),
-                "open": len(open_tasks),
-                "overdue": len(overdue_tasks),
-                "due_this_week": len(due_this_week),
-                "backlog": len(backlog_tasks),
-                "stalled": len(stalled_tasks),
-                "completed": len(completed_tasks),
-                "logged_hours": round(total_logged_hours, 2),
+                "total": int(summary_row[0] or 0),
+                "open": int(summary_row[1] or 0),
+                "overdue": int(summary_row[2] or 0),
+                "due_this_week": int(summary_row[3] or 0),
+                "backlog": int(summary_row[4] or 0),
+                "stalled": int(summary_row[5] or 0),
+                "completed": int(summary_row[6] or 0),
+                "logged_hours": round(float(summary_row[7] or 0), 2),
             },
             "assignee_summary": assignee_summary,
         },

@@ -66,22 +66,22 @@
   </div>
 </section>
 
-<section class="panel data-grid" data-grid>
+<section class="panel data-grid">
   <div class="grid-toolbar">
     <div class="grid-toolbar-main">
       <div>
         <h2>Task List</h2>
-        <p>Cross-org view with the same standard grid search and filters.</p>
+        <p>Cross-org view with server-side search, filters, and pagination.</p>
       </div>
-      <span class="grid-toolbar-meta" data-grid-count></span>
+      <span class="grid-toolbar-meta">{{ pagination.start }}-{{ pagination.end }} of {{ pagination.total }} result{{ "" if pagination.total == 1 else "s" }}</span>
     </div>
-    <div class="grid-controls">
+    <form method="get" class="grid-controls">
       <label class="grid-search">Search
-        <input type="search" placeholder="Search by task, assignee, or project" data-grid-search>
+        <input type="search" name="q" value="{{ q }}" placeholder="Search by task, assignee, or project">
       </label>
       <div class="grid-filters">
         <label>Assignee
-          <select data-grid-filter="assignee">
+          <select name="assignee_id">
             <option value="">All</option>
             {% for person in people %}
             <option value="{{ person.id }}" {% if assignee_id == person.id %}selected{% endif %}>{{ person.full_name }}</option>
@@ -89,7 +89,7 @@
           </select>
         </label>
         <label>Project
-          <select data-grid-filter="project">
+          <select name="project_id">
             <option value="">All</option>
             {% for project in projects %}
             <option value="{{ project.id }}" {% if project_id == project.id %}selected{% endif %}>{{ project.name }}</option>
@@ -97,7 +97,7 @@
           </select>
         </label>
         <label>Status
-          <select data-grid-filter="status">
+          <select name="status_filter">
             <option value="">All</option>
             {% for item in statuses %}
             <option value="{{ item.value }}" {% if status_filter == item.value %}selected{% endif %}>{{ item.value }}</option>
@@ -105,15 +105,26 @@
           </select>
         </label>
         <label>Color
-          <select data-grid-filter="color">
+          <select name="color">
             <option value="">All</option>
             {% for color, label in task_color_choices %}
-            <option value="{{ color }}">{{ label }}</option>
+            <option value="{{ color }}" {% if selected_color == color %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Page Size
+          <select name="page_size">
+            {% for size in [10, 25, 50, 100] %}
+            <option value="{{ size }}" {% if pagination.page_size == size %}selected{% endif %}>{{ size }}</option>
             {% endfor %}
           </select>
         </label>
       </div>
-    </div>
+      <div class="grid-actions">
+        <button type="submit">Apply</button>
+        <a class="button secondary" href="/{{ org.slug }}/admin/tasks">Reset</a>
+      </div>
+    </form>
   </div>
   <div class="table-wrap">
     <table>
@@ -129,14 +140,7 @@
       </thead>
       <tbody>
         {% for task in tasks %}
-        <tr
-          data-grid-row
-          data-grid-search="{{ task.task_id }} {{ task.name }} {{ people_map.get(task.assigned_to, task.assigned_to) }} {{ task.project.name if task.project else '' }} {{ task.tags_text or '' }}"
-          data-assignee="{{ task.assigned_to }}"
-          data-project="{{ task.project_id }}"
-          data-status="{{ task.status.value }}"
-          data-color="{{ task.task_color }}"
-        >
+        <tr>
           <td>
             <div class="task-card-headline">
               <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color }}" aria-label="Task color"></button>
@@ -149,10 +153,19 @@
           <td>{{ "%.2f"|format(task.logged_hours or 0) }}</td>
           <td><a href="/{{ org.slug }}/tasks/{{ task.task_id }}">Open</a></td>
         </tr>
+        {% else %}
+        <tr><td colspan="6"><p class="empty">No tasks match the current search and filters.</p></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <p class="grid-empty empty" data-grid-empty hidden>No tasks match the current search and filters.</p>
+  {% set qs = pagination.query_string %}
+  <nav class="pagination" aria-label="Task list pagination">
+    <span>Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+    <div>
+      <a class="button secondary small{% if pagination.page <= 1 %} disabled{% endif %}" href="?{{ qs ~ '&' if qs }}page={{ pagination.page - 1 }}">Previous</a>
+      <a class="button secondary small{% if pagination.page >= pagination.total_pages %} disabled{% endif %}" href="?{{ qs ~ '&' if qs }}page={{ pagination.page + 1 }}">Next</a>
+    </div>
+  </nav>
 </section>
 {% endblock %}

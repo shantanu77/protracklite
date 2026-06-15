@@ -7,48 +7,59 @@
     <p>Add team members, update roles, and manage access without leaving the page.</p>
   </div>
 </section>
-<section class="panel data-grid" data-grid>
+<section class="panel data-grid">
   <div class="grid-toolbar">
     <div class="grid-toolbar-main">
       <div>
         <h2>User Directory</h2>
-        <p>Use the same searchable grid pattern as projects for admin team management.</p>
+        <p>Search and filter team members with server-side pagination.</p>
       </div>
       <div class="grid-toolbar-actions">
-        <span class="grid-toolbar-meta" data-grid-count></span>
+        <span class="grid-toolbar-meta">{{ pagination.start }}-{{ pagination.end }} of {{ pagination.total }} result{{ "" if pagination.total == 1 else "s" }}</span>
         <button type="button" class="button" data-modal-open="user-create-modal">Add User</button>
       </div>
     </div>
-    <div class="grid-controls">
+    <form method="get" class="grid-controls">
       <label class="grid-search">Search
-        <input type="search" placeholder="Search by name or email" data-grid-search>
+        <input type="search" name="q" value="{{ q }}" placeholder="Search by name or email">
       </label>
       <div class="grid-filters">
         <label>Department
-          <select data-grid-filter="department">
+          <select name="department_id">
             <option value="">All</option>
             {% for department in departments %}
-            <option value="{{ department.name }}">{{ department.name }}</option>
+            <option value="{{ department.id }}" {% if department_id == department.id %}selected{% endif %}>{{ department.name }}</option>
             {% endfor %}
           </select>
         </label>
         <label>Role
-          <select data-grid-filter="role">
+          <select name="role_filter">
             <option value="">All</option>
             {% for role in roles %}
-            <option value="{{ role.value }}">{{ role.value }}</option>
+            <option value="{{ role.value }}" {% if role_filter == role.value %}selected{% endif %}>{{ role.value }}</option>
             {% endfor %}
           </select>
         </label>
         <label>Status
-          <select data-grid-filter="status">
+          <select name="status_filter">
             <option value="">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
+            <option value="active" {% if status_filter == "active" %}selected{% endif %}>Active</option>
+            <option value="inactive" {% if status_filter == "inactive" %}selected{% endif %}>Inactive</option>
+          </select>
+        </label>
+        <label>Page Size
+          <select name="page_size">
+            {% for size in [10, 25, 50, 100] %}
+            <option value="{{ size }}" {% if pagination.page_size == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
           </select>
         </label>
       </div>
-    </div>
+      <div class="grid-actions">
+        <button type="submit">Apply</button>
+        <a class="button secondary" href="/{{ org.slug }}/admin/users">Reset</a>
+      </div>
+    </form>
   </div>
   <div class="table-wrap">
     <table>
@@ -67,19 +78,12 @@
       </thead>
       <tbody>
         {% for person in people %}
-        <tr
-          data-grid-row
-          data-grid-search="{{ person.full_name }} {{ person.email }}"
-          data-department="{{ person.department.name if person.department else '' }}"
-          data-role="{{ person.role.value }}"
-          data-status="{% if person.is_active %}active{% else %}inactive{% endif %}"
-        >
+        <tr>
           <td><strong>{{ person.full_name }}</strong></td>
           <td>{{ person.email }}</td>
           <td>{{ person.department.name if person.department else "Unassigned" }}</td>
           <td>
-            {% set manager = people|selectattr("id", "equalto", person.manager_id)|list|first %}
-            {{ manager.full_name if manager else "Unassigned" }}
+            {{ manager_map.get(person.manager_id, "Unassigned") }}
           </td>
           <td><span class="badge">{{ person.role.value }}</span></td>
           <td>
@@ -106,11 +110,20 @@
             </div>
           </td>
         </tr>
+        {% else %}
+        <tr><td colspan="9"><p class="empty">No users match the current search and filters.</p></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <p class="grid-empty empty" data-grid-empty hidden>No users match the current search and filters.</p>
+  {% set qs = pagination.query_string %}
+  <nav class="pagination" aria-label="User directory pagination">
+    <span>Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+    <div>
+      <a class="button secondary small{% if pagination.page <= 1 %} disabled{% endif %}" href="?{{ qs ~ '&' if qs }}page={{ pagination.page - 1 }}">Previous</a>
+      <a class="button secondary small{% if pagination.page >= pagination.total_pages %} disabled{% endif %}" href="?{{ qs ~ '&' if qs }}page={{ pagination.page + 1 }}">Next</a>
+    </div>
+  </nav>
 </section>
 
 <div class="modal-backdrop" id="user-create-modal" data-modal aria-hidden="true">
