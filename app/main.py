@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, 
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from sqlalchemy import and_, case, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -86,6 +88,8 @@ logger = logging.getLogger(__name__)
 UTC = timezone.utc
 
 SAFE_TAGS = ["p", "b", "strong", "i", "em", "ul", "ol", "li", "br", "a", "code", "pre"]
+SAFE_MARKDOWN_TAGS = [*SAFE_TAGS, "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "hr"]
+SAFE_ATTRIBUTES = {"a": ["href", "title", "rel", "target"]}
 AUTH_REDIRECT_ERRORS = {
     "Authentication required",
     "Invalid token",
@@ -1218,6 +1222,77 @@ def sanitize_html(raw_html: str) -> str:
     return bleach.clean(raw_html or "", tags=SAFE_TAGS, strip=True)
 
 
+def render_markdown_inline(value: str) -> str:
+    escaped = html.escape(value or "")
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r'<a href="\2" target="_blank" rel="noopener">\1</a>', escaped)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"__([^_]+)__", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<em>\1</em>", escaped)
+    escaped = re.sub(r"(?<!_)_([^_\n]+)_(?!_)", r"<em>\1</em>", escaped)
+    return escaped
+
+
+def render_basic_markdown(raw_markdown: str | None) -> Markup:
+    lines = (raw_markdown or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    blocks: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped:
+            index += 1
+            continue
+        if stripped.startswith("```"):
+            index += 1
+            code_lines: list[str] = []
+            while index < len(lines) and not lines[index].strip().startswith("```"):
+                code_lines.append(lines[index])
+                index += 1
+            if index < len(lines):
+                index += 1
+            blocks.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
+            continue
+        heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading_match:
+            level = len(heading_match.group(1))
+            blocks.append(f"<h{level}>{render_markdown_inline(heading_match.group(2))}</h{level}>")
+            index += 1
+            continue
+        if re.match(r"^[-*]\s+", stripped):
+            items: list[str] = []
+            while index < len(lines) and re.match(r"^[-*]\s+", lines[index].strip()):
+                items.append(re.sub(r"^[-*]\s+", "", lines[index].strip()))
+                index += 1
+            blocks.append("<ul>" + "".join(f"<li>{render_markdown_inline(item)}</li>" for item in items) + "</ul>")
+            continue
+        if re.match(r"^\d+\.\s+", stripped):
+            items = []
+            while index < len(lines) and re.match(r"^\d+\.\s+", lines[index].strip()):
+                items.append(re.sub(r"^\d+\.\s+", "", lines[index].strip()))
+                index += 1
+            blocks.append("<ol>" + "".join(f"<li>{render_markdown_inline(item)}</li>" for item in items) + "</ol>")
+            continue
+        paragraph_lines = [stripped]
+        index += 1
+        while index < len(lines) and lines[index].strip() and not re.match(r"^(```|#{1,6}\s+|[-*]\s+|\d+\.\s+)", lines[index].strip()):
+            paragraph_lines.append(lines[index].strip())
+            index += 1
+        blocks.append(f"<p>{render_markdown_inline(' '.join(paragraph_lines))}</p>")
+
+    clean_html = bleach.clean(
+        "\n".join(blocks),
+        tags=SAFE_MARKDOWN_TAGS,
+        attributes=SAFE_ATTRIBUTES,
+        protocols=["http", "https", "mailto"],
+        strip=True,
+    )
+    return Markup(clean_html)
+
+
+templates.env.filters["markdown"] = render_basic_markdown
+
+
 def escape_ical_text(value: str) -> str:
     return (
         (value or "")
@@ -2331,7 +2406,7 @@ def can_view_release(release: DevRelease, user: User) -> bool:
         return True
     if release.developer_id == user.id or release.qa_owner_id == user.id:
         return True
-    return release.status != DevReleaseStatus.DRAFT.value and is_qa_user(user)
+    return release.status != DevReleaseStatus.DRAFT.value
 
 
 def can_edit_release(release: DevRelease, user: User) -> bool:
@@ -4201,7 +4276,6 @@ def create_release_page(
     environment: str = Form("qa"),
     change_summary: str = Form(""),
     test_instructions: str = Form(""),
-    unit_test_reference: str = Form(""),
     risk_level: str = Form("medium"),
     target_release_date: str = Form(""),
     notes: str = Form(""),
@@ -4224,7 +4298,7 @@ def create_release_page(
         raise HTTPException(status_code=400, detail="Invalid QA owner")
     has_test_file = upload_has_file(unit_test_file)
     submit_to_qa = submit_action == "qa"
-    if submit_to_qa and (not change_summary.strip() or not test_instructions.strip() or (not unit_test_reference.strip() and not has_test_file)):
+    if submit_to_qa and (not change_summary.strip() or not test_instructions.strip() or not has_test_file):
         raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
     status_value = DevReleaseStatus.SUBMITTED_TO_QA.value if submit_to_qa else DevReleaseStatus.DRAFT.value
     release = DevRelease(
@@ -4235,9 +4309,9 @@ def create_release_page(
         developer_id=user.id,
         qa_owner_id=qa_owner.id if qa_owner else None,
         environment=environment,
-        change_summary=sanitize_html(change_summary),
+        change_summary=change_summary.strip(),
         test_instructions=sanitize_html(test_instructions),
-        unit_test_reference=unit_test_reference.strip()[:1000],
+        unit_test_reference="",
         risk_level=risk_level,
         target_release_date=parse_optional_date(target_release_date),
         notes=sanitize_html(notes),
@@ -4337,7 +4411,6 @@ def update_release_page(
     environment: str = Form("qa"),
     change_summary: str = Form(""),
     test_instructions: str = Form(""),
-    unit_test_reference: str = Form(""),
     risk_level: str = Form("medium"),
     target_release_date: str = Form(""),
     notes: str = Form(""),
@@ -4363,9 +4436,9 @@ def update_release_page(
     release.related_tasks_text = related_tasks_text.strip()[:1000]
     release.qa_owner_id = qa_owner.id if qa_owner else None
     release.environment = environment
-    release.change_summary = sanitize_html(change_summary)
+    release.change_summary = change_summary.strip()
     release.test_instructions = sanitize_html(test_instructions)
-    release.unit_test_reference = unit_test_reference.strip()[:1000]
+    release.unit_test_reference = ""
     if unit_test_file and upload_has_file(unit_test_file):
         save_release_test_file(release, unit_test_file)
     release.risk_level = risk_level
@@ -4396,7 +4469,7 @@ def update_release_status_page(
     allowed = False
     if new_status == DevReleaseStatus.SUBMITTED_TO_QA.value:
         allowed = release.developer_id == user.id or user.role in {Role.ADMIN, Role.MANAGER}
-        if not release.change_summary.strip() or not release.test_instructions.strip() or (not release.unit_test_reference.strip() and not release.unit_test_file_path):
+        if not release.change_summary.strip() or not release.test_instructions.strip() or not release.unit_test_file_path:
             raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
         release.submitted_at = release.submitted_at or datetime.utcnow()
     elif new_status in {DevReleaseStatus.QA_IN_PROGRESS.value, DevReleaseStatus.QA_FAILED.value, DevReleaseStatus.QA_PASSED.value}:
@@ -4407,7 +4480,7 @@ def update_release_status_page(
         allowed = can_qa_release(release, user)
     elif new_status == DevReleaseStatus.RESUBMITTED.value:
         allowed = release.developer_id == user.id or user.role in {Role.ADMIN, Role.MANAGER}
-        if not release.change_summary.strip() or not release.test_instructions.strip() or (not release.unit_test_reference.strip() and not release.unit_test_file_path):
+        if not release.change_summary.strip() or not release.test_instructions.strip() or not release.unit_test_file_path:
             raise HTTPException(status_code=400, detail="Change summary, test instructions, and unit test cases are required")
         release.submitted_at = datetime.utcnow()
     elif new_status in {DevReleaseStatus.READY_FOR_RELEASE.value, DevReleaseStatus.RELEASED.value}:

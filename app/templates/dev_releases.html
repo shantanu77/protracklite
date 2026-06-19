@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Dev to QA</p>
     <h1>Releases</h1>
-    <p>Create release handoffs with test instructions and unit test references.</p>
+    <p>Create release handoffs with test instructions and uploaded unit test results.</p>
   </div>
 </section>
 
@@ -48,14 +48,23 @@
       </select>
     </label>
     <label>Target Release Date<input name="target_release_date" type="date"></label>
-    <label class="full">Change Summary<textarea name="change_summary" rows="4" placeholder="What changed and why"></textarea></label>
+    <label class="full markdown-editor" data-markdown-editor>Change Summary
+      <span class="markdown-toolbar" aria-label="Markdown formatting tools">
+        <button type="button" class="secondary" data-md-wrap="**" title="Bold">B</button>
+        <button type="button" class="secondary" data-md-wrap="*" title="Italic">I</button>
+        <button type="button" class="secondary" data-md-prefix="- " title="Bullet list">-</button>
+        <button type="button" class="secondary" data-md-prefix="1. " title="Numbered list">1.</button>
+        <button type="button" class="secondary" data-md-prefix="## " title="Heading">H</button>
+        <button type="button" class="secondary" data-md-link title="Link">Link</button>
+      </span>
+      <textarea name="change_summary" rows="6" placeholder="What changed and why. Markdown supported."></textarea>
+    </label>
     <label class="full">Test Instructions<textarea name="test_instructions" rows="4" placeholder="Steps QA should follow"></textarea></label>
     <label class="full">Unit Test Cases / Results
       <input name="unit_test_file" type="file" accept=".xlsx,.xls,.csv">
     </label>
-    <label class="full">Unit Test Reference<input name="unit_test_reference" placeholder="Optional document URL, repo test file, or CI report link"></label>
     <label class="full">Notes<textarea name="notes" rows="3" placeholder="Known issues, config notes, rollback notes"></textarea></label>
-    <p class="form-helper full">Save Draft keeps the handoff editable while details are incomplete. Submit to QA sends the handoff for testing and requires summary, test instructions, and unit test cases/results.</p>
+    <p class="form-helper full">Save Draft keeps the handoff editable while details are incomplete. Submit to QA sends the handoff for testing and requires summary, test instructions, and an uploaded unit test cases/results file.</p>
     <div class="full task-create-actions">
       <button type="submit" name="submit_action" value="draft" class="secondary">Save Draft</button>
       <button type="submit" name="submit_action" value="qa">Submit to QA</button>
@@ -120,4 +129,43 @@
     </div>
   </section>
 </div>
+<script>
+  document.querySelectorAll("[data-markdown-editor]").forEach((editor) => {
+    const textarea = editor.querySelector("textarea");
+    if (!textarea) {
+      return;
+    }
+
+    const replaceSelection = (before, after = "", fallback = "") => {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const selected = textarea.value.slice(start, end) || fallback;
+      textarea.setRangeText(`${before}${selected}${after}`, start, end, "select");
+      textarea.focus();
+    };
+
+    editor.querySelectorAll("[data-md-wrap]").forEach((button) => {
+      button.addEventListener("click", () => replaceSelection(button.dataset.mdWrap, button.dataset.mdWrap, "text"));
+    });
+
+    editor.querySelectorAll("[data-md-prefix]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const prefix = button.dataset.mdPrefix || "";
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selected = textarea.value.slice(start, end) || "item";
+        const formatted = selected.split("\n").map((line, index) => {
+          const linePrefix = prefix === "1. " ? `${index + 1}. ` : prefix;
+          return `${linePrefix}${line}`;
+        }).join("\n");
+        textarea.setRangeText(formatted, start, end, "select");
+        textarea.focus();
+      });
+    });
+
+    editor.querySelectorAll("[data-md-link]").forEach((button) => {
+      button.addEventListener("click", () => replaceSelection("[", "](https://)", "link text"));
+    });
+  });
+</script>
 {% endblock %}
