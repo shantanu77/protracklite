@@ -81,6 +81,7 @@ from app.security import (
     verify_password,
 )
 from app.seed import migrate_department_activity_catalog, seed_defaults, seed_department_assignments
+from app.time_utils import format_local_datetime
 
 
 settings = get_settings()
@@ -260,6 +261,8 @@ def render_user_avatar(person: User | None, size: int = 24, class_name: str = ""
 
 templates.env.globals["user_avatar"] = render_user_avatar
 templates.env.globals["user_initials"] = user_initials
+templates.env.filters["local_datetime"] = format_local_datetime
+templates.env.globals["local_datetime"] = format_local_datetime
 
 
 def infer_activity_category(code: str, name: str) -> str:
@@ -2789,7 +2792,7 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
             "is_private": task.is_private,
             "created_at": task.created_at,
             "updated_at": task.updated_at,
-            "updated_at_label": task.updated_at.strftime("%d %b %Y, %I:%M %p") if task.updated_at else "",
+            "updated_at_label": format_local_datetime(task.updated_at),
             "completion_min_date": (task.start_date or task.created_at.date()).isoformat(),
             "completion_max_date": date.today().isoformat(),
         }
@@ -2916,7 +2919,7 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
                 "completed_items": completed_items,
                 "progress_percent": progress_percent,
                 "updated_at": work_list.updated_at,
-                "updated_at_label": work_list.updated_at.strftime("%d %b %Y, %I:%M %p") if work_list.updated_at else "",
+                "updated_at_label": format_local_datetime(work_list.updated_at),
                 "is_shared": bool(work_list.members),
                 "is_owner": work_list.owner_user_id == user_id,
             }
@@ -3004,7 +3007,7 @@ def performance_plan_summaries(db: Session, org_id: int, user: User) -> list[dic
                 "achievement_percent": calculate_plan_achievement_percent(plan),
                 "goal_weight_total": decimal_to_float(goal_weight_total),
                 "weights_valid": weight_total_is_valid(goal_weight_total),
-                "updated_at_label": plan.updated_at.strftime("%d %b %Y, %I:%M %p") if plan.updated_at else "",
+                "updated_at_label": format_local_datetime(plan.updated_at),
             }
         )
     return summaries
@@ -4233,7 +4236,7 @@ async def toggle_list_item_page(
     return {
         "ok": True,
         "is_completed": bool(item.is_completed),
-        "completed_at_label": item.completed_at.strftime("%d %b %Y, %I:%M %p") if item.completed_at else "",
+        "completed_at_label": format_local_datetime(item.completed_at),
         "created_at_label": item.created_at.strftime("%d %b %Y"),
         "completed_by_name": completed_by_name,
     }
@@ -5423,7 +5426,7 @@ def api_list_tasks(
             "is_backlog": task.start_date is None and task.end_date is None and task.estimated_hours is None,
             "start_date": task.start_date.isoformat() if task.start_date else None,
             "end_date": task.end_date.isoformat() if task.end_date else None,
-            "updated_at_label": task.updated_at.strftime("%d %b %Y, %I:%M %p") if task.updated_at else "",
+            "updated_at_label": format_local_datetime(task.updated_at),
             "completion_min_date": (task.start_date or task.created_at.date()).isoformat(),
             "completion_max_date": today.isoformat(),
         }

@@ -207,7 +207,7 @@
           <div class="timeline-head">
             {% set comment_user = people_map.get(comment.user_id) %}
             <strong class="avatar-name">{{ user_avatar(comment_user, 24) }} {{ comment_user.full_name if comment_user else "Unknown" }}</strong>
-            <span>{{ comment.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
+            <span>{{ comment.created_at|local_datetime }}</span>
           </div>
           <p>{{ comment.body|safe }}</p>
         </div>

@@ -186,7 +186,7 @@
   </div>
   <p class="ai-summary-copy">{{ report.weekly_ai_summary.summary_text }}</p>
   <div class="ai-summary-meta">
-    <span>Generated {{ report.weekly_ai_summary.generated_at.strftime("%d %b %Y %I:%M %p") }}</span>
+    <span>Generated {{ report.weekly_ai_summary.generated_at|local_datetime("%d %b %Y %I:%M %p") }}</span>
     <span>From {{ report.weekly_ai_summary.task_count }} selected task{% if report.weekly_ai_summary.task_count != 1 %}s{% endif %}</span>
     <span>{{ "%.2f"|format(report.weekly_ai_summary.total_selected_hours or 0) }}h selected effort</span>
   </div>

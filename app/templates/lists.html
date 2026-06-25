@@ -124,7 +124,7 @@
         </div>
       </form>
     </div>
-    <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at.strftime("%d %b %Y") }}</strong></div>
+    <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at|local_datetime("%d %b %Y") }}</strong></div>
   </div>
   <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
 
@@ -149,7 +149,7 @@
       </div>
       <small class="list-item-meta" data-list-item-meta>
         {% if item.is_completed and item.completed_at %}
-        {{ item.completed_at.strftime("%d %b %Y, %I:%M %p") }}
+        {{ item.completed_at|local_datetime }}
         {% if item.completed_by and people_map.get(item.completed_by) %}
         <span class="list-item-completed-by" data-list-item-completed-by>· {{ people_map.get(item.completed_by).full_name }}</span>
         {% endif %}
@@ -254,7 +254,7 @@
           <div class="timeline-head">
             {% set comment_user = people_map.get(comment.user_id) %}
             <strong class="avatar-name">{{ user_avatar(comment_user, 24) }} {{ comment_user.full_name if comment_user else "Former member" }}</strong>
-            <span>{{ comment.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
+            <span>{{ comment.created_at|local_datetime }}</span>
           </div>
           <p>{{ comment.body }}</p>
         </div>

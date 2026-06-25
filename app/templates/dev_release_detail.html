@@ -206,7 +206,7 @@
         <div class="timeline-card">
           <div class="timeline-head">
             <strong>{{ people_map.get(event.user_id).full_name if people_map.get(event.user_id) else "Unknown" }}</strong>
-            <span>{{ event.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
+            <span>{{ event.created_at|local_datetime }}</span>
           </div>
           {% if event.previous_status != event.new_status %}
           <p><strong>{{ statuses.get(event.previous_status, event.previous_status|replace('_', ' ')|title) if event.previous_status else "New" }}</strong> → <strong>{{ statuses.get(event.new_status, event.new_status|replace('_', ' ')|title) }}</strong></p>
