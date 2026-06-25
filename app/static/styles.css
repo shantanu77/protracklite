@@ -4297,6 +4297,10 @@ th {
   pointer-events: none;
 }
 
+.list-share-person[hidden] {
+  display: none;
+}
+
 .list-share-checkmark {
   display: inline-flex;
   align-items: center;
