@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
-from sqlalchemy import and_, case, func, inspect, or_, select, text
+from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
@@ -57,7 +57,9 @@ from app.models import (
     WeeklyTaskPlan,
     WeeklyTaskPlanItem,
     WorkList,
+    WorkListComment,
     WorkListItem,
+    WorkListMember,
 )
 from app.reports import (
     admin_leaderboard_report,
@@ -722,6 +724,7 @@ def ensure_work_list_items_schema() -> None:
     ddl_by_column = {
         "is_starred": "ALTER TABLE work_list_items ADD COLUMN is_starred BOOLEAN NOT NULL DEFAULT FALSE",
         "priority": "ALTER TABLE work_list_items ADD COLUMN priority VARCHAR(20) NOT NULL DEFAULT 'low'",
+        "completed_by": "ALTER TABLE work_list_items ADD COLUMN completed_by INTEGER NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -2719,11 +2722,34 @@ def next_work_list_sort_order(db: Session, org_id: int, user_id: int) -> int:
     return int(current_max or 0) + 1
 
 
+def work_list_member_ids_query(user_id: int):
+    return select(WorkListMember.work_list_id).where(WorkListMember.user_id == user_id)
+
+
+def can_manage_work_list(work_list: WorkList, user_id: int) -> bool:
+    return work_list.owner_user_id == user_id
+
+
+def set_work_list_members(db: Session, work_list: WorkList, org_id: int, owner_user_id: int, member_ids: list[int]) -> None:
+    valid_ids = {
+        person.id
+        for person in db.scalars(select(User).where(User.org_id == org_id, User.id.in_(member_ids))).all()
+        if person.id != owner_user_id
+    }
+    db.execute(delete(WorkListMember).where(WorkListMember.work_list_id == work_list.id))
+    for member_id in valid_ids:
+        db.add(WorkListMember(work_list_id=work_list.id, user_id=member_id))
+
+
 def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str, Any]]:
     lists = db.scalars(
         select(WorkList)
-        .options(selectinload(WorkList.items))
-        .where(WorkList.org_id == org_id, WorkList.owner_user_id == user_id, WorkList.is_archived.is_(False))
+        .options(selectinload(WorkList.items), selectinload(WorkList.members))
+        .where(
+            WorkList.org_id == org_id,
+            WorkList.is_archived.is_(False),
+            or_(WorkList.owner_user_id == user_id, WorkList.id.in_(work_list_member_ids_query(user_id))),
+        )
         .order_by(WorkList.sort_order.asc(), WorkList.updated_at.desc(), WorkList.id.desc())
     ).all()
     summaries = []
@@ -2744,6 +2770,8 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
                 "progress_percent": progress_percent,
                 "updated_at": work_list.updated_at,
                 "updated_at_label": work_list.updated_at.strftime("%d %b %Y, %I:%M %p") if work_list.updated_at else "",
+                "is_shared": bool(work_list.members),
+                "is_owner": work_list.owner_user_id == user_id,
             }
         )
     return summaries
@@ -2754,12 +2782,12 @@ def work_list_detail(db: Session, org_id: int, user_id: int, list_id: int | None
         return None
     return db.scalar(
         select(WorkList)
-        .options(selectinload(WorkList.items))
+        .options(selectinload(WorkList.items), selectinload(WorkList.members))
         .where(
             WorkList.id == list_id,
             WorkList.org_id == org_id,
-            WorkList.owner_user_id == user_id,
             WorkList.is_archived.is_(False),
+            or_(WorkList.owner_user_id == user_id, WorkList.id.in_(work_list_member_ids_query(user_id))),
         )
     )
 
@@ -3716,6 +3744,13 @@ def lists_page(
         if selected
         else []
     )
+    org_users = org_people(db, org.id)
+    people_map = {person.id: person for person in org_users}
+    comments = (
+        sorted(selected.comments, key=lambda comment: comment.created_at)
+        if selected and selected.members
+        else []
+    )
     return templates.TemplateResponse(
         "lists.html",
         {
@@ -3727,6 +3762,11 @@ def lists_page(
             "selected_items": selected_items,
             "open_ai": bool(open_ai),
             "manage_mode": selected is None,
+            "org_users": [person for person in org_users if person.id != user.id],
+            "people_map": people_map,
+            "comments": comments,
+            "is_owner": bool(selected) and can_manage_work_list(selected, user.id),
+            "member_ids": {member.user_id for member in selected.members} if selected else set(),
         },
     )
 
@@ -3739,6 +3779,7 @@ async def create_list_page(
     description: str = Form(""),
     target_date: str = Form(""),
     items_text: str = Form(""),
+    shared_with: list[int] = Form([]),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -3759,6 +3800,8 @@ async def create_list_page(
     db.flush()
     for index, item_title in enumerate(items, start=1):
         db.add(WorkListItem(work_list_id=work_list.id, title=item_title, sort_order=index))
+    if shared_with:
+        set_work_list_members(db, work_list, org.id, user.id, shared_with)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
 
@@ -3768,6 +3811,7 @@ async def create_ai_list_page(
     org_slug: str,
     list_title: str = Form(""),
     plan_text: str = Form(""),
+    shared_with: list[int] = Form([]),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -3798,6 +3842,8 @@ async def create_ai_list_page(
                 sort_order=index,
             )
         )
+    if shared_with:
+        set_work_list_members(db, work_list, org.id, user.id, shared_with)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
 
@@ -3939,6 +3985,8 @@ async def update_list_page(
     work_list = work_list_detail(db, org.id, user.id, list_id)
     if not work_list:
         raise HTTPException(status_code=404, detail="List not found")
+    if not can_manage_work_list(work_list, user.id):
+        raise HTTPException(status_code=403, detail="Only the list owner can edit this list")
     normalized_title = title.strip()[:200]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="List title is required")
@@ -3972,12 +4020,18 @@ async def toggle_list_item_page(
         raise HTTPException(status_code=404, detail="List item not found")
     item.is_completed = not item.is_completed
     item.completed_at = datetime.utcnow() if item.is_completed else None
+    item.completed_by = user.id if item.is_completed else None
     db.commit()
+    completed_by_name = ""
+    if item.completed_by:
+        completer = db.get(User, item.completed_by)
+        completed_by_name = completer.full_name if completer else ""
     return {
         "ok": True,
         "is_completed": bool(item.is_completed),
         "completed_at_label": item.completed_at.strftime("%d %b %Y") if item.completed_at else "",
         "created_at_label": item.created_at.strftime("%d %b %Y"),
+        "completed_by_name": completed_by_name,
     }
 
 
@@ -3992,9 +4046,64 @@ async def archive_list_page(
     work_list = work_list_detail(db, org.id, user.id, list_id)
     if not work_list:
         raise HTTPException(status_code=404, detail="List not found")
+    if not can_manage_work_list(work_list, user.id):
+        raise HTTPException(status_code=403, detail="Only the list owner can archive this list")
     work_list.is_archived = True
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/lists", status_code=303)
+
+
+@app.post("/{org_slug}/lists/{list_id}/members")
+async def update_list_members_page(
+    org_slug: str,
+    list_id: int,
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    if not can_manage_work_list(work_list, user.id):
+        raise HTTPException(status_code=403, detail="Only the list owner can manage sharing")
+    payload = await request.json()
+    raw_ids = payload.get("user_ids") if isinstance(payload, dict) else None
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="user_ids is required")
+    member_ids: list[int] = []
+    for raw in raw_ids:
+        try:
+            member_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    set_work_list_members(db, work_list, org.id, user.id, member_ids)
+    db.commit()
+    return {
+        "ok": True,
+        "is_shared": bool(member_ids),
+        "member_names": [person.full_name for person in org_people(db, org.id) if person.id in member_ids],
+    }
+
+
+@app.post("/{org_slug}/lists/{list_id}/comments")
+async def add_list_comment_page(
+    org_slug: str,
+    list_id: int,
+    body: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    normalized_body = body.strip()
+    if not normalized_body:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    db.add(WorkListComment(work_list_id=work_list.id, user_id=user.id, body=normalized_body))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/lists?list_id={list_id}", status_code=303)
 
 
 @app.post("/{org_slug}/lists/reorder")

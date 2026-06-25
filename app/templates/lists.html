@@ -27,6 +27,13 @@
       <label>Target Date<input name="target_date" type="date"></label>
       <label class="full">Description<textarea name="description" rows="4" placeholder="What is this list for?"></textarea></label>
       <label class="full">Items<textarea name="items_text" rows="8" placeholder="Paste one item per line"></textarea></label>
+      <label class="full">Shared With <small class="empty">(optional &mdash; people who can see and work on this list)</small>
+        <select name="shared_with" multiple size="5">
+          {% for person in org_users %}
+          <option value="{{ person.id }}">{{ person.full_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <button type="submit">Create List</button>
     </form>
 
@@ -44,6 +51,7 @@
             <div class="list-summary-title-wrap">
               <span class="list-drag-handle" aria-hidden="true">⋮⋮</span>
               <strong>{{ item.title }}</strong>
+              {% if item.is_shared %}<span class="shared-list-icon" title="Shared list">⇄</span>{% endif %}
             </div>
             <div class="list-summary-actions">
               <span class="badge muted">{{ "%.0f"|format(item.progress_percent) }}%</span>
@@ -68,7 +76,7 @@
 <section class="panel list-detail-panel compact-list-detail">
   <div class="list-detail-top">
     <div>
-      <p class="eyebrow">Selected List</p>
+      <p class="eyebrow">Selected List{% if selected_list.members %} <span class="shared-list-icon" title="Shared list">⇄</span>{% endif %}</p>
       <button type="button" class="list-inline-display list-inline-title" data-list-meta-display data-meta-kind="title">{{ selected_list.title }}</button>
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="list-inline-form" data-list-meta-form="title" hidden>
         <input type="hidden" name="description" value="{{ selected_list.description or '' }}">
@@ -90,9 +98,14 @@
         </div>
       </form>
     </div>
-    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
-      <button type="submit" class="button danger">Archive List</button>
-    </form>
+    {% if is_owner %}
+    <div class="list-detail-top-actions">
+      <button type="button" class="button secondary" data-modal-open="list-share-modal">Manage Sharing</button>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
+        <button type="submit" class="button danger">Archive List</button>
+      </form>
+    </div>
+    {% endif %}
   </div>
 
   <div class="stats compact-stats">
@@ -137,6 +150,9 @@
       <small class="list-item-meta" data-list-item-meta>
         {% if item.is_completed and item.completed_at %}
         {{ item.completed_at.strftime("%d %b %Y") }}
+        {% if item.completed_by and people_map.get(item.completed_by) %}
+        <span class="list-item-completed-by" data-list-item-completed-by>· {{ people_map.get(item.completed_by).full_name }}</span>
+        {% endif %}
         {% else %}
         {{ item.created_at.strftime("%d %b %Y") }}
         {% endif %}
@@ -182,6 +198,53 @@
       </form>
     </div>
   </div>
+
+  {% if is_owner %}
+  <div class="modal-backdrop" id="list-share-modal" data-modal aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="list-share-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="list-share-title">Manage Sharing</h2>
+          <p>Choose who can see and work on this list.</p>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close manage sharing modal">×</button>
+      </div>
+      <form class="form-grid" data-list-share-form data-action="/{{ org.slug }}/lists/{{ selected_list.id }}/members">
+        <div class="full list-share-feedback" data-list-share-feedback hidden></div>
+        <div class="full checkbox-list">
+          {% for person in org_users %}
+          <label class="checkbox"><input type="checkbox" name="user_ids" value="{{ person.id }}" {% if person.id in member_ids %}checked{% endif %}>{{ person.full_name }}</label>
+          {% endfor %}
+        </div>
+        <button type="submit">Save Sharing</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="list-discussion-panel{% if not selected_list.members %} hidden{% endif %}">
+    <h3>Discussion</h3>
+    <div class="task-timeline">
+      {% for comment in comments %}
+      <article class="timeline-item">
+        <span class="timeline-dot" aria-hidden="true"></span>
+        <div class="timeline-card">
+          <div class="timeline-head">
+            <strong>{{ people_map.get(comment.user_id).full_name if people_map.get(comment.user_id) else "Former member" }}</strong>
+            <span>{{ comment.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
+          </div>
+          <p>{{ comment.body }}</p>
+        </div>
+      </article>
+      {% else %}
+      <p class="empty">No discussion yet. Be the first to comment.</p>
+      {% endfor %}
+    </div>
+    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/comments" class="form-grid list-comment-form">
+      <label class="full">Add a comment<textarea name="body" rows="3" placeholder="Share an update with the group..." required></textarea></label>
+      <button type="submit">Post Comment</button>
+    </form>
+  </div>
 </section>
 {% else %}
 <section class="panel list-detail-panel">
@@ -207,6 +270,13 @@
     <form method="post" action="/{{ org.slug }}/lists/ai" class="form-grid">
       <label>Name<input name="list_title" placeholder="Optional title for the list"></label>
       <label class="full">Plan Text<textarea name="plan_text" rows="12" placeholder="Paste a plan, a reminder dump, or one item per line." required></textarea></label>
+      <label class="full">Shared With <small class="empty">(optional &mdash; people who can see and work on this list)</small>
+        <select name="shared_with" multiple size="5">
+          {% for person in org_users %}
+          <option value="{{ person.id }}">{{ person.full_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <button type="submit">Create List With AI</button>
     </form>
   </div>
@@ -407,9 +477,46 @@
         const isCompleted = Boolean(payload.is_completed);
         row.classList.toggle("is-completed", isCompleted);
         checkbox.checked = isCompleted;
-        meta.textContent = isCompleted ? String(payload.completed_at_label || "") : String(payload.created_at_label || "");
+        const dateLabel = isCompleted ? String(payload.completed_at_label || "") : String(payload.created_at_label || "");
+        const completedByName = isCompleted ? String(payload.completed_by_name || "") : "";
+        meta.innerHTML = "";
+        meta.appendChild(document.createTextNode(dateLabel));
+        if (completedByName) {
+          const span = document.createElement("span");
+          span.className = "list-item-completed-by";
+          span.textContent = `· ${completedByName}`;
+          meta.appendChild(document.createTextNode(" "));
+          meta.appendChild(span);
+        }
       });
     });
+
+    const shareForm = document.querySelector("[data-list-share-form]");
+    if (shareForm) {
+      const shareFeedback = document.querySelector("[data-list-share-feedback]");
+      shareForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const userIds = Array.from(shareForm.querySelectorAll('input[name="user_ids"]:checked')).map((input) => Number(input.value));
+        try {
+          const response = await fetch(shareForm.dataset.action, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_ids: userIds }),
+          });
+          if (!response.ok) {
+            throw new Error(`Sharing update failed: ${response.status}`);
+          }
+          window.location.reload();
+        } catch (error) {
+          console.error(error);
+          if (shareFeedback) {
+            shareFeedback.hidden = false;
+            shareFeedback.textContent = "Unable to update sharing right now.";
+          }
+        }
+      });
+    }
 
     starButtons.forEach((button) => {
       button.addEventListener("click", async () => {

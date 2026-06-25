@@ -830,6 +830,45 @@ textarea {
   color: var(--muted);
 }
 
+.list-item-completed-by {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-left: 0.15rem;
+}
+
+.shared-list-icon {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: 0.3rem;
+}
+
+.list-detail-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.list-discussion-panel {
+  margin-top: 1.5rem;
+  border-top: 1px solid rgba(29, 52, 66, 0.1);
+  padding-top: 1.25rem;
+}
+
+.list-discussion-panel.hidden {
+  display: none;
+}
+
+.list-comment-form {
+  margin-top: 0.75rem;
+}
+
+.checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .list-item-flags {
   display: inline-flex;
   align-items: center;

@@ -1168,7 +1168,8 @@
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;");
-            return `<a class="nav-sublink${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}">${safeTitle}</a>`;
+            const sharedIcon = item.is_shared ? '<span class="shared-list-icon" title="Shared list">⇄</span> ' : "";
+            return `<a class="nav-sublink${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}">${sharedIcon}${safeTitle}</a>`;
           }).join("");
           sidebarListsContainer.innerHTML = `${manageMarkup}${listMarkup}`;
         })

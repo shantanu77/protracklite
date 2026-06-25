@@ -215,6 +215,8 @@ class WorkList(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     items: Mapped[list["WorkListItem"]] = relationship(back_populates="work_list", cascade="all, delete-orphan")
+    members: Mapped[list["WorkListMember"]] = relationship(back_populates="work_list", cascade="all, delete-orphan")
+    comments: Mapped[list["WorkListComment"]] = relationship(back_populates="work_list", cascade="all, delete-orphan")
 
 
 class WorkListItem(Base):
@@ -228,11 +230,36 @@ class WorkListItem(Base):
     priority: Mapped[str] = mapped_column(String(20), default="low")
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     work_list: Mapped[WorkList] = relationship(back_populates="items")
+
+
+class WorkListMember(Base):
+    __tablename__ = "work_list_members"
+    __table_args__ = (UniqueConstraint("work_list_id", "user_id", name="uq_work_list_member"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_list_id: Mapped[int] = mapped_column(ForeignKey("work_lists.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    work_list: Mapped[WorkList] = relationship(back_populates="members")
+
+
+class WorkListComment(Base):
+    __tablename__ = "work_list_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_list_id: Mapped[int] = mapped_column(ForeignKey("work_lists.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    work_list: Mapped[WorkList] = relationship(back_populates="comments")
 
 
 class PerformancePlan(Base):
