@@ -39,12 +39,12 @@
 The organization context is derived from the URL path segment:
 
 ```
-https://task.omnihire.in/{org-slug}/
+https://tasks.omnihire.in/{org-slug}/
 ```
 
 Examples:
-- `task.omnihire.in/solulever/` → Solulever organization
-- `task.omnihire.in/acmecorp/` → Acme Corp organization
+- `tasks.omnihire.in/solulever/` → Solulever organization
+- `tasks.omnihire.in/acmecorp/` → Acme Corp organization
 
 **Rules:**
 - If `{org-slug}` is not found in the database, show a "Organization not found" error page.

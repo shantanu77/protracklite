@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     smtp_port: int = 25
     smtp_username: str = ""
     smtp_password: str = ""
-    smtp_from: str = "no-reply@task.omnihire.in"
-    base_domain: str = "task.omnihire.in"
+    smtp_from: str = "no-reply@tasks.omnihire.in"
+    base_domain: str = "tasks.omnihire.in"
     openai_api_key: str = ""
     openai_backlog_model: str = "gpt-5.4-mini"
     dev_release_upload_dir: str = "/var/lib/protracklite/uploads/dev-releases"
