@@ -201,22 +201,44 @@
 
   {% if is_owner %}
   <div class="modal-backdrop" id="list-share-modal" data-modal aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="list-share-title">
+    <div class="modal-card wide list-share-modal" role="dialog" aria-modal="true" aria-labelledby="list-share-title">
       <div class="modal-head">
         <div>
           <h2 id="list-share-title">Manage Sharing</h2>
-          <p>Choose who can see and work on this list.</p>
+          <p>{{ selected_list.title }}{% if selected_list.members %} is shared with {{ member_ids|length }} people.{% else %} is private to you right now.{% endif %}</p>
         </div>
         <button type="button" class="modal-close" data-modal-close aria-label="Close manage sharing modal">×</button>
       </div>
-      <form class="form-grid" data-list-share-form data-action="/{{ org.slug }}/lists/{{ selected_list.id }}/members">
-        <div class="full list-share-feedback" data-list-share-feedback hidden></div>
-        <div class="full checkbox-list">
+      <form class="list-share-form" data-list-share-form data-action="/{{ org.slug }}/lists/{{ selected_list.id }}/members">
+        <div class="list-share-summary" aria-live="polite">
+          <div>
+            <span class="list-share-summary-label">Shared access</span>
+            <strong data-list-share-count>{{ member_ids|length }} selected</strong>
+          </div>
+          <span>{{ org_users|length }} available</span>
+        </div>
+        <label class="list-share-search">Find people
+          <input type="search" placeholder="Search team members" autocomplete="off" data-list-share-search>
+        </label>
+        <div class="list-share-feedback" data-list-share-feedback hidden></div>
+        <div class="list-share-people" data-list-share-people>
           {% for person in org_users %}
-          <label class="checkbox"><input type="checkbox" name="user_ids" value="{{ person.id }}" {% if person.id in member_ids %}checked{% endif %}>{{ person.full_name }}</label>
+          <label class="list-share-person" data-list-share-person data-person-name="{{ person.full_name|lower }}">
+            <input type="checkbox" name="user_ids" value="{{ person.id }}" {% if person.id in member_ids %}checked{% endif %}>
+            <span class="list-share-checkmark" aria-hidden="true"></span>
+            <span class="list-share-person-main">
+              <strong>{{ person.full_name }}</strong>
+              <small>{% if person.id in member_ids %}Currently shared{% else %}No access yet{% endif %}</small>
+            </span>
+          </label>
+          {% else %}
+          <p class="empty">No other active people are available in this organization.</p>
           {% endfor %}
         </div>
-        <button type="submit">Save Sharing</button>
+        <div class="list-share-actions">
+          <button type="button" class="button ghost" data-modal-close>Cancel</button>
+          <button type="submit" data-list-share-submit>Save Sharing</button>
+        </div>
       </form>
     </div>
   </div>
@@ -494,9 +516,38 @@
     const shareForm = document.querySelector("[data-list-share-form]");
     if (shareForm) {
       const shareFeedback = document.querySelector("[data-list-share-feedback]");
+      const shareSearch = shareForm.querySelector("[data-list-share-search]");
+      const sharePeople = Array.from(shareForm.querySelectorAll("[data-list-share-person]"));
+      const shareCount = shareForm.querySelector("[data-list-share-count]");
+      const shareSubmit = shareForm.querySelector("[data-list-share-submit]");
+      const syncShareCount = () => {
+        const selectedCount = shareForm.querySelectorAll('input[name="user_ids"]:checked').length;
+        if (shareCount) {
+          shareCount.textContent = `${selectedCount} selected`;
+        }
+      };
+      shareForm.querySelectorAll('input[name="user_ids"]').forEach((input) => {
+        input.addEventListener("change", syncShareCount);
+      });
+      shareSearch?.addEventListener("input", () => {
+        const query = shareSearch.value.trim().toLowerCase();
+        sharePeople.forEach((person) => {
+          const name = person.dataset.personName || "";
+          person.hidden = Boolean(query) && !name.includes(query);
+        });
+      });
+      syncShareCount();
       shareForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const userIds = Array.from(shareForm.querySelectorAll('input[name="user_ids"]:checked')).map((input) => Number(input.value));
+        if (shareFeedback) {
+          shareFeedback.hidden = true;
+          shareFeedback.classList.remove("error");
+        }
+        if (shareSubmit) {
+          shareSubmit.disabled = true;
+          shareSubmit.textContent = "Saving...";
+        }
         try {
           const response = await fetch(shareForm.dataset.action, {
             method: "POST",
@@ -512,7 +563,12 @@
           console.error(error);
           if (shareFeedback) {
             shareFeedback.hidden = false;
+            shareFeedback.classList.add("error");
             shareFeedback.textContent = "Unable to update sharing right now.";
+          }
+          if (shareSubmit) {
+            shareSubmit.disabled = false;
+            shareSubmit.textContent = "Save Sharing";
           }
         }
       });

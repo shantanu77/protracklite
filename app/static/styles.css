@@ -3883,7 +3883,22 @@ th {
   box-shadow: none;
 }
 
+.button.ghost {
+  background: rgba(29, 52, 66, 0.05);
+  color: var(--primary);
+  border: 1px solid rgba(29, 52, 66, 0.08);
+  box-shadow: none;
+}
+
+.button.small {
+  min-height: 34px;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+
 .button.secondary:hover,
+.button.ghost:hover,
 .logout-btn:hover,
 .nav-toggle:hover,
 .modal-close:hover {
@@ -4165,6 +4180,191 @@ th {
 
 .quick-task-actions .empty {
   flex: 1;
+}
+
+.list-share-modal {
+  max-height: min(88vh, 760px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.list-share-form {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 0.9rem;
+}
+
+.list-share-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  border-radius: 14px;
+  background: rgba(29, 52, 66, 0.04);
+}
+
+.list-share-summary div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.list-share-summary-label,
+.list-share-summary span:last-child {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.list-share-summary strong {
+  font-size: 1rem;
+}
+
+.list-share-search {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.list-share-search input {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.list-share-feedback {
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  background: rgba(29, 52, 66, 0.05);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.list-share-feedback.error {
+  border-color: rgba(194, 65, 59, 0.22);
+  background: rgba(194, 65, 59, 0.08);
+  color: var(--danger);
+}
+
+.list-share-people {
+  min-height: 0;
+  display: grid;
+  gap: 0.55rem;
+  max-height: min(42vh, 340px);
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.list-share-person {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 64px;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.list-share-person:hover,
+.list-share-person:has(input:focus-visible) {
+  border-color: rgba(49, 84, 101, 0.28);
+  box-shadow: 0 0 0 4px rgba(49, 84, 101, 0.08);
+}
+
+.list-share-person input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.list-share-checkmark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #fff;
+}
+
+.list-share-checkmark::after {
+  content: "";
+  width: 0.38rem;
+  height: 0.66rem;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.12s ease;
+}
+
+.list-share-person input:checked + .list-share-checkmark {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.list-share-person input:checked + .list-share-checkmark::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.list-share-person:has(input:checked) {
+  border-color: rgba(31, 122, 82, 0.28);
+  background: rgba(31, 122, 82, 0.06);
+}
+
+.list-share-person-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.list-share-person-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.96rem;
+}
+
+.list-share-person-main small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.list-share-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding-top: 0.25rem;
+}
+
+.list-share-actions button {
+  min-width: 132px;
+}
+
+.list-share-actions button:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .backlog-planner-modal {
@@ -4601,6 +4801,22 @@ code {
 }
 
 @media (max-width: 640px) {
+  .list-share-modal {
+    width: min(100%, calc(100vw - 1rem));
+    max-height: calc(100vh - 1rem);
+    padding: 1rem;
+  }
+
+  .list-share-summary,
+  .list-share-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .list-share-actions button {
+    width: 100%;
+  }
+
   .backlog-planner-modal {
     width: min(100%, 100vw - 1rem);
     max-height: calc(100vh - 1rem);
