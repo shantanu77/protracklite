@@ -24,10 +24,13 @@
         {% if user %}
           <button class="nav-toggle" aria-label="Toggle menu" onclick="document.querySelector('.nav-drawer').classList.toggle('open')">&#9776;</button>
         </div>
-        <div class="sidebar-user">
-          <strong>{{ user.full_name }}</strong>
-          <span>{{ org.name }}</span>
-        </div>
+        <a class="sidebar-user" href="/{{ org.slug }}/profile">
+          {{ user_avatar(user, 24) }}
+          <span class="sidebar-user-copy">
+            <strong>{{ user.full_name }}</strong>
+            <span>{{ org.name }}</span>
+          </span>
+        </a>
         {% set current_path = request.url.path if request else "" %}
         <nav class="nav-drawer">
           <div class="nav-group is-expanded" data-nav-group>
@@ -37,6 +40,7 @@
             </button>
             <div class="nav-group-body">
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/profile' %} primary{% endif %}" href="/{{ org.slug }}/profile" {% if current_path == '/' ~ org.slug ~ '/profile' %}aria-current="page"{% endif %}>Profile</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>

@@ -112,6 +112,8 @@ class User(Base):
     send_effort_reminder: Mapped[bool] = mapped_column(Boolean, default=True)
     force_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
     temp_password_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    avatar_128_url: Mapped[str] = mapped_column(String(255), default="")
+    avatar_24_url: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

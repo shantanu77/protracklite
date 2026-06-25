@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -85,6 +86,9 @@ from app.seed import migrate_department_activity_catalog, seed_defaults, seed_de
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+USER_CONTENT_ROOT = Path(settings.user_content_dir)
+USER_CONTENT_ROOT.mkdir(parents=True, exist_ok=True)
+app.mount("/user-content", StaticFiles(directory=str(USER_CONTENT_ROOT)), name="user_content")
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
@@ -229,6 +233,33 @@ WEEKLY_AI_SUMMARY_MAX_CHARS = 700
 WEEKLY_AI_SUMMARY_TARGET_MODEL = "weekly-ai-summary"
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
 templates.env.globals["default_task_color"] = DEFAULT_TASK_COLOR
+
+
+def user_initials(person: User | None) -> str:
+    if not person or not person.full_name.strip():
+        return "?"
+    parts = [part for part in re.split(r"\s+", person.full_name.strip()) if part]
+    if len(parts) == 1:
+        return parts[0][:1].upper()
+    return f"{parts[0][:1]}{parts[-1][:1]}".upper()
+
+
+def render_user_avatar(person: User | None, size: int = 24, class_name: str = "") -> Markup:
+    size_value = 128 if int(size or 24) > 24 else 24
+    url = (getattr(person, f"avatar_{size_value}_url", "") or "").strip() if person else ""
+    name = html.escape(person.full_name if person else "Unknown user")
+    classes = "user-avatar"
+    if size_value == 128:
+        classes += " large"
+    if class_name:
+        classes += f" {html.escape(class_name)}"
+    if url:
+        return Markup(f'<img class="{classes}" src="{html.escape(url)}" alt="{name}" width="{size_value}" height="{size_value}">')
+    return Markup(f'<span class="{classes}" aria-label="{name}">{html.escape(user_initials(person))}</span>')
+
+
+templates.env.globals["user_avatar"] = render_user_avatar
+templates.env.globals["user_initials"] = user_initials
 
 
 def infer_activity_category(code: str, name: str) -> str:
@@ -716,6 +747,21 @@ def ensure_work_lists_schema() -> None:
         connection.execute(text("UPDATE work_lists SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"))
 
 
+def ensure_user_profile_schema() -> None:
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    ddl_by_column = {
+        "avatar_128_url": "ALTER TABLE users ADD COLUMN avatar_128_url VARCHAR(255) NOT NULL DEFAULT ''",
+        "avatar_24_url": "ALTER TABLE users ADD COLUMN avatar_24_url VARCHAR(255) NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in ddl_by_column.items():
+            if column_name not in columns:
+                connection.execute(text(ddl))
+
+
 def ensure_work_list_items_schema() -> None:
     inspector = inspect(engine)
     if "work_list_items" not in inspector.get_table_names():
@@ -958,6 +1004,7 @@ def on_startup() -> None:
     ensure_tasks_schema()
     ensure_activity_types_schema()
     ensure_project_activity_types_schema()
+    ensure_user_profile_schema()
     ensure_work_lists_schema()
     ensure_work_list_items_schema()
     ensure_time_logs_schema()
@@ -1176,6 +1223,44 @@ def get_org_user(
     if user.org_id != org.id or request.state.org_slug != resolved_slug:
         raise HTTPException(status_code=403, detail="Organization mismatch")
     return org, user
+
+
+def profile_avatar_dir(org_slug: str, user_id: int) -> Path:
+    path = USER_CONTENT_ROOT / "avatars" / org_slug / str(user_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def profile_avatar_url(org_slug: str, user_id: int, size: int) -> str:
+    return f"/user-content/avatars/{org_slug}/{user_id}/avatar-{size}.jpg"
+
+
+async def save_profile_photo(org_slug: str, user: User, upload: UploadFile) -> None:
+    if upload.content_type and not upload.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Upload an image file")
+    raw = await upload.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Choose an image file")
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Profile photo must be 5 MB or smaller")
+    try:
+        from io import BytesIO
+
+        source = Image.open(BytesIO(raw))
+        source = ImageOps.exif_transpose(source).convert("RGB")
+    except (OSError, UnidentifiedImageError):
+        raise HTTPException(status_code=400, detail="Upload a valid image file") from None
+    width, height = source.size
+    side = min(width, height)
+    left = (width - side) // 2
+    top = (height - side) // 2
+    square = source.crop((left, top, left + side, top + side))
+    avatar_dir = profile_avatar_dir(org_slug, user.id)
+    for size in (128, 24):
+        avatar = square.resize((size, size), Image.Resampling.LANCZOS)
+        avatar.save(avatar_dir / f"avatar-{size}.jpg", "JPEG", quality=88, optimize=True)
+    user.avatar_128_url = profile_avatar_url(org_slug, user.id, 128)
+    user.avatar_24_url = profile_avatar_url(org_slug, user.id, 24)
 
 
 def must_be_admin(user: User) -> None:
@@ -2730,6 +2815,68 @@ def can_manage_work_list(work_list: WorkList, user_id: int) -> bool:
     return work_list.owner_user_id == user_id
 
 
+def app_base_url() -> str:
+    domain = (settings.base_domain or "").strip().rstrip("/")
+    if not domain:
+        return ""
+    if domain.startswith(("http://", "https://")):
+        return domain
+    return f"https://{domain}"
+
+
+def work_list_page_url(org_slug: str, work_list: WorkList) -> str:
+    base_url = app_base_url()
+    path = f"/{org_slug}/lists?list_id={work_list.id}"
+    return f"{base_url}{path}" if base_url else path
+
+
+def work_list_participant_ids(work_list: WorkList) -> set[int]:
+    participant_ids = {work_list.owner_user_id}
+    participant_ids.update(member.user_id for member in work_list.members)
+    return participant_ids
+
+
+def notify_shared_list_update(
+    db: Session,
+    org: Organization,
+    actor: User,
+    work_list: WorkList,
+    action: str,
+    *,
+    detail: str = "",
+    extra_user_ids: set[int] | None = None,
+) -> None:
+    recipient_ids = work_list_participant_ids(work_list)
+    if extra_user_ids:
+        recipient_ids.update(extra_user_ids)
+    if len(recipient_ids) <= 1:
+        return
+    recipients = db.scalars(
+        select(User).where(
+            User.org_id == org.id,
+            User.id.in_(recipient_ids),
+            User.is_active.is_(True),
+        )
+    ).all()
+    if not recipients:
+        return
+    subject = f"Shared list updated: {work_list.title}"
+    list_url = work_list_page_url(org.slug, work_list)
+    body_parts = [
+        f"{actor.full_name} updated the shared list \"{work_list.title}\".",
+        f"Update: {action}",
+    ]
+    if detail:
+        body_parts.append(f"Details: {detail}")
+    body_parts.extend(["", f"Open list: {list_url}"])
+    body = "\n".join(body_parts)
+    for recipient in recipients:
+        try:
+            send_email(recipient.email, subject, body)
+        except Exception as exc:
+            logger.warning("Shared list notification failed for %s: %s", recipient.email, exc)
+
+
 def set_work_list_members(db: Session, work_list: WorkList, org_id: int, owner_user_id: int, member_ids: list[int]) -> None:
     valid_ids = {
         person.id
@@ -3068,6 +3215,35 @@ def logout_action(org_slug: str):
     response = RedirectResponse(url=f"/{org_slug}/login", status_code=303)
     clear_auth_cookies(response)
     return response
+
+
+@app.get("/{org_slug}/profile", response_class=HTMLResponse)
+def profile_page(
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+):
+    org, user = org_user
+    return templates.TemplateResponse(
+        "profile.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+        },
+    )
+
+
+@app.post("/{org_slug}/profile/photo")
+async def update_profile_photo_page(
+    org_slug: str,
+    profile_photo: UploadFile = File(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    await save_profile_photo(org.slug, user, profile_photo)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/profile", status_code=303)
 
 
 @app.post("/api/v1/auth/login")
@@ -3803,6 +3979,16 @@ async def create_list_page(
     if shared_with:
         set_work_list_members(db, work_list, org.id, user.id, shared_with)
     db.commit()
+    if shared_with:
+        notify_shared_list_update(
+            db,
+            org,
+            user,
+            work_list,
+            "Created the shared list.",
+            detail=f"{len(items)} initial item(s).",
+            extra_user_ids=set(shared_with),
+        )
     return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
 
 
@@ -3845,6 +4031,16 @@ async def create_ai_list_page(
     if shared_with:
         set_work_list_members(db, work_list, org.id, user.id, shared_with)
     db.commit()
+    if shared_with:
+        notify_shared_list_update(
+            db,
+            org,
+            user,
+            work_list,
+            "Created the shared list using AI.",
+            detail=f"{len(parsed.get('items') or [])} generated item(s).",
+            extra_user_ids=set(shared_with),
+        )
     return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
 
 
@@ -3867,6 +4063,7 @@ async def add_list_item_page(
     next_order = len(work_list.items) + 1
     db.add(WorkListItem(work_list_id=work_list.id, title=normalized_title, notes=item_notes.strip(), sort_order=next_order))
     db.commit()
+    notify_shared_list_update(db, org, user, work_list, "Added an item.", detail=normalized_title)
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 
 
@@ -3895,6 +4092,7 @@ async def add_bulk_list_items_page(
             )
         )
     db.commit()
+    notify_shared_list_update(db, org, user, work_list, "Added multiple items.", detail=f"{len(items)} new item(s).")
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 
 
@@ -3919,6 +4117,7 @@ async def update_list_item_page(
         raise HTTPException(status_code=400, detail="Item title is required")
     item.title = normalized_title
     db.commit()
+    notify_shared_list_update(db, org, user, work_list, "Updated an item.", detail=normalized_title)
     return {"ok": True, "title": item.title}
 
 
@@ -3939,6 +4138,14 @@ async def toggle_list_item_star_page(
         raise HTTPException(status_code=404, detail="List item not found")
     item.is_starred = not bool(item.is_starred)
     db.commit()
+    notify_shared_list_update(
+        db,
+        org,
+        user,
+        work_list,
+        "Changed an item star.",
+        detail=f"{'Starred' if item.is_starred else 'Unstarred'}: {item.title}",
+    )
     return {"ok": True, "is_starred": bool(item.is_starred)}
 
 
@@ -3964,6 +4171,14 @@ async def cycle_list_item_priority_page(
         next_index = 0
     item.priority = LIST_ITEM_PRIORITIES[next_index]
     db.commit()
+    notify_shared_list_update(
+        db,
+        org,
+        user,
+        work_list,
+        "Changed an item priority.",
+        detail=f"{item.title}: {LIST_ITEM_PRIORITY_LABELS.get(item.priority, item.priority.title())}",
+    )
     return {
         "ok": True,
         "priority": item.priority,
@@ -3994,6 +4209,7 @@ async def update_list_page(
     work_list.description = description.strip()
     work_list.target_date = parse_optional_date(target_date)
     db.commit()
+    notify_shared_list_update(db, org, user, work_list, "Updated list details.", detail=work_list.title)
     return {
         "ok": True,
         "title": work_list.title,
@@ -4022,6 +4238,14 @@ async def toggle_list_item_page(
     item.completed_at = datetime.utcnow() if item.is_completed else None
     item.completed_by = user.id if item.is_completed else None
     db.commit()
+    notify_shared_list_update(
+        db,
+        org,
+        user,
+        work_list,
+        "Changed an item completion state.",
+        detail=f"{'Completed' if item.is_completed else 'Reopened'}: {item.title}",
+    )
     completed_by_name = ""
     if item.completed_by:
         completer = db.get(User, item.completed_by)
@@ -4071,6 +4295,7 @@ async def update_list_members_page(
     raw_ids = payload.get("user_ids") if isinstance(payload, dict) else None
     if not isinstance(raw_ids, list):
         raise HTTPException(status_code=400, detail="user_ids is required")
+    old_participant_ids = work_list_participant_ids(work_list)
     member_ids: list[int] = []
     for raw in raw_ids:
         try:
@@ -4079,6 +4304,15 @@ async def update_list_members_page(
             continue
     set_work_list_members(db, work_list, org.id, user.id, member_ids)
     db.commit()
+    notify_shared_list_update(
+        db,
+        org,
+        user,
+        work_list,
+        "Updated sharing.",
+        detail=f"{len(member_ids)} selected member(s).",
+        extra_user_ids=old_participant_ids | set(member_ids),
+    )
     return {
         "ok": True,
         "is_shared": bool(member_ids),
@@ -4103,6 +4337,7 @@ async def add_list_comment_page(
         raise HTTPException(status_code=400, detail="Comment cannot be empty")
     db.add(WorkListComment(work_list_id=work_list.id, user_id=user.id, body=normalized_body))
     db.commit()
+    notify_shared_list_update(db, org, user, work_list, "Posted a comment.", detail=normalized_body[:240])
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={list_id}", status_code=303)
 
 

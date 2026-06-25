@@ -85,8 +85,10 @@
       <div class="task-detail-meta">
         <div><span>Project</span><strong>{{ task.project.name }} ({{ task.project.code }})</strong></div>
         <div><span>Activity</span><strong>{% for item in activity_types %}{% if item.id == task.activity_type_id %}{{ item.name }}{% endif %}{% endfor %}</strong></div>
-        <div><span>Creator</span><strong>{{ people_map.get(task.created_by).full_name if people_map.get(task.created_by) else "Unknown" }}</strong></div>
-        <div><span>Assigned To</span><strong>{{ people_map.get(task.assigned_to).full_name if people_map.get(task.assigned_to) else "Unknown" }}</strong></div>
+        {% set creator_user = people_map.get(task.created_by) %}
+        {% set assignee_user = people_map.get(task.assigned_to) %}
+        <div><span>Creator</span><strong class="avatar-name">{{ user_avatar(creator_user, 24) }} {{ creator_user.full_name if creator_user else "Unknown" }}</strong></div>
+        <div><span>Assigned To</span><strong class="avatar-name">{{ user_avatar(assignee_user, 24) }} {{ assignee_user.full_name if assignee_user else "Unknown" }}</strong></div>
       </div>
       {% set task_tag_list = task.tags_text.split(', ') if task.tags_text else [] %}
       {% if task_tag_list %}
@@ -203,7 +205,8 @@
         <div class="timeline-dot"></div>
         <div class="timeline-card">
           <div class="timeline-head">
-            <strong>{{ people_map.get(comment.user_id).full_name if people_map.get(comment.user_id) else "Unknown" }}</strong>
+            {% set comment_user = people_map.get(comment.user_id) %}
+            <strong class="avatar-name">{{ user_avatar(comment_user, 24) }} {{ comment_user.full_name if comment_user else "Unknown" }}</strong>
             <span>{{ comment.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
           </div>
           <p>{{ comment.body|safe }}</p>

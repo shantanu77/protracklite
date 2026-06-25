@@ -227,7 +227,7 @@
             <input type="checkbox" name="user_ids" value="{{ person.id }}" {% if person.id in member_ids %}checked{% endif %}>
             <span class="list-share-checkmark" aria-hidden="true"></span>
             <span class="list-share-person-main">
-              <strong>{{ person.full_name }}</strong>
+              <strong class="avatar-name">{{ user_avatar(person, 24) }} {{ person.full_name }}</strong>
               <small>{% if person.id in member_ids %}Currently shared{% else %}No access yet{% endif %}</small>
             </span>
           </label>
@@ -252,7 +252,8 @@
         <span class="timeline-dot" aria-hidden="true"></span>
         <div class="timeline-card">
           <div class="timeline-head">
-            <strong>{{ people_map.get(comment.user_id).full_name if people_map.get(comment.user_id) else "Former member" }}</strong>
+            {% set comment_user = people_map.get(comment.user_id) %}
+            <strong class="avatar-name">{{ user_avatar(comment_user, 24) }} {{ comment_user.full_name if comment_user else "Former member" }}</strong>
             <span>{{ comment.created_at.strftime("%d %b %Y, %I:%M %p") }}</span>
           </div>
           <p>{{ comment.body }}</p>

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Account</p>
+    <h1>Profile</h1>
+    <p>Manage the photo shown beside your updates, comments, and shared work.</p>
+  </div>
+</section>
+
+<section class="panel profile-panel">
+  <div class="profile-card">
+    {{ user_avatar(user, 128, "profile-avatar") }}
+    <div>
+      <h2>{{ user.full_name }}</h2>
+      <p>{{ user.email }}</p>
+      <small>{{ org.name }} · {{ user.role.value|title }}</small>
+    </div>
+  </div>
+  <form method="post" action="/{{ org.slug }}/profile/photo" enctype="multipart/form-data" class="form-grid profile-photo-form">
+    <label class="full">Profile Photo
+      <input type="file" name="profile_photo" accept="image/*" required>
+    </label>
+    <p class="form-helper full">Uploads are center-cropped and saved as 128x128 and 24x24 profile images.</p>
+    <button type="submit">Upload Photo</button>
+  </form>
+</section>
+{% endblock %}

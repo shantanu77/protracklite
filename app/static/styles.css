@@ -168,6 +168,73 @@ textarea {
   color: var(--success);
 }
 
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(29, 52, 66, 0.1);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  object-fit: cover;
+  overflow: hidden;
+}
+
+.sidebar-user .user-avatar {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--sidebar-text);
+}
+
+.user-avatar.large {
+  width: 128px;
+  min-width: 128px;
+  height: 128px;
+  font-size: 2.2rem;
+}
+
+.avatar-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.avatar-name strong {
+  min-width: 0;
+}
+
+.profile-panel {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(29, 52, 66, 0.08);
+}
+
+.profile-card h2 {
+  margin-bottom: 0.2rem;
+}
+
+.profile-card p,
+.profile-card small {
+  display: block;
+  color: var(--muted);
+}
+
+.profile-photo-form {
+  max-width: 680px;
+}
+
 .goals-layout {
   display: grid;
   gap: 1.2rem;
@@ -321,6 +388,9 @@ textarea {
 }
 
 .sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   margin-top: 1rem;
   padding: 0.95rem 1rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -328,17 +398,27 @@ textarea {
   background: var(--sidebar-surface);
 }
 
+.sidebar-user-copy {
+  min-width: 0;
+}
+
 .sidebar-user strong {
   display: block;
   font-size: 0.96rem;
   color: var(--sidebar-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sidebar-user span {
+.sidebar-user-copy > span {
   display: block;
   margin-top: 0.15rem;
   color: var(--sidebar-muted);
   font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-drawer {
@@ -4805,6 +4885,11 @@ code {
 }
 
 @media (max-width: 640px) {
+  .profile-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .list-share-modal {
     width: min(100%, calc(100vw - 1rem));
     max-height: calc(100vh - 1rem);
