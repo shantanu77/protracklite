@@ -900,9 +900,9 @@ textarea {
 }
 
 .list-star-button.is-active {
-  color: #d48b00;
-  background: rgba(255, 195, 0, 0.12);
-  border-color: rgba(212, 139, 0, 0.22);
+  color: #f5b301;
+  background: rgba(245, 179, 1, 0.14);
+  border-color: rgba(245, 179, 1, 0.36);
 }
 
 .list-priority-button {
