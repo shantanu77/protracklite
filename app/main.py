@@ -4063,7 +4063,6 @@ async def add_list_item_page(
     next_order = len(work_list.items) + 1
     db.add(WorkListItem(work_list_id=work_list.id, title=normalized_title, notes=item_notes.strip(), sort_order=next_order))
     db.commit()
-    notify_shared_list_update(db, org, user, work_list, "Added an item.", detail=normalized_title)
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 
 
@@ -4092,7 +4091,6 @@ async def add_bulk_list_items_page(
             )
         )
     db.commit()
-    notify_shared_list_update(db, org, user, work_list, "Added multiple items.", detail=f"{len(items)} new item(s).")
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={work_list.id}", status_code=303)
 
 
@@ -4117,7 +4115,6 @@ async def update_list_item_page(
         raise HTTPException(status_code=400, detail="Item title is required")
     item.title = normalized_title
     db.commit()
-    notify_shared_list_update(db, org, user, work_list, "Updated an item.", detail=normalized_title)
     return {"ok": True, "title": item.title}
 
 
@@ -4138,14 +4135,6 @@ async def toggle_list_item_star_page(
         raise HTTPException(status_code=404, detail="List item not found")
     item.is_starred = not bool(item.is_starred)
     db.commit()
-    notify_shared_list_update(
-        db,
-        org,
-        user,
-        work_list,
-        "Changed an item star.",
-        detail=f"{'Starred' if item.is_starred else 'Unstarred'}: {item.title}",
-    )
     return {"ok": True, "is_starred": bool(item.is_starred)}
 
 
@@ -4171,14 +4160,6 @@ async def cycle_list_item_priority_page(
         next_index = 0
     item.priority = LIST_ITEM_PRIORITIES[next_index]
     db.commit()
-    notify_shared_list_update(
-        db,
-        org,
-        user,
-        work_list,
-        "Changed an item priority.",
-        detail=f"{item.title}: {LIST_ITEM_PRIORITY_LABELS.get(item.priority, item.priority.title())}",
-    )
     return {
         "ok": True,
         "priority": item.priority,
@@ -4209,7 +4190,6 @@ async def update_list_page(
     work_list.description = description.strip()
     work_list.target_date = parse_optional_date(target_date)
     db.commit()
-    notify_shared_list_update(db, org, user, work_list, "Updated list details.", detail=work_list.title)
     return {
         "ok": True,
         "title": work_list.title,
@@ -4253,7 +4233,7 @@ async def toggle_list_item_page(
     return {
         "ok": True,
         "is_completed": bool(item.is_completed),
-        "completed_at_label": item.completed_at.strftime("%d %b %Y") if item.completed_at else "",
+        "completed_at_label": item.completed_at.strftime("%d %b %Y, %I:%M %p") if item.completed_at else "",
         "created_at_label": item.created_at.strftime("%d %b %Y"),
         "completed_by_name": completed_by_name,
     }

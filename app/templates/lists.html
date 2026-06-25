@@ -149,7 +149,7 @@
       </div>
       <small class="list-item-meta" data-list-item-meta>
         {% if item.is_completed and item.completed_at %}
-        {{ item.completed_at.strftime("%d %b %Y") }}
+        {{ item.completed_at.strftime("%d %b %Y, %I:%M %p") }}
         {% if item.completed_by and people_map.get(item.completed_by) %}
         <span class="list-item-completed-by" data-list-item-completed-by>· {{ people_map.get(item.completed_by).full_name }}</span>
         {% endif %}

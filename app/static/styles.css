@@ -979,9 +979,10 @@ textarea {
 }
 
 .list-item-completed-by {
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   color: var(--muted);
   margin-left: 0.15rem;
+  font-weight: 700;
 }
 
 .shared-list-icon {
@@ -1087,6 +1088,10 @@ textarea {
 .list-item-card.is-completed .list-item-meta {
   color: var(--muted);
   opacity: 0.82;
+}
+
+.list-item-card.is-completed .list-item-meta {
+  font-size: 0.58rem;
 }
 
 .list-item-card.is-completed .list-item-inline-button {
