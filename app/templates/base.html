@@ -40,7 +40,6 @@
             </button>
             <div class="nav-group-body">
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/dashboard" {% if current_path == '/' ~ org.slug ~ '/dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
-              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/profile' %} primary{% endif %}" href="/{{ org.slug }}/profile" {% if current_path == '/' ~ org.slug ~ '/profile' %}aria-current="page"{% endif %}>Profile</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/today' %} primary{% endif %}" href="/{{ org.slug }}/today" {% if current_path == '/' ~ org.slug ~ '/today' %}aria-current="page"{% endif %}>Today</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/backlogs' %} primary{% endif %}" href="/{{ org.slug }}/backlogs" {% if current_path == '/' ~ org.slug ~ '/backlogs' %}aria-current="page"{% endif %}>Manage Backlogs</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
@@ -100,6 +99,15 @@
             </div>
           </div>
           {% endif %}
+          <div class="nav-group is-expanded" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="true">
+              <span class="nav-section">Settings</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/profile' %} primary{% endif %}" href="/{{ org.slug }}/profile" {% if current_path == '/' ~ org.slug ~ '/profile' %}aria-current="page"{% endif %}>Profile</a>
+            </div>
+          </div>
           <form class="logout-form" method="post" action="/{{ org.slug }}/logout">
             <button type="submit" class="logout-btn">Logout</button>
           </form>

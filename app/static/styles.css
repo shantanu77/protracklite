@@ -232,7 +232,75 @@ textarea {
 }
 
 .profile-photo-form {
+  display: grid;
+  gap: 0.9rem;
   max-width: 680px;
+}
+
+.profile-avatar-preview {
+  width: 128px;
+  min-width: 128px;
+  height: 128px;
+}
+
+.profile-upload-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px dashed rgba(29, 52, 66, 0.24);
+  border-radius: 14px;
+  background: rgba(29, 52, 66, 0.04);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.profile-upload-dropzone:hover,
+.profile-upload-dropzone:focus-within {
+  border-color: rgba(49, 84, 101, 0.42);
+  background: rgba(29, 52, 66, 0.06);
+}
+
+.profile-upload-dropzone input {
+  max-width: 260px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.profile-upload-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.profile-upload-copy small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.profile-upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-upload-actions .form-helper {
+  margin: 0;
+}
+
+.profile-upload-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .goals-layout {
@@ -4888,6 +4956,18 @@ code {
   .profile-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .profile-upload-dropzone,
+  .profile-upload-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-upload-dropzone input,
+  .profile-upload-actions button {
+    width: 100%;
+    max-width: none;
   }
 
   .list-share-modal {

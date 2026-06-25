@@ -10,19 +10,89 @@
 
 <section class="panel profile-panel">
   <div class="profile-card">
-    {{ user_avatar(user, 128, "profile-avatar") }}
+    <div class="profile-avatar-preview" data-profile-preview>
+      {{ user_avatar(user, 128, "profile-avatar") }}
+    </div>
     <div>
       <h2>{{ user.full_name }}</h2>
       <p>{{ user.email }}</p>
       <small>{{ org.name }} · {{ user.role.value|title }}</small>
     </div>
   </div>
-  <form method="post" action="/{{ org.slug }}/profile/photo" enctype="multipart/form-data" class="form-grid profile-photo-form">
-    <label class="full">Profile Photo
-      <input type="file" name="profile_photo" accept="image/*" required>
+  <form method="post" action="/{{ org.slug }}/profile/photo" enctype="multipart/form-data" class="profile-photo-form" data-profile-photo-form>
+    <label class="profile-upload-dropzone">
+      <input type="file" name="profile_photo" accept="image/*" required data-profile-file-input>
+      <span class="profile-upload-copy">
+        <strong>Choose a profile photo</strong>
+        <small data-profile-file-status>PNG, JPG, or WebP up to 5 MB.</small>
+      </span>
     </label>
-    <p class="form-helper full">Uploads are center-cropped and saved as 128x128 and 24x24 profile images.</p>
-    <button type="submit">Upload Photo</button>
+    <div class="profile-upload-actions">
+      <p class="form-helper" data-profile-upload-feedback>Uploads are center-cropped and saved as 128x128 and 24x24 profile images.</p>
+      <button type="submit" disabled data-profile-upload-submit data-default-text="Upload Photo">Upload Photo</button>
+    </div>
   </form>
 </section>
+
+<script>
+  (() => {
+    const form = document.querySelector("[data-profile-photo-form]");
+    if (!form) {
+      return;
+    }
+    const input = form.querySelector("[data-profile-file-input]");
+    const preview = document.querySelector("[data-profile-preview]");
+    const status = form.querySelector("[data-profile-file-status]");
+    const feedback = form.querySelector("[data-profile-upload-feedback]");
+    const submit = form.querySelector("[data-profile-upload-submit]");
+    let previewUrl = "";
+
+    input?.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        previewUrl = "";
+      }
+      if (!file) {
+        if (submit) submit.disabled = true;
+        if (status) status.textContent = "PNG, JPG, or WebP up to 5 MB.";
+        if (feedback) {
+          feedback.classList.remove("is-error");
+          feedback.textContent = "Uploads are center-cropped and saved as 128x128 and 24x24 profile images.";
+        }
+        return;
+      }
+      const sizeMb = file.size / (1024 * 1024);
+      if (!file.type.startsWith("image/") || sizeMb > 5) {
+        if (submit) submit.disabled = true;
+        if (feedback) {
+          feedback.classList.add("is-error");
+          feedback.textContent = !file.type.startsWith("image/") ? "Choose an image file." : "Profile photo must be 5 MB or smaller.";
+        }
+        return;
+      }
+      previewUrl = URL.createObjectURL(file);
+      if (preview) {
+        preview.innerHTML = `<img class="user-avatar large profile-avatar" src="${previewUrl}" alt="Selected profile photo preview" width="128" height="128">`;
+      }
+      if (status) status.textContent = `${file.name} · ${sizeMb.toFixed(2)} MB`;
+      if (feedback) {
+        feedback.classList.remove("is-error");
+        feedback.textContent = "Ready to upload. The saved photo will be center-cropped.";
+      }
+      if (submit) submit.disabled = false;
+    });
+
+    form.addEventListener("submit", () => {
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Uploading...";
+      }
+      if (feedback) {
+        feedback.classList.remove("is-error");
+        feedback.textContent = "Uploading and preparing profile sizes...";
+      }
+    });
+  })();
+</script>
 {% endblock %}
