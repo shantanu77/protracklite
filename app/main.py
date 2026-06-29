@@ -229,7 +229,7 @@ WHATS_NEW_ANNOUNCEMENTS = [
 ]
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
-WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v1"
+WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v2"
 WEEKLY_AI_SUMMARY_MAX_CHARS = 700
 WEEKLY_AI_SUMMARY_TARGET_MODEL = "weekly-ai-summary"
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
@@ -483,6 +483,7 @@ def generate_weekly_ai_summary_with_openai(snapshot: dict[str, Any]) -> tuple[st
                     "Keep it factual, grounded only in the provided data, and avoid bullet points. "
                     "Target 4 to 5 lines of typical UI width, roughly 350 to 550 characters, and never exceed 700 characters. "
                     "Summarize meaningful work completed, progress made, key effort areas, and blockers if present. "
+                    "When describing effort coverage, use the booked-hours percentage from booking_percent and do not mention absolute booked-hour totals. "
                     "Mention leave only when it materially affected the week. "
                     "Do not mention AI, do not invent meetings, outcomes, or tasks that are not in the input."
                 ),
@@ -5984,14 +5985,14 @@ async def monday_report_generate_ai_summary(
     leave_entries = summarize_leave_days(report["previous_week_daily_allocation"])
     selected_tasks_snapshot: list[dict[str, Any]] = []
     selected_task_ids: list[int] = []
-    total_selected_hours = 0.0
+    total_selected_hours = sum(float(task.get("report_hours") or 0) for task in selected_report_tasks)
     for task in selected_report_tasks:
         task_model = task_models_by_code.get(task["task_id"])
         if not task_model:
             continue
         selected_task_ids.append(task_model.id)
         task_hours = float(task.get("report_hours") or 0)
-        total_selected_hours += task_hours
+        task_effort_share = round((task_hours / total_selected_hours * 100) if total_selected_hours else 0, 2)
         selected_tasks_snapshot.append(
             {
                 "task_id": task["task_id"],
@@ -6003,11 +6004,10 @@ async def monday_report_generate_ai_summary(
                 "end_date": task["end_date"].isoformat() if task.get("end_date") else None,
                 "closed_at": task.get("closed_at").isoformat() if task.get("closed_at") else None,
                 "stalled_reason": strip_html_text(task.get("stalled_reason")),
-                "total_hours_for_week": round(task_hours, 2),
+                "share_of_selected_effort_percent": task_effort_share,
                 "week_logs": [
                     {
                         "date": log["date"].isoformat() if log.get("date") else None,
-                        "hours": float(log.get("hours") or 0),
                         "notes": strip_html_text(log.get("notes")),
                     }
                     for log in task.get("report_time_logs", [])
@@ -6025,8 +6025,6 @@ async def monday_report_generate_ai_summary(
         "week": {
             "start": previous_week_start.isoformat(),
             "end": previous_week_end.isoformat(),
-            "booked_hours": round(float(report["previous_week_effort_hours"] or 0), 2),
-            "available_hours": round(float(report["previous_week_available_hours"] or 0), 2),
             "booking_percent": round(float(report["previous_week_effort_rate"] or 0), 2),
             "pending_from_last_week_count": int(report["pending_from_last_week_count"] or 0),
             "pending_more_than_two_weeks_count": int(report["pending_more_than_two_weeks_count"] or 0),
@@ -6035,7 +6033,6 @@ async def monday_report_generate_ai_summary(
         "selected_tasks": selected_tasks_snapshot,
         "selected_task_count": len(selected_tasks_snapshot),
         "selected_task_codes": [item["task_id"] for item in selected_tasks_snapshot],
-        "total_selected_hours": round(total_selected_hours, 2),
     }
 
     try:

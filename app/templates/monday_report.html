@@ -420,13 +420,13 @@
     <form method="post" action="/{{ org.slug }}/reports/monday/ai-summary" class="stack" data-ai-summary-form>
       <div class="ai-summary-modal-copy">
         <div class="ai-summary-statline">
-          <span><strong>{{ "%.2f"|format(report.previous_week_effort_hours) }}h</strong> booked last week</span>
           <span><strong>{{ "%.2f"|format(report.previous_week_effort_rate) }}%</strong> booking rate</span>
+          <span><strong>{{ report.worked_last_week_tasks|length }}</strong> worked task{% if report.worked_last_week_tasks|length != 1 %}s{% endif %}</span>
           {% if report.previous_week_leave_summary %}
           <span><strong>{{ report.previous_week_leave_summary|length }}</strong> leave day{% if report.previous_week_leave_summary|length != 1 %}s{% endif %}</span>
           {% endif %}
         </div>
-        <p>The summary will use selected tasks, task descriptions, booked-hour comments, effort totals, and leave context from the selected week.</p>
+        <p>The summary will use selected tasks, task descriptions, booked-hour comments, booked percentage, and leave context from the selected week.</p>
       </div>
       <div class="table-wrap backlog-planner-table">
         <table>
@@ -442,7 +442,7 @@
             {% for task in report.worked_last_week_tasks %}
             <tr>
               <td>
-                <input type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" data-ai-summary-toggle>
+                <input type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" data-ai-summary-toggle checked>
               </td>
               <td class="backlog-task-cell">
                 <strong>{{ task.task_id }}</strong><br>
