@@ -2579,6 +2579,33 @@ mark {
   max-width: 70ch;
 }
 
+.leaderboard-period-toggle {
+  flex-shrink: 0;
+}
+
+.leaderboard-period-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgba(29, 52, 66, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 800;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+}
+
+.leaderboard-period-toggle input {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
 .leaderboard-hero {
   display: grid;
   gap: 1.25rem;

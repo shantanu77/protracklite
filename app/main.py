@@ -6331,6 +6331,7 @@ def manager_dashboard_page(request: Request, org_user: tuple[Organization, User]
 def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
     must_be_admin_or_manager(user)
+    this_month = request.query_params.get("this_month") in {"1", "true", "on", "yes"}
     scope_user_ids = None
     scope_label = "Whole Org"
     scope_title = "Recognition-first reporting for the whole org."
@@ -6340,7 +6341,7 @@ def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User]
         scope_label = "My Team"
         scope_title = "Recognition-first reporting for your direct reports."
         scope_description = "Spotlight the team members moving work forward with booked hours, finished tasks, chargeable effort, and consistency in one leaderboard."
-    report = admin_leaderboard_report(db, org.id, user_ids=scope_user_ids)
+    report = admin_leaderboard_report(db, org.id, user_ids=scope_user_ids, this_month=this_month)
     return templates.TemplateResponse(
         "admin_leaderboard.html",
         {
@@ -6351,6 +6352,7 @@ def admin_leaderboard_page(request: Request, org_user: tuple[Organization, User]
             "scope_label": scope_label,
             "scope_title": scope_title,
             "scope_description": scope_description,
+            "this_month": this_month,
         },
     )
 

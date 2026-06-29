@@ -4,13 +4,19 @@
   <div>
     <p class="eyebrow">{{ "Admin Report" if user.role.value == "admin" else "Manager Report" }}</p>
     <h1>Leaderboard Arena</h1>
-    <p>{{ scope_label }} 4-week view of effort, delivery, consistency, and momentum from {{ report.period_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
+    <p>{{ scope_label }} {{ report.period_label|lower }} view of effort, delivery, consistency, and momentum from {{ report.period_start.strftime('%d %b %Y') }} to {{ report.today.strftime('%d %b %Y') }}.</p>
   </div>
+  <form method="get" class="leaderboard-period-toggle">
+    <label>
+      <input type="checkbox" name="this_month" value="1" {% if this_month %}checked{% endif %} onchange="this.form.submit()">
+      <span>This Month</span>
+    </label>
+  </form>
 </section>
 
 <section class="leaderboard-hero">
   <div class="leaderboard-hero-copy">
-    <span class="leaderboard-kicker">Rolling 4-Week Championship</span>
+    <span class="leaderboard-kicker">{{ report.period_label }} Championship</span>
     <h2>{{ scope_title }}</h2>
     <p>{{ scope_description }}</p>
   </div>
@@ -82,7 +88,7 @@
   <section class="panel leaderboard-chart-panel report-span-2">
     <div class="panel-head">
       <h2>Hours Duel</h2>
-      <p>Logged hours versus chargeable hours for the strongest performers across the current week and 3 previous weeks.</p>
+      <p>Logged hours versus chargeable hours for the strongest performers across the {{ report.period_description }}.</p>
     </div>
     <div class="chart-canvas leaderboard-chart" id="leaderboard-hours-chart" aria-label="Leaderboard hours chart"></div>
   </section>
@@ -120,6 +126,7 @@
           <th>Score</th>
           <th>Stars</th>
           <th>Logged</th>
+          <th>Logged %</th>
           <th>Completed</th>
           <th>On Time</th>
           <th>Utilization</th>
@@ -147,6 +154,7 @@
             </div>
           </td>
           <td>{{ "%.2f"|format(row.logged_hours) }}h</td>
+          <td>{{ "%.1f"|format(row.logged_hours_percent) }}%</td>
           <td>{{ row.completed_tasks }}</td>
           <td>{{ "%.1f"|format(row.on_time_rate) }}%</td>
           <td>{{ "%.1f"|format(row.utilization_rate) }}%</td>
@@ -170,7 +178,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="12" class="empty">No leaderboard rows available.</td></tr>
+        <tr><td colspan="13" class="empty">No leaderboard rows available.</td></tr>
         {% endfor %}
       </tbody>
     </table>

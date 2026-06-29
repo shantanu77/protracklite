@@ -737,13 +737,21 @@ def admin_leaderboard_report(
     today: date | None = None,
     *,
     user_ids: list[int] | None = None,
+    this_month: bool = False,
 ) -> dict:
     today = today or local_today()
     current_week_start, _ = current_week_bounds(today)
-    period_start = current_week_start - timedelta(days=21)
+    period_start = today.replace(day=1) if this_month else current_week_start - timedelta(days=21)
     recent_window_start = current_week_start
     previous_window_end = current_week_start - timedelta(days=1)
     previous_window_start = current_week_start - timedelta(days=7)
+    period_mode = "this_month" if this_month else "rolling"
+    period_label = "This Month" if this_month else "Rolling 4 Weeks"
+    period_description = (
+        "month-to-date from day 1 through today"
+        if this_month
+        else "current week and 3 previous weeks"
+    )
 
     team_query = (
         select(User)
@@ -764,6 +772,9 @@ def admin_leaderboard_report(
         return {
             "today": today,
             "period_start": period_start,
+            "period_mode": period_mode,
+            "period_label": period_label,
+            "period_description": period_description,
             "leaders": [],
             "awards": [],
             "summary": {
@@ -962,6 +973,7 @@ def admin_leaderboard_report(
         chargeable_hours = float(chargeable_hours_by_user.get(member.id, 0))
         available_hours = float(rates["available_hours"] or 0)
         utilization_rate = round((logged_hours / available_hours * 100) if available_hours else 0, 2)
+        logged_hours_percent = utilization_rate
         chargeable_share = round((chargeable_hours / logged_hours * 100) if logged_hours else 0, 2)
         on_time_rate = round((on_time_tasks / completed_tasks * 100) if completed_tasks else 0, 2)
         current_window_hours = float(current_window_hours_by_user.get(member.id, 0))
@@ -979,6 +991,7 @@ def admin_leaderboard_report(
                 "on_time_tasks": on_time_tasks,
                 "on_time_rate": on_time_rate,
                 "available_hours": round(available_hours, 2),
+                "logged_hours_percent": logged_hours_percent,
                 "utilization_rate": utilization_rate,
                 "chargeable_share": chargeable_share,
                 "open_tasks": int(open_stats.get("open_tasks", 0)),
@@ -999,6 +1012,9 @@ def admin_leaderboard_report(
         return {
             "today": today,
             "period_start": period_start,
+            "period_mode": period_mode,
+            "period_label": period_label,
+            "period_description": period_description,
             "leaders": [],
             "awards": [],
             "summary": {
@@ -1096,8 +1112,8 @@ def admin_leaderboard_report(
         }
 
     awards = [
-        build_award("Hours Crown", "Most effort booked in the last 4 weeks", "logged_hours", "h", "gold"),
-        build_award("Closer Cup", "Most tasks completed in the last 4 weeks", "completed_tasks", "", "coral"),
+        build_award("Hours Crown", f"Most effort booked in the {period_description}", "logged_hours", "h", "gold"),
+        build_award("Closer Cup", f"Most tasks completed in the {period_description}", "completed_tasks", "", "coral"),
         build_award("Chargeable Ace", "Highest chargeable hours delivered", "chargeable_hours", "h", "mint"),
         build_award("Consistency Star", "Most active booking days", "active_days", " days", "sky"),
         build_award("Momentum Rocket", "Strongest current-week lift over previous week", "momentum_delta", "h", "sun"),
@@ -1160,6 +1176,9 @@ def admin_leaderboard_report(
     return {
         "today": today,
         "period_start": period_start,
+        "period_mode": period_mode,
+        "period_label": period_label,
+        "period_description": period_description,
         "leaders": leaders,
         "awards": awards,
         "summary": summary,
