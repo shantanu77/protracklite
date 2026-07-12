@@ -2227,11 +2227,30 @@ mark {
   color: var(--text);
   text-align: left;
   box-shadow: none;
+  cursor: pointer;
 }
 
 .monday-allocation-box:hover {
   transform: translateY(-1px);
   border-color: rgba(35, 85, 111, 0.24);
+  background: linear-gradient(180deg, rgba(242, 247, 249, 0.98), rgba(255, 255, 255, 1));
+  color: var(--text);
+}
+
+.monday-allocation-box:focus-visible {
+  outline: none;
+  border-color: rgba(35, 85, 111, 0.34);
+  box-shadow: 0 0 0 4px rgba(35, 85, 111, 0.12);
+}
+
+.monday-allocation-box:hover span,
+.monday-allocation-box:focus-visible span {
+  color: var(--muted);
+}
+
+.monday-allocation-box:hover strong,
+.monday-allocation-box:focus-visible strong {
+  color: var(--primary);
 }
 
 .monday-allocation-box span {
@@ -2252,9 +2271,17 @@ mark {
   border-color: rgba(217, 119, 6, 0.28);
 }
 
+.monday-allocation-box.is-leave:hover {
+  background: linear-gradient(180deg, rgba(253, 230, 138, 0.7), rgba(255, 251, 235, 1));
+}
+
 .monday-allocation-box.is-holiday {
   background: linear-gradient(180deg, rgba(219, 234, 254, 0.95), rgba(239, 246, 255, 1));
   border-color: rgba(37, 99, 235, 0.2);
+}
+
+.monday-allocation-box.is-holiday:hover {
+  background: linear-gradient(180deg, rgba(191, 219, 254, 0.78), rgba(239, 246, 255, 1));
 }
 
 .monday-allocation-box.is-empty {
@@ -2262,9 +2289,17 @@ mark {
   border-color: rgba(220, 38, 38, 0.18);
 }
 
+.monday-allocation-box.is-empty:hover {
+  background: linear-gradient(180deg, rgba(254, 226, 226, 0.82), rgba(255, 255, 255, 1));
+}
+
 .monday-allocation-box.is-weekend {
   background: linear-gradient(180deg, rgba(241, 245, 249, 0.95), rgba(248, 250, 252, 1));
   border-color: rgba(100, 116, 139, 0.22);
+}
+
+.monday-allocation-box.is-weekend:hover {
+  background: linear-gradient(180deg, rgba(226, 232, 240, 0.86), rgba(248, 250, 252, 1));
 }
 
 .report-layout {
