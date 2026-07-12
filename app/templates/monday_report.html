@@ -750,9 +750,10 @@
         const term = String(searchInput?.value || "").trim().toLowerCase();
         let visibleCount = 0;
         options.forEach((option) => {
-          const haystack = String(option.dataset.taskSearch || "");
+          const haystack = String(option.dataset.taskSearch || option.textContent || "").trim().toLowerCase();
           const visible = !term || haystack.includes(term);
-          option.hidden = !visible;
+          option.hidden = false;
+          option.style.display = visible ? "" : "none";
           if (visible) {
             visibleCount += 1;
           }
@@ -832,9 +833,10 @@
         const term = String(searchInput?.value || "").trim().toLowerCase();
         let visibleCount = 0;
         options.forEach((option) => {
-          const haystack = String(option.dataset.taskSearch || "");
+          const haystack = String(option.dataset.taskSearch || option.textContent || "").trim().toLowerCase();
           const visible = !term || haystack.includes(term);
-          option.hidden = !visible;
+          option.hidden = false;
+          option.style.display = visible ? "" : "none";
           if (visible) {
             visibleCount += 1;
           }

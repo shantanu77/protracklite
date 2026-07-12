@@ -5831,6 +5831,7 @@ def monday_report_page(
             Task.org_id == org.id,
             Task.assigned_to == user.id,
             Task.is_archived.is_(False),
+            Task.status != TaskStatus.CLOSED,
         )
         .order_by(Task.updated_at.desc(), Task.created_at.desc())
     ).all()
