@@ -2217,12 +2217,21 @@ mark {
 }
 
 .monday-allocation-box {
+  width: 100%;
   display: grid;
   gap: 0.35rem;
   padding: 0.8rem 0.7rem;
   border-radius: 16px;
   border: 1px solid rgba(217, 224, 228, 0.92);
   background: linear-gradient(180deg, rgba(250, 251, 251, 0.96), rgba(255, 255, 255, 1));
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.monday-allocation-box:hover {
+  transform: translateY(-1px);
+  border-color: rgba(35, 85, 111, 0.24);
 }
 
 .monday-allocation-box span {

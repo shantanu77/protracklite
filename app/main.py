@@ -529,6 +529,10 @@ def monday_report_redirect_url(
     catchup_saved: int = 0,
     catchup_error: str | None = None,
     catchup_open: bool = False,
+    daylog_saved: int = 0,
+    daylog_error: str | None = None,
+    daylog_open: bool = False,
+    daylog_date: str | None = None,
 ) -> str:
     query: dict[str, str] = {}
     if summary_generated:
@@ -541,6 +545,14 @@ def monday_report_redirect_url(
         query["catchup_error"] = catchup_error
     if catchup_open:
         query["catchup_open"] = "1"
+    if daylog_saved > 0:
+        query["daylog_saved"] = str(daylog_saved)
+    if daylog_error:
+        query["daylog_error"] = daylog_error
+    if daylog_open:
+        query["daylog_open"] = "1"
+    if daylog_date:
+        query["daylog_date"] = daylog_date
     base_url = f"/{org_slug}/reports/monday"
     return f"{base_url}?{urlencode(query)}" if query else base_url
 
@@ -5775,6 +5787,10 @@ def monday_report_page(
     catchup_saved: int | None = None,
     catchup_error: str | None = None,
     catchup_open: int | None = None,
+    daylog_saved: int | None = None,
+    daylog_error: str | None = None,
+    daylog_open: int | None = None,
+    daylog_date: str | None = None,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -5858,6 +5874,10 @@ def monday_report_page(
             "catchup_saved": int(catchup_saved or 0),
             "catchup_error": catchup_error or "",
             "catchup_open": bool(catchup_open),
+            "daylog_saved": int(daylog_saved or 0),
+            "daylog_error": daylog_error or "",
+            "daylog_open": bool(daylog_open),
+            "daylog_date": daylog_date or "",
             "time_log_notes_min_length": TIME_LOG_NOTES_MIN_LENGTH,
         },
     )
@@ -6267,6 +6287,98 @@ async def monday_report_catch_up_last_week(
     db.commit()
     return RedirectResponse(
         url=monday_report_redirect_url(org_slug, catchup_saved=1, catchup_open=submit_action == "save_add_new"),
+        status_code=303,
+    )
+
+
+@app.post("/{org_slug}/reports/monday/day-log")
+async def monday_report_add_day_log(
+    org_slug: str,
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    form = await request.form()
+    task_code = str(form.get("task_code") or "").strip()
+    log_date_raw = str(form.get("log_date") or "").strip()
+    hours_raw = str(form.get("hours") or "").strip()
+    submit_action = str(form.get("submit_action") or "save").strip().lower()
+
+    if not log_date_raw:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error="Select a day before logging hours.", daylog_open=True),
+            status_code=303,
+        )
+    try:
+        log_date = date.fromisoformat(log_date_raw)
+    except ValueError:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error="Select a valid day before logging hours.", daylog_open=True),
+            status_code=303,
+        )
+
+    if not task_code:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error="Select a task before saving.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    try:
+        hours = Decimal(hours_raw)
+    except Exception:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error="Hours must be a valid number.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    if hours <= 0:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error="Hours must be greater than zero.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    task = db.scalar(
+        select(Task).where(
+            Task.org_id == org.id,
+            Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
+            Task.task_id == task_code,
+        )
+    )
+    if not task:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error="Selected task was not found.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    try:
+        normalized_notes = normalize_time_log_notes(str(form.get("notes") or ""))
+        was_not_started = task.status == TaskStatus.NOT_STARTED
+        if was_not_started:
+            task.status = TaskStatus.STARTED
+        if task.is_shared and task.shared_status in {"", SharedTaskStatus.ASSIGNED.value, SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value}:
+            task.shared_status = SharedTaskStatus.IN_PROGRESS.value
+        db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
+        if task.start_date is None or log_date < task.start_date:
+            task.start_date = log_date
+    except HTTPException as exc:
+        db.rollback()
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, daylog_error=str(exc.detail), daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    db.flush()
+    task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
+    db.commit()
+    return RedirectResponse(
+        url=monday_report_redirect_url(
+            org_slug,
+            daylog_saved=1,
+            daylog_open=submit_action == "save_add_new",
+            daylog_date=log_date.isoformat() if submit_action == "save_add_new" else None,
+        ),
         status_code=303,
     )
 

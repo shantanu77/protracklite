@@ -179,6 +179,15 @@
   <p>Saved {{ catchup_saved }} previous-week time log{% if catchup_saved != 1 %}s{% endif %}.</p>
 </section>
 {% endif %}
+{% if daylog_error %}
+<section class="panel monday-summary-panel ai-summary-feedback">
+  <p class="empty">{{ daylog_error }}</p>
+</section>
+{% elif daylog_saved %}
+<section class="panel monday-summary-panel ai-summary-feedback ai-summary-feedback-success">
+  <p>Saved {{ daylog_saved }} day-based time log{% if daylog_saved != 1 %}s{% endif %}.</p>
+</section>
+{% endif %}
 {% if summary_error %}
 <section class="panel monday-summary-panel ai-summary-feedback">
   <p class="empty">{{ summary_error }}</p>
@@ -235,10 +244,16 @@
 <section class="panel monday-summary-panel">
   <div class="monday-allocation-strip" aria-label="Previous week day-wise booked hours">
     {% for day in report.previous_week_daily_allocation %}
-    <div class="monday-allocation-box is-{{ day.status }}" title="{{ day.date.strftime('%A, %d %b %Y') }} · {{ day.detail }}">
+    <button
+      type="button"
+      class="monday-allocation-box is-{{ day.status }}"
+      title="{{ day.date.strftime('%A, %d %b %Y') }} · {{ day.detail }}"
+      data-modal-open="day-log-modal"
+      data-modal-payload='{{ {"day_label_text": day.date.strftime("%A, %d %b %Y"), "day_detail_text": day.detail, "day_value_text": day.value_short, "log_date": day.date.isoformat()}|tojson|e }}'
+    >
       <span>{{ day.day_short }}</span>
       <strong>{{ day.value_short }}</strong>
-    </div>
+    </button>
     {% endfor %}
   </div>
   <p>
@@ -248,6 +263,77 @@
     <strong>{{ report.pending_more_than_two_weeks_count }} older than 2 weeks.</strong>
   </p>
 </section>
+
+<div class="modal-backdrop" id="day-log-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide monday-catchup-modal" role="dialog" aria-modal="true" aria-labelledby="day-log-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="day-log-title">Log Hours For This Day</h2>
+        <p data-modal-text="day_label_text">Choose a day from the Monday strip.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close day log modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/reports/monday/day-log" class="stack monday-catchup-flow" data-daylog-form>
+      <div class="monday-catchup-meta">
+        <span data-modal-text="day_detail_text">Select a day to start logging.</span>
+        <span data-modal-text="day_value_text"></span>
+      </div>
+      <label class="full">
+        <span class="monday-task-detail-label">Task Search</span>
+        <input type="search" placeholder="Search by task id or task name" data-daylog-search autocomplete="off">
+      </label>
+      <div class="monday-catchup-search-results" data-daylog-results>
+        {% for task in report.catchup_task_candidates %}
+        <button
+          type="button"
+          class="monday-catchup-task-option"
+          data-daylog-option
+          data-task-code="{{ task.task_id }}"
+          data-task-name="{{ task.name }}"
+          data-task-status="{{ task.status|replace('_', ' ') }}"
+          data-task-search="{{ task.search_text }}"
+        >
+          <span class="monday-catchup-task-option-main">
+            <strong>{{ task.task_id }} · {{ task.name }}</strong>
+            <small>{{ task.status|replace('_', ' ') }} · {{ "%.2f"|format(task.report_hours or 0) }}h last week · {{ "%.2f"|format(task.logged_hours or 0) }}h total</small>
+          </span>
+        </button>
+        {% endfor %}
+        <p class="empty" data-daylog-empty hidden>No tasks match this search.</p>
+      </div>
+      <div class="monday-catchup-selected" data-daylog-selected hidden>
+        <span class="monday-task-detail-label">Selected Task</span>
+        <div class="monday-catchup-selected-card">
+          <div>
+            <strong data-daylog-selected-title></strong>
+            <small data-daylog-selected-status></small>
+          </div>
+          <button type="button" class="button subtle-button" data-daylog-clear>Change Task</button>
+        </div>
+      </div>
+      <input type="hidden" name="task_code" value="" data-daylog-task-code>
+      <input type="hidden" name="log_date" value="" data-daylog-date>
+      <div class="form-grid">
+        <label>
+          Effort
+          <input type="number" name="hours" step="0.25" min="0.25" required placeholder="e.g. 1.5">
+        </label>
+      </div>
+      <label class="full">
+        Comments
+        <textarea name="notes" rows="5" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on for this selected day?"></textarea>
+      </label>
+      <p class="form-helper full">{{ time_log_notes_min_length }}+ characters required.</p>
+      <div class="monday-catchup-footer">
+        <p class="empty">Save once, then keep adding more tasks to the same selected day.</p>
+        <div class="page-head-actions">
+          <button type="submit" name="submit_action" value="save">Save</button>
+          <button type="submit" class="button subtle-button" name="submit_action" value="save_add_new">Save &amp; Add More</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
 <section class="panel monday-catchup-panel">
   <div class="panel-head">
     <div>
@@ -712,6 +798,116 @@
         catchupModal.classList.add("is-open");
         catchupModal.setAttribute("aria-hidden", "false");
         document.body.classList.add("modal-open");
+        window.setTimeout(() => searchInput?.focus(), 0);
+      }
+      {% endif %}
+    }
+
+    const dayLogForm = document.querySelector("[data-daylog-form]");
+    if (dayLogForm) {
+      const searchInput = dayLogForm.querySelector("[data-daylog-search]");
+      const taskCodeInput = dayLogForm.querySelector("[data-daylog-task-code]");
+      const dateInput = dayLogForm.querySelector("[data-daylog-date]");
+      const selectedPanel = dayLogForm.querySelector("[data-daylog-selected]");
+      const selectedTitle = dayLogForm.querySelector("[data-daylog-selected-title]");
+      const selectedStatus = dayLogForm.querySelector("[data-daylog-selected-status]");
+      const emptyNote = dayLogForm.querySelector("[data-daylog-empty]");
+      const options = [...dayLogForm.querySelectorAll("[data-daylog-option]")];
+      const hoursInput = dayLogForm.querySelector('[name="hours"]');
+      const notesInput = dayLogForm.querySelector('[name="notes"]');
+
+      function syncDayLogSelection() {
+        const selectedOption = options.find((option) => option.dataset.taskCode === taskCodeInput?.value);
+        options.forEach((option) => option.classList.toggle("is-active", option === selectedOption));
+        if (selectedOption && selectedPanel && selectedTitle && selectedStatus) {
+          selectedPanel.hidden = false;
+          selectedTitle.textContent = `${selectedOption.dataset.taskCode} · ${selectedOption.dataset.taskName}`;
+          selectedStatus.textContent = selectedOption.dataset.taskStatus || "";
+        } else if (selectedPanel) {
+          selectedPanel.hidden = true;
+        }
+      }
+
+      function applyDayLogSearch() {
+        const term = String(searchInput?.value || "").trim().toLowerCase();
+        let visibleCount = 0;
+        options.forEach((option) => {
+          const haystack = String(option.dataset.taskSearch || "");
+          const visible = !term || haystack.includes(term);
+          option.hidden = !visible;
+          if (visible) {
+            visibleCount += 1;
+          }
+        });
+        if (emptyNote) {
+          emptyNote.hidden = visibleCount !== 0;
+        }
+      }
+
+      function resetDayLogEntry(keepDate = true) {
+        if (taskCodeInput) {
+          taskCodeInput.value = "";
+        }
+        if (hoursInput) {
+          hoursInput.value = "";
+        }
+        if (notesInput) {
+          notesInput.value = "";
+        }
+        if (!keepDate && dateInput) {
+          dateInput.value = "";
+        }
+        syncDayLogSelection();
+        searchInput?.focus();
+      }
+
+      options.forEach((option) => {
+        option.addEventListener("click", () => {
+          if (taskCodeInput) {
+            taskCodeInput.value = option.dataset.taskCode || "";
+          }
+          syncDayLogSelection();
+        });
+      });
+
+      dayLogForm.querySelector("[data-daylog-clear]")?.addEventListener("click", () => {
+        if (taskCodeInput) {
+          taskCodeInput.value = "";
+        }
+        syncDayLogSelection();
+        searchInput?.focus();
+      });
+
+      dayLogForm.addEventListener("submit", (event) => {
+        if (!taskCodeInput?.value) {
+          event.preventDefault();
+          searchInput?.focus();
+        }
+      });
+
+      searchInput?.addEventListener("input", applyDayLogSearch);
+      syncDayLogSelection();
+      applyDayLogSearch();
+
+      document.querySelectorAll('[data-modal-open="day-log-modal"]').forEach((button) => {
+        button.addEventListener("click", () => {
+          if (dateInput) {
+            const payload = button.dataset.modalPayload ? JSON.parse(button.dataset.modalPayload) : {};
+            dateInput.value = payload.log_date || "";
+          }
+          resetDayLogEntry(true);
+        });
+      });
+
+      {% if daylog_open %}
+      const dayLogModal = document.getElementById("day-log-modal");
+      if (dayLogModal) {
+        dayLogModal.classList.add("is-open");
+        dayLogModal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("modal-open");
+        if (dateInput) {
+          dateInput.value = "{{ daylog_date }}";
+        }
         window.setTimeout(() => searchInput?.focus(), 0);
       }
       {% endif %}
