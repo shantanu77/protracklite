@@ -391,85 +391,77 @@
     <div class="modal-head">
       <div>
         <h2 id="last-week-catchup-title">Fill Last Week Effort</h2>
-        <p>Search tasks, select the rows you need, add hours across previous-week working days, and provide one mandatory comment per task row.</p>
+        <p>Search one task, choose one valid day from last week, add hours, write the mandatory comment, then save or save and continue.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close last week catch-up modal">×</button>
     </div>
-    <form method="post" action="/{{ org.slug }}/reports/monday/catch-up" class="stack" data-catchup-form>
+    <form method="post" action="/{{ org.slug }}/reports/monday/catch-up" class="stack monday-catchup-flow" data-catchup-form>
       <div class="monday-catchup-toolbar">
         <label class="full">
           <span class="monday-task-detail-label">Task Search</span>
-          <input type="search" placeholder="Search by task id or task name" data-catchup-search>
+          <input type="search" placeholder="Search by task id or task name" data-catchup-search autocomplete="off">
         </label>
         <div class="monday-catchup-meta">
-          <span data-catchup-selection-note>0 selected</span>
+          <span data-catchup-selection-note>No task selected</span>
           <span>Week {{ report.previous_week_start.strftime("%d %b") }} to {{ report.previous_week_end.strftime("%d %b %Y") }}</span>
         </div>
       </div>
-      <div class="table-wrap monday-catchup-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Select</th>
-              <th>Task</th>
-              {% for day in report.previous_week_workdays %}
-              <th>{{ day.day_short }}<br><small>{{ day.date.strftime("%d %b") }}</small></th>
-              {% endfor %}
-              <th>Comment</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for task in report.catchup_task_candidates %}
-            <tr data-catchup-row data-catchup-search="{{ task.search_text }}">
-              <td>
-                <input type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" data-catchup-toggle="{{ task.task_id }}">
-              </td>
-              <td class="monday-catchup-task-cell">
-                <strong>{{ task.task_id }}</strong><br>
-                <small>{{ task.name }}</small>
-                <div class="monday-catchup-task-meta">
-                  <span class="badge muted">{{ task.status|replace('_', ' ') }}</span>
-                  <span>{{ "%.2f"|format(task.report_hours or 0) }}h last week</span>
-                  <span>{{ "%.2f"|format(task.logged_hours or 0) }}h total</span>
-                </div>
-              </td>
-              {% for day in report.previous_week_workdays %}
-              <td class="monday-catchup-hours-cell">
-                <input
-                  type="number"
-                  name="hours_{{ task.task_id }}_{{ day.date.isoformat() }}"
-                  step="0.25"
-                  min="0"
-                  placeholder="0"
-                  data-catchup-input="{{ task.task_id }}"
-                  data-catchup-hours
-                  disabled
-                >
-                {% if day.status == "leave" %}
-                <small class="monday-catchup-day-note">{{ day.value_short }}</small>
-                {% endif %}
-              </td>
-              {% endfor %}
-              <td class="monday-catchup-note-cell">
-                <textarea
-                  name="notes_{{ task.task_id }}"
-                  rows="4"
-                  minlength="{{ time_log_notes_min_length }}"
-                  placeholder="Mandatory comment. This note is applied to every filled day in this task row."
-                  data-catchup-input="{{ task.task_id }}"
-                  data-catchup-notes
-                  disabled
-                ></textarea>
-                <small>{{ time_log_notes_min_length }}+ characters required when any hours are entered.</small>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="monday-catchup-search-results" data-catchup-results>
+        {% for task in report.catchup_task_candidates %}
+        <button
+          type="button"
+          class="monday-catchup-task-option"
+          data-catchup-option
+          data-task-code="{{ task.task_id }}"
+          data-task-name="{{ task.name }}"
+          data-task-status="{{ task.status|replace('_', ' ') }}"
+          data-task-search="{{ task.search_text }}"
+        >
+          <span class="monday-catchup-task-option-main">
+            <strong>{{ task.task_id }} · {{ task.name }}</strong>
+            <small>{{ task.status|replace('_', ' ') }} · {{ "%.2f"|format(task.report_hours or 0) }}h last week · {{ "%.2f"|format(task.logged_hours or 0) }}h total</small>
+          </span>
+        </button>
+        {% endfor %}
+        <p class="empty" data-catchup-empty hidden>No tasks match this search.</p>
       </div>
+      <div class="monday-catchup-selected" data-catchup-selected hidden>
+        <span class="monday-task-detail-label">Selected Task</span>
+        <div class="monday-catchup-selected-card">
+          <div>
+            <strong data-catchup-selected-title></strong>
+            <small data-catchup-selected-status></small>
+          </div>
+          <button type="button" class="button subtle-button" data-catchup-clear>Change Task</button>
+        </div>
+      </div>
+      <input type="hidden" name="task_code" value="" data-catchup-task-code>
+      <div class="form-grid">
+        <label>
+          Day
+          <select name="log_date" required data-catchup-day>
+            <option value="">Select day</option>
+            {% for day in report.previous_week_workdays %}
+            <option value="{{ day.date.isoformat() }}">{{ day.day_short }}, {{ day.date.strftime("%d %b %Y") }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Effort
+          <input type="number" name="hours" step="0.25" min="0.25" required placeholder="e.g. 2.5">
+        </label>
+      </div>
+      <label class="full">
+        Comments
+        <textarea name="notes" rows="5" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on? This comment is mandatory." data-catchup-notes></textarea>
+      </label>
+      <p class="form-helper full">{{ time_log_notes_min_length }}+ characters required.</p>
       <div class="monday-catchup-footer">
-        <p class="empty">Each non-zero cell becomes a normal time-log entry on that date. Comments stay mandatory.</p>
-        <button type="submit">Save Last Week Logs</button>
+        <p class="empty">Only days from last week without holiday or leave are shown.</p>
+        <div class="page-head-actions">
+          <button type="submit" name="submit_action" value="save">Save</button>
+          <button type="submit" class="button subtle-button" name="submit_action" value="save_add_new">Save &amp; Add New</button>
+        </div>
       </div>
     </form>
   </div>
@@ -641,75 +633,88 @@
     if (catchupForm) {
       const searchInput = catchupForm.querySelector("[data-catchup-search]");
       const selectionNote = catchupForm.querySelector("[data-catchup-selection-note]");
-      const rows = [...catchupForm.querySelectorAll("[data-catchup-row]")];
-
-      function rowHasHours(row) {
-        return [...row.querySelectorAll("[data-catchup-hours]")].some((field) => Number(field.value || 0) > 0);
-      }
-
-      function syncCatchupNoteRequirement(row) {
-        const notesField = row.querySelector("[data-catchup-notes]");
-        if (!notesField) {
-          return;
-        }
-        notesField.required = rowHasHours(row);
-      }
-
-      function syncCatchupRow(toggle) {
-        const taskCode = toggle.dataset.catchupToggle;
-        catchupForm.querySelectorAll(`[data-catchup-input="${taskCode}"]`).forEach((input) => {
-          input.disabled = !toggle.checked;
-        });
-        const row = toggle.closest("[data-catchup-row]");
-        row?.classList.toggle("is-selected", toggle.checked);
-        if (row) {
-          syncCatchupNoteRequirement(row);
-        }
-      }
+      const taskCodeInput = catchupForm.querySelector("[data-catchup-task-code]");
+      const selectedPanel = catchupForm.querySelector("[data-catchup-selected]");
+      const selectedTitle = catchupForm.querySelector("[data-catchup-selected-title]");
+      const selectedStatus = catchupForm.querySelector("[data-catchup-selected-status]");
+      const emptyNote = catchupForm.querySelector("[data-catchup-empty]");
+      const options = [...catchupForm.querySelectorAll("[data-catchup-option]")];
 
       function syncCatchupSelection() {
-        const selectedCount = catchupForm.querySelectorAll("[data-catchup-toggle]:checked").length;
-        if (selectionNote) {
-          selectionNote.textContent = `${selectedCount} selected`;
+        const selectedOption = options.find((option) => option.dataset.taskCode === taskCodeInput?.value);
+        options.forEach((option) => option.classList.toggle("is-active", option === selectedOption));
+        if (selectedOption && selectedPanel && selectedTitle && selectedStatus) {
+          selectedPanel.hidden = false;
+          selectedTitle.textContent = `${selectedOption.dataset.taskCode} · ${selectedOption.dataset.taskName}`;
+          selectedStatus.textContent = selectedOption.dataset.taskStatus || "";
+          if (selectionNote) {
+            selectionNote.textContent = `Selected ${selectedOption.dataset.taskCode}`;
+          }
+        } else {
+          if (selectedPanel) {
+            selectedPanel.hidden = true;
+          }
+          if (selectionNote) {
+            selectionNote.textContent = "No task selected";
+          }
         }
       }
 
       function applyCatchupSearch() {
         const term = String(searchInput?.value || "").trim().toLowerCase();
-        rows.forEach((row) => {
-          const haystack = String(row.dataset.catchupSearch || "");
-          row.hidden = Boolean(term) && !haystack.includes(term);
+        let visibleCount = 0;
+        options.forEach((option) => {
+          const haystack = String(option.dataset.taskSearch || "");
+          const visible = !term || haystack.includes(term);
+          option.hidden = !visible;
+          if (visible) {
+            visibleCount += 1;
+          }
         });
+        if (emptyNote) {
+          emptyNote.hidden = visibleCount !== 0;
+        }
       }
 
-      catchupForm.querySelectorAll("[data-catchup-toggle]").forEach((toggle) => {
-        toggle.addEventListener("change", () => {
-          syncCatchupRow(toggle);
+      options.forEach((option) => {
+        option.addEventListener("click", () => {
+          if (taskCodeInput) {
+            taskCodeInput.value = option.dataset.taskCode || "";
+          }
           syncCatchupSelection();
         });
-        syncCatchupRow(toggle);
       });
 
-      catchupForm.querySelectorAll("[data-catchup-hours]").forEach((input) => {
-        input.addEventListener("input", () => {
-          const row = input.closest("[data-catchup-row]");
-          const toggle = row?.querySelector("[data-catchup-toggle]");
-          if (!toggle) {
-            return;
+      catchupForm.querySelector("[data-catchup-clear]")?.addEventListener("click", () => {
+        if (taskCodeInput) {
+          taskCodeInput.value = "";
+        }
+        syncCatchupSelection();
+        searchInput?.focus();
+      });
+
+      catchupForm.addEventListener("submit", (event) => {
+        if (!taskCodeInput?.value) {
+          event.preventDefault();
+          if (selectionNote) {
+            selectionNote.textContent = "Select a task before saving";
           }
-          const hasValue = rowHasHours(row);
-          if (hasValue && !toggle.checked) {
-            toggle.checked = true;
-            syncCatchupRow(toggle);
-            syncCatchupSelection();
-          }
-          syncCatchupNoteRequirement(row);
-        });
+          searchInput?.focus();
+        }
       });
 
       searchInput?.addEventListener("input", applyCatchupSearch);
       syncCatchupSelection();
       applyCatchupSearch();
+      {% if catchup_open %}
+      const catchupModal = document.getElementById("last-week-catchup-modal");
+      if (catchupModal) {
+        catchupModal.classList.add("is-open");
+        catchupModal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("modal-open");
+        window.setTimeout(() => searchInput?.focus(), 0);
+      }
+      {% endif %}
     }
 
     const aiSummaryForm = document.querySelector("[data-ai-summary-form]");

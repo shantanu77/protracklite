@@ -3552,7 +3552,12 @@ mark {
 }
 
 .monday-catchup-modal {
-  max-width: min(1380px, calc(100vw - 2rem));
+  max-width: min(760px, calc(100vw - 2rem));
+}
+
+.monday-catchup-flow {
+  display: grid;
+  gap: 1rem;
 }
 
 .monday-catchup-toolbar {
@@ -3569,67 +3574,79 @@ mark {
   font-size: 0.84rem;
 }
 
-.monday-catchup-table {
-  overflow-x: auto;
+.monday-catchup-search-results {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.2rem;
+  border: 1px solid rgba(29, 52, 66, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
 }
 
-.monday-catchup-table table {
-  min-width: 1100px;
-}
-
-.monday-catchup-table tbody tr.is-selected {
-  background: rgba(19, 78, 74, 0.04);
-}
-
-.monday-catchup-table input[type="checkbox"] {
-  width: 1rem;
-  height: 1rem;
-  margin: 0 auto;
-}
-
-.monday-catchup-task-cell {
-  min-width: 250px;
-}
-
-.monday-catchup-task-meta {
+.monday-catchup-task-option {
+  width: 100%;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(29, 52, 66, 0.08);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.monday-catchup-task-option:hover,
+.monday-catchup-task-option.is-active {
+  background: rgba(19, 78, 74, 0.08);
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
+.monday-catchup-task-option-main {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.monday-catchup-task-option strong {
+  font-size: 0.95rem;
+}
+
+.monday-catchup-task-option small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.monday-catchup-selected {
+  display: grid;
   gap: 0.45rem;
-  margin-top: 0.45rem;
-  color: var(--muted);
-  font-size: 0.74rem;
 }
 
-.monday-catchup-hours-cell {
-  min-width: 92px;
+.monday-catchup-selected-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: rgba(19, 78, 74, 0.06);
+  border: 1px solid rgba(15, 118, 110, 0.14);
 }
 
-.monday-catchup-hours-cell input {
-  min-width: 0;
-  padding: 0.6rem 0.55rem;
-}
-
-.monday-catchup-day-note {
+.monday-catchup-selected-card strong {
   display: block;
-  margin-top: 0.25rem;
-  color: var(--warning);
-  font-size: 0.7rem;
-  font-weight: 700;
 }
 
-.monday-catchup-note-cell {
-  min-width: 280px;
-}
-
-.monday-catchup-note-cell textarea {
-  min-height: 102px;
-}
-
-.monday-catchup-note-cell small {
+.monday-catchup-selected-card small {
   display: block;
-  margin-top: 0.35rem;
+  margin-top: 0.2rem;
   color: var(--muted);
-  font-size: 0.74rem;
+}
+
+.monday-catchup-flow textarea {
+  min-height: 130px;
 }
 
 .monday-catchup-footer {

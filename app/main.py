@@ -528,6 +528,7 @@ def monday_report_redirect_url(
     summary_error: str | None = None,
     catchup_saved: int = 0,
     catchup_error: str | None = None,
+    catchup_open: bool = False,
 ) -> str:
     query: dict[str, str] = {}
     if summary_generated:
@@ -538,6 +539,8 @@ def monday_report_redirect_url(
         query["catchup_saved"] = str(catchup_saved)
     if catchup_error:
         query["catchup_error"] = catchup_error
+    if catchup_open:
+        query["catchup_open"] = "1"
     base_url = f"/{org_slug}/reports/monday"
     return f"{base_url}?{urlencode(query)}" if query else base_url
 
@@ -5771,6 +5774,7 @@ def monday_report_page(
     summary_error: str | None = None,
     catchup_saved: int | None = None,
     catchup_error: str | None = None,
+    catchup_open: int | None = None,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -5797,7 +5801,9 @@ def monday_report_page(
         and bool(report["worked_last_week_tasks"])
     )
     report["previous_week_workdays"] = [
-        day for day in report["previous_week_daily_allocation"] if day.get("base_status") not in {"weekend", "holiday"}
+        day
+        for day in report["previous_week_daily_allocation"]
+        if day.get("base_status") not in {"weekend", "holiday"} and day.get("status") != "leave"
     ]
     report["previous_week_missing_hours"] = round(
         max(float(report["previous_week_target_hours"] or 0) - float(report["previous_week_effort_hours"] or 0), 0),
@@ -5851,6 +5857,7 @@ def monday_report_page(
             "summary_error": summary_error or "",
             "catchup_saved": int(catchup_saved or 0),
             "catchup_error": catchup_error or "",
+            "catchup_open": bool(catchup_open),
             "time_log_notes_min_length": TIME_LOG_NOTES_MIN_LENGTH,
         },
     )
@@ -6169,7 +6176,11 @@ async def monday_report_catch_up_last_week(
 ):
     org, user = org_user
     report = monday_report(db, org.id, user.id)
-    workdays = [day for day in report["previous_week_daily_allocation"] if day.get("base_status") not in {"weekend", "holiday"}]
+    workdays = [
+        day
+        for day in report["previous_week_daily_allocation"]
+        if day.get("base_status") not in {"weekend", "holiday"} and day.get("status") != "leave"
+    ]
     if not workdays:
         return RedirectResponse(
             url=monday_report_redirect_url(org_slug, catchup_error="No previous-week working days are available for catch-up."),
@@ -6177,79 +6188,87 @@ async def monday_report_catch_up_last_week(
         )
 
     form = await request.form()
-    selected_task_codes = [str(item).strip() for item in form.getlist("selected_task_codes") if str(item).strip()]
-    if not selected_task_codes:
+    task_code = str(form.get("task_code") or "").strip()
+    log_date_raw = str(form.get("log_date") or "").strip()
+    hours_raw = str(form.get("hours") or "").strip()
+    submit_action = str(form.get("submit_action") or "save").strip().lower()
+    if not task_code:
         return RedirectResponse(
-            url=monday_report_redirect_url(org_slug, catchup_error="Select at least one task for previous-week effort catch-up."),
+            url=monday_report_redirect_url(org_slug, catchup_error="Select one task for previous-week effort catch-up.", catchup_open=True),
+            status_code=303,
+        )
+    if not log_date_raw:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, catchup_error="Select one previous-week working day.", catchup_open=True),
+            status_code=303,
+        )
+    try:
+        log_date = date.fromisoformat(log_date_raw)
+    except ValueError as exc:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, catchup_error="Select a valid previous-week date.", catchup_open=True),
             status_code=303,
         )
 
-    tasks = db.scalars(
+    valid_dates = {day["date"] for day in workdays}
+    if log_date not in valid_dates:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, catchup_error="The selected day is not available for last-week catch-up.", catchup_open=True),
+            status_code=303,
+        )
+
+    try:
+        hours = Decimal(hours_raw)
+    except Exception:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, catchup_error="Hours must be a valid number.", catchup_open=True),
+            status_code=303,
+        )
+
+    if hours <= 0:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, catchup_error="Hours must be greater than zero.", catchup_open=True),
+            status_code=303,
+        )
+
+    task = db.scalar(
         select(Task).where(
             Task.org_id == org.id,
             Task.assigned_to == user.id,
             Task.is_archived.is_(False),
-            Task.task_id.in_(selected_task_codes),
+            Task.task_id == task_code,
         )
-    ).all()
-    task_by_code = {task.task_id: task for task in tasks}
-    touched_tasks: list[Task] = []
-    saved_logs = 0
-
-    try:
-        for task_code in selected_task_codes:
-            task = task_by_code.get(task_code)
-            if not task:
-                continue
-            row_entries: list[tuple[date, Decimal]] = []
-            for workday in workdays:
-                log_date = workday["date"]
-                hours_raw = str(form.get(f"hours_{task_code}_{log_date.isoformat()}") or "").strip()
-                if not hours_raw:
-                    continue
-                try:
-                    hours = Decimal(hours_raw)
-                except Exception as exc:
-                    raise HTTPException(status_code=400, detail=f"Hours for {task_code} on {log_date.isoformat()} must be a valid number.") from exc
-                if hours <= 0:
-                    continue
-                row_entries.append((log_date, hours))
-
-            if not row_entries:
-                continue
-
-            normalized_notes = normalize_time_log_notes(str(form.get(f"notes_{task_code}") or ""))
-            was_not_started = task.status == TaskStatus.NOT_STARTED
-            if was_not_started:
-                task.status = TaskStatus.STARTED
-            if task.is_shared and task.shared_status in {"", SharedTaskStatus.ASSIGNED.value, SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value}:
-                task.shared_status = SharedTaskStatus.IN_PROGRESS.value
-
-            for log_date, hours in row_entries:
-                db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
-                saved_logs += 1
-                if task.start_date is None or log_date < task.start_date:
-                    task.start_date = log_date
-
-            touched_tasks.append(task)
-    except HTTPException as exc:
-        db.rollback()
+    )
+    if not task:
         return RedirectResponse(
-            url=monday_report_redirect_url(org_slug, catchup_error=str(exc.detail)),
+            url=monday_report_redirect_url(org_slug, catchup_error="Selected task was not found.", catchup_open=True),
             status_code=303,
         )
 
-    if saved_logs <= 0:
+    try:
+        normalized_notes = normalize_time_log_notes(str(form.get("notes") or ""))
+        was_not_started = task.status == TaskStatus.NOT_STARTED
+        if was_not_started:
+            task.status = TaskStatus.STARTED
+        if task.is_shared and task.shared_status in {"", SharedTaskStatus.ASSIGNED.value, SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value}:
+            task.shared_status = SharedTaskStatus.IN_PROGRESS.value
+        db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
+        if task.start_date is None or log_date < task.start_date:
+            task.start_date = log_date
+    except HTTPException as exc:
+        db.rollback()
         return RedirectResponse(
-            url=monday_report_redirect_url(org_slug, catchup_error="Add at least one hours entry before saving last-week effort."),
+            url=monday_report_redirect_url(org_slug, catchup_error=str(exc.detail), catchup_open=True),
             status_code=303,
         )
 
     db.flush()
-    for task in touched_tasks:
-        task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
+    task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
     db.commit()
-    return RedirectResponse(url=monday_report_redirect_url(org_slug, catchup_saved=saved_logs), status_code=303)
+    return RedirectResponse(
+        url=monday_report_redirect_url(org_slug, catchup_saved=1, catchup_open=submit_action == "save_add_new"),
+        status_code=303,
+    )
 
 
 @app.get("/{org_slug}/reports/overview", response_class=HTMLResponse)
