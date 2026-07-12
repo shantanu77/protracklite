@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Reports</p>
     <h1>Calendar View</h1>
-    <p>Scan the month quickly, then click a day to see tasks tied to that date through schedule, logging, or closure.</p>
+    <p>{{ report.month_anchor.strftime("%B %Y") }} at a glance: month summary first, then a compact calendar and a focused selected-day drilldown.</p>
   </div>
   <div class="page-head-actions calendar-nav-actions">
     <a class="button secondary" href="/{{ org.slug }}/reports/calendar?month={{ report.previous_month.strftime('%Y-%m') }}&day={{ report.previous_month.strftime('%Y-%m-01') }}">Previous Month</a>
@@ -12,11 +12,20 @@
   </div>
 </section>
 
+<div class="stats">
+  <div class="stat"><span>Logged Hours</span><strong>{{ "%.2f"|format(report.month_summary.logged_hours) }}h</strong></div>
+  <div class="stat"><span>Logged Days</span><strong>{{ report.month_summary.logged_days }}</strong></div>
+  <div class="stat"><span>Open References</span><strong>{{ report.month_summary.open_references }}</strong></div>
+  <div class="stat{% if report.month_summary.absent_days > 0 %} warning{% endif %}"><span>No-Log Days</span><strong>{{ report.month_summary.absent_days }}</strong></div>
+  <div class="stat"><span>Leave Days</span><strong>{{ report.month_summary.leave_days }}</strong></div>
+  <div class="stat"><span>Holidays</span><strong>{{ report.month_summary.holiday_days }}</strong></div>
+</div>
+
 <section class="panel calendar-report-panel">
   <div class="panel-head">
     <div>
       <h2>{{ report.month_anchor.strftime("%B %Y") }}</h2>
-      <p>Open count, logged count, and quick task references for each day.</p>
+      <p>Each tile shows logged hours and task pressure. Click a day to inspect the exact tasks connected to it.</p>
     </div>
   </div>
   <div class="calendar-month-wrap">
@@ -74,7 +83,7 @@
   <div class="panel-head">
     <div>
       <h2>{{ report.selected_day.strftime("%A, %d %b %Y") }}</h2>
-      <p>{{ report.selected_day_total }} task{% if report.selected_day_total != 1 %}s{% endif %} connected to this day.</p>
+      <p>{{ report.selected_day_total }} task{% if report.selected_day_total != 1 %}s{% endif %} connected to this day through schedule, logging, or closure.</p>
     </div>
   </div>
   <div class="calendar-day-summary-strip">
@@ -87,6 +96,7 @@
     <span class="calendar-hours-pill{% if report.selected_day_logged_hours <= 0 and not report.selected_day_leave and not report.selected_day_holiday %} is-empty{% endif %}">
       Logged {{ "%.2f"|format(report.selected_day_logged_hours) }}h
     </span>
+    <span class="badge muted">Task refs {{ report.selected_day_total }}</span>
   </div>
   <div class="calendar-day-task-list">
     {% for task in report.selected_day_tasks %}

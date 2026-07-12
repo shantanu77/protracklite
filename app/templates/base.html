@@ -64,17 +64,6 @@
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/tasks/new' %} primary{% endif %}" href="/{{ org.slug }}/tasks/new" {% if current_path == '/' ~ org.slug ~ '/tasks/new' %}aria-current="page"{% endif %}>Manage All Tasks</a>
               <a class="nav-link{% if current_path.startswith('/' ~ org.slug ~ '/releases') %} primary{% endif %}" href="/{{ org.slug }}/releases" {% if current_path.startswith('/' ~ org.slug ~ '/releases') %}aria-current="page"{% endif %}>Releases</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/goals' %} primary{% endif %}" href="/{{ org.slug }}/goals" {% if current_path == '/' ~ org.slug ~ '/goals' %}aria-current="page"{% endif %}>Goals</a>
-              <div class="nav-subgroup is-expanded" data-nav-group>
-                <button class="nav-section-toggle nav-subsection-toggle" type="button" aria-expanded="true">
-                  <span class="nav-section nav-subsection">Lists</span>
-                  <span class="nav-section-caret" aria-hidden="true"></span>
-                </button>
-                <div class="nav-group-body">
-                  <div class="nav-sublink-list" data-sidebar-lists data-org-slug="{{ org.slug }}">
-                    <a class="nav-sublink{% if current_path == '/' ~ org.slug ~ '/lists' and not request.query_params.get('list_id') and not request.query_params.get('created_list_id') %} active{% endif %}" href="/{{ org.slug }}/lists">Manage</a>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
           <div class="nav-group is-expanded" data-nav-group>
@@ -83,10 +72,21 @@
               <span class="nav-section-caret" aria-hidden="true"></span>
             </button>
             <div class="nav-group-body">
-              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}>Work Rate</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/monday' %} primary{% endif %}" href="/{{ org.slug }}/reports/monday" {% if current_path == '/' ~ org.slug ~ '/reports/monday' %}aria-current="page"{% endif %}>Monday Report</a>
-              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/calendar' %} primary{% endif %}" href="/{{ org.slug }}/reports/calendar" {% if current_path == '/' ~ org.slug ~ '/reports/calendar' %}aria-current="page"{% endif %}>Calendar View</a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}>My Reports</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}>Work Rate</a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/calendar' %} primary{% endif %}" href="/{{ org.slug }}/reports/calendar" {% if current_path == '/' ~ org.slug ~ '/reports/calendar' %}aria-current="page"{% endif %}>Calendar View</a>
+            </div>
+          </div>
+          <div class="nav-group is-expanded" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="true">
+              <span class="nav-section">Lists</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              <div class="nav-sublink-list nav-sublink-list-root" data-sidebar-lists data-org-slug="{{ org.slug }}">
+                <a class="nav-sublink{% if current_path == '/' ~ org.slug ~ '/lists' and not request.query_params.get('list_id') and not request.query_params.get('created_list_id') %} active{% endif %}" href="/{{ org.slug }}/lists">Manage</a>
+              </div>
             </div>
           </div>
           {% if user.role.value in ["manager", "admin"] %}

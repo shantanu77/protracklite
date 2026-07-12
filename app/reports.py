@@ -140,9 +140,10 @@ def compute_work_rate(
     ).all()
 
     by_project_rows = db.execute(
-        select(Task.project_id, func.coalesce(func.sum(TimeLog.hours), 0))
+        select(Project.id, Project.code, Project.name, func.coalesce(func.sum(TimeLog.hours), 0))
         .select_from(TimeLog)
         .join(Task, TimeLog.task_id == Task.id)
+        .join(Project, Task.project_id == Project.id)
         .where(
             Task.org_id == org_id,
             Task.is_archived.is_(False),
@@ -150,7 +151,7 @@ def compute_work_rate(
             TimeLog.log_date >= from_date,
             TimeLog.log_date <= to_date,
         )
-        .group_by(Task.project_id)
+        .group_by(Project.id, Project.code, Project.name)
         .order_by(func.sum(TimeLog.hours).desc())
     ).all()
 
@@ -158,13 +159,29 @@ def compute_work_rate(
     effective_rate = (Decimal(str(chargeable_hours)) / available_hours * Decimal("100")) if available_hours else Decimal("0")
 
     return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "period_days": (to_date - from_date).days + 1,
+        "available_days": float(available_days),
+        "leave_days": round(float(sum(leaves.values())), 2),
+        "holiday_days": len(holidays),
         "available_hours": float(available_hours),
         "total_logged_hours": float(total_hours or 0),
         "chargeable_hours": float(chargeable_hours or 0),
         "total_rate": round(float(total_rate), 2),
         "effective_rate": round(float(effective_rate), 2),
+        "avg_logged_hours_per_day": round(float((Decimal(str(total_hours or 0)) / available_days) if available_days else Decimal("0")), 2),
+        "avg_chargeable_hours_per_day": round(float((Decimal(str(chargeable_hours or 0)) / available_days) if available_days else Decimal("0")), 2),
         "by_activity": [{"label": label, "hours": float(hours)} for label, hours in by_activity_rows],
-        "by_project": [{"project_id": project_id, "hours": float(hours)} for project_id, hours in by_project_rows],
+        "by_project": [
+            {
+                "project_id": project_id,
+                "project_code": code,
+                "project_name": name,
+                "hours": float(hours),
+            }
+            for project_id, code, name, hours in by_project_rows
+        ],
     }
 
 
@@ -1352,6 +1369,14 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
 
     previous_month_anchor = (month_start - timedelta(days=1)).replace(day=1)
     next_month_anchor = (month_end + timedelta(days=1)).replace(day=1)
+    in_month_cells = [cell for week in day_cells for cell in week if cell["in_month"]]
+    month_logged_hours = round(sum(cell["logged_hours"] for cell in in_month_cells), 2)
+    month_task_count = sum(cell["task_count"] for cell in in_month_cells)
+    month_logged_days = sum(1 for cell in in_month_cells if cell["logged_hours"] > 0)
+    month_absent_days = sum(1 for cell in in_month_cells if cell["is_absent"])
+    month_leave_days = sum(1 for cell in in_month_cells if cell["leave_type"])
+    month_holiday_days = sum(1 for cell in in_month_cells if cell["is_holiday"])
+    month_open_references = sum(cell["open_count"] for cell in in_month_cells)
 
     return {
         "month_anchor": month_start,
@@ -1367,4 +1392,13 @@ def calendar_month_report(db: Session, org_id: int, user_id: int, month_anchor: 
         "selected_day_holiday": month_holidays.get(selected_day),
         "selected_day_logged_hours": round(hours_by_day.get(selected_day, 0.0), 2),
         "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "month_summary": {
+            "logged_hours": month_logged_hours,
+            "task_references": month_task_count,
+            "logged_days": month_logged_days,
+            "absent_days": month_absent_days,
+            "leave_days": month_leave_days,
+            "holiday_days": month_holiday_days,
+            "open_references": month_open_references,
+        },
     }
