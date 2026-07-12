@@ -32,7 +32,26 @@
           </span>
         </a>
         {% set current_path = request.url.path if request else "" %}
+        {% set favorite_links = [
+          {"label": "Dashboard", "href": "/" ~ org.slug ~ "/dashboard"},
+          {"label": "Today", "href": "/" ~ org.slug ~ "/today"},
+          {"label": "Monday Report", "href": "/" ~ org.slug ~ "/reports/monday"},
+          {"label": "Manage Tasks", "href": "/" ~ org.slug ~ "/tasks/new"},
+          {"label": "My Reports", "href": "/" ~ org.slug ~ "/reports/overview"},
+          {"label": "Backlogs", "href": "/" ~ org.slug ~ "/backlogs"},
+        ] %}
         <nav class="nav-drawer">
+          <div class="nav-favorites">
+            <div class="nav-favorites-head">
+              <span class="nav-section">Favorites</span>
+              <span class="nav-favorites-caption">Most used</span>
+            </div>
+            <div class="nav-favorites-grid">
+              {% for item in favorite_links %}
+              <a class="nav-favorite{% if current_path == item.href %} active{% endif %}" href="{{ item.href }}" {% if current_path == item.href %}aria-current="page"{% endif %}>{{ item.label }}</a>
+              {% endfor %}
+            </div>
+          </div>
           <div class="nav-group is-expanded" data-nav-group>
             <button class="nav-section-toggle" type="button" aria-expanded="true">
               <span class="nav-section">Workspace</span>
