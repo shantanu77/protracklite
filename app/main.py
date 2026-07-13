@@ -557,6 +557,27 @@ def monday_report_redirect_url(
     return f"{base_url}?{urlencode(query)}" if query else base_url
 
 
+def dashboard_redirect_url(
+    org_slug: str,
+    *,
+    daylog_saved: int = 0,
+    daylog_error: str | None = None,
+    daylog_open: bool = False,
+    daylog_date: str | None = None,
+) -> str:
+    query: dict[str, str] = {}
+    if daylog_saved > 0:
+        query["daylog_saved"] = str(daylog_saved)
+    if daylog_error:
+        query["daylog_error"] = daylog_error
+    if daylog_open:
+        query["daylog_open"] = "1"
+    if daylog_date:
+        query["daylog_date"] = daylog_date
+    base_url = f"/{org_slug}/dashboard"
+    return f"{base_url}?{urlencode(query)}" if query else base_url
+
+
 def get_weekly_task_plan(db: Session, org_id: int, user_id: int, week_start: date) -> WeeklyTaskPlan | None:
     return db.scalar(
         select(WeeklyTaskPlan).where(
@@ -3542,11 +3563,38 @@ def dashboard(
     created_task_id: str | None = None,
     created_count: int | None = None,
     created_summary: str | None = None,
+    daylog_saved: int | None = None,
+    daylog_error: str | None = None,
+    daylog_open: int | None = None,
+    daylog_date: str | None = None,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     week_start, week_end = current_week_bounds()
+    today = local_today()
+    groups = dashboard_payload(db, org, user)
+    week_days = week_allocation_summary(db, org.id, user.id, week_start, week_end)
+    for day in week_days:
+        day["can_log_effort"] = (
+            day["date"] < today
+            and day["base_status"] not in {"weekend", "holiday"}
+            and day["status"] != "leave"
+        )
+    effort_task_candidates = [
+        {
+            "task_id": task["task_id"],
+            "name": task["name"],
+            "status": task["status"],
+            "logged_hours": round(float(task["logged_hours"] or 0), 2),
+            "search_text": " ".join(
+                part
+                for part in [task["task_id"], task["name"], strip_html_text(task["description"]), task["status"].replace("_", " ")]
+                if part
+            ).lower(),
+        }
+        for task in groups["all_unclosed"]
+    ]
     created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
     if created_task_id and created_task_id not in created_task_ids:
         created_task_ids.insert(0, created_task_id)
@@ -3556,17 +3604,120 @@ def dashboard(
             "request": request,
             "org": org,
             "user": user,
-            "groups": dashboard_payload(db, org, user),
-            "today": date.today(),
+            "groups": groups,
+            "today": today,
             "week_start": week_start,
             "week_end": week_end,
-            "week_leave_days": week_allocation_summary(db, org.id, user.id, week_start, week_end),
+            "week_leave_days": week_days,
+            "effort_task_candidates": effort_task_candidates,
             "created_task_id": created_task_id,
             "created_count": created_count,
             "created_summary": created_summary,
             "created_task_ids": created_task_ids,
+            "daylog_saved": int(daylog_saved or 0),
+            "daylog_error": daylog_error or "",
+            "daylog_open": bool(daylog_open),
+            "daylog_date": daylog_date or "",
+            "time_log_notes_min_length": TIME_LOG_NOTES_MIN_LENGTH,
             "whats_new_announcement": pending_whats_new_announcement(db, user, org.slug),
         },
+    )
+
+
+@app.post("/{org_slug}/dashboard/day-log")
+async def dashboard_add_day_log(
+    org_slug: str,
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    form = await request.form()
+    task_code = str(form.get("task_code") or "").strip()
+    log_date_raw = str(form.get("log_date") or "").strip()
+    hours_raw = str(form.get("hours") or "").strip()
+    submit_action = str(form.get("submit_action") or "save").strip().lower()
+
+    try:
+        log_date = date.fromisoformat(log_date_raw)
+    except ValueError:
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error="Select a valid past workday.", daylog_open=True),
+            status_code=303,
+        )
+
+    today = local_today()
+    week_start, week_end = current_week_bounds(today)
+    valid_dates = {
+        day["date"]
+        for day in week_allocation_summary(db, org.id, user.id, week_start, week_end)
+        if day["date"] < today and day["base_status"] not in {"weekend", "holiday"} and day["status"] != "leave"
+    }
+    if log_date not in valid_dates:
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error="Effort can only be added to a past working day this week."),
+            status_code=303,
+        )
+    if not task_code:
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error="Select a task before saving.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+    try:
+        hours = Decimal(hours_raw)
+    except Exception:
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error="Hours must be a valid number.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+    if hours <= 0:
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error="Hours must be greater than zero.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    task = db.scalar(
+        select(Task).where(
+            Task.org_id == org.id,
+            Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
+            Task.status != TaskStatus.CLOSED,
+            Task.task_id == task_code,
+        )
+    )
+    if not task:
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error="Selected open task was not found.", daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    try:
+        normalized_notes = normalize_time_log_notes(str(form.get("notes") or ""))
+        if task.status == TaskStatus.NOT_STARTED:
+            task.status = TaskStatus.STARTED
+        if task.is_shared and task.shared_status in {"", SharedTaskStatus.ASSIGNED.value, SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value}:
+            task.shared_status = SharedTaskStatus.IN_PROGRESS.value
+        db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
+        if task.start_date is None or log_date < task.start_date:
+            task.start_date = log_date
+    except HTTPException as exc:
+        db.rollback()
+        return RedirectResponse(
+            url=dashboard_redirect_url(org_slug, daylog_error=str(exc.detail), daylog_open=True, daylog_date=log_date.isoformat()),
+            status_code=303,
+        )
+
+    db.flush()
+    task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
+    db.commit()
+    return RedirectResponse(
+        url=dashboard_redirect_url(
+            org_slug,
+            daylog_saved=1,
+            daylog_open=submit_action == "save_add_new",
+            daylog_date=log_date.isoformat() if submit_action == "save_add_new" else None,
+        ),
+        status_code=303,
     )
 
 

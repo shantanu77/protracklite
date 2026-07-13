@@ -158,13 +158,7 @@
 {% block content %}
 <section class="page-head">
   <div>
-    <p class="eyebrow">{{ org.name }}</p>
-    <h1>{{ user.full_name }}</h1>
-    <p>Default view: this week plus all pending work.</p>
-  </div>
-  <div class="page-head-actions">
-    <button type="button" class="button" data-modal-open="dashboard-ai-task-modal">✦ Add Task Using AI</button>
-    <button type="button" class="button secondary" data-modal-open="dashboard-leave-modal">Add Leave</button>
+    <h1>Dashboard</h1>
   </div>
 </section>
 
@@ -185,17 +179,8 @@
 </section>
 {% endif %}
 
-<section class="panel dashboard-visibility-panel">
-  <div class="panel-head">
-    <div>
-      <h2>Visible Blocks</h2>
-      <p>Toggle optional sections to open up more space for the blocks you want to focus on.</p>
-    </div>
-    <div class="dashboard-view-toggle" role="group" aria-label="Dashboard view">
-      <button type="button" class="button secondary is-active" data-dashboard-view-button data-view="cards">Cards</button>
-      <button type="button" class="button secondary" data-dashboard-view-button data-view="tables">Tables</button>
-    </div>
-  </div>
+<section class="panel dashboard-controls-panel">
+  <strong class="dashboard-controls-title">Visible blocks</strong>
   <div class="dashboard-visibility-toggles">
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="today">Today's Focus</label>
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="overdue" checked>Overdue</label>
@@ -203,18 +188,17 @@
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="pending">Pending</label>
     <label class="checkbox"><input type="checkbox" data-dashboard-toggle="completed">Task Completed</label>
   </div>
+  <label class="dashboard-view-card checkbox">
+    <input type="checkbox" data-dashboard-table-view>
+    <span><strong>Table view</strong><small>Show denser rows</small></span>
+  </label>
 </section>
 
 <section class="panel dashboard-search-panel" data-dashboard-search-panel>
-  <div class="panel-head">
-    <div>
-      <h2>Search Tasks</h2>
-      <p>Type at least 3 characters to filter visible dashboard sections and highlight matches in yellow.</p>
-    </div>
-  </div>
   <div class="dashboard-search-row">
     <label class="dashboard-search-field">
-      <input type="search" placeholder="Search by keyword in task id, name, description, status, dates, or tags" data-dashboard-search-input>
+      <span class="sr-only">Search tasks</span>
+      <input type="search" placeholder="Search tasks by keyword (3+ characters)" data-dashboard-search-input>
     </label>
     <div class="dashboard-color-filter" data-dashboard-color-filter-wrap>
       <input type="hidden" value="" data-dashboard-color-filter>
@@ -238,32 +222,41 @@
         {% endfor %}
       </div>
     </div>
-    <p class="dashboard-search-hint" data-dashboard-search-hint>Enter 3 or more characters.</p>
+    <p class="dashboard-search-hint" data-dashboard-search-hint>Search starts at 3 characters.</p>
   </div>
 </section>
 
 <section class="panel dashboard-leave-panel">
   <div class="panel-head">
-    <div>
-      <h2>Week Leave</h2>
-      <p>Leave overview for {{ week_start.strftime("%d %b") }} to {{ week_end.strftime("%d %b %Y") }}. Use Add Leave to mark any previous, current, or future date.</p>
+    <div class="dashboard-week-title">
+      <h2>Week Overview</h2>
+      <span>{{ week_start.strftime("%d %b") }} – {{ week_end.strftime("%d %b") }}</span>
+    </div>
+    <div class="page-head-actions dashboard-week-actions">
+      <button type="button" class="button secondary small-button" data-modal-open="dashboard-ai-task-modal" title="Shortcut: Ctrl+Shift+K or Cmd+Shift+K">✦ Add Using AI</button>
+      <button type="button" class="button secondary small-button" data-modal-open="dashboard-leave-modal">Add Leave</button>
     </div>
   </div>
+  {% if daylog_saved %}<p class="dashboard-leave-feedback">Effort saved.</p>{% endif %}
+  {% if daylog_error %}<p class="dashboard-leave-feedback is-error">{{ daylog_error }}</p>{% endif %}
   <div class="dashboard-leave-layout">
     <p class="dashboard-leave-feedback" data-dashboard-leave-feedback hidden></p>
     <div class="dashboard-leave-week" data-dashboard-leave-week>
       {% for day in week_leave_days %}
       <button
         type="button"
-        class="dashboard-leave-day is-{{ day.status }}"
+        class="dashboard-leave-day is-{{ day.status }}{% if day.can_log_effort %} is-actionable{% endif %}"
         data-dashboard-leave-day
-        data-modal-open="dashboard-leave-modal"
-        data-modal-payload='{{ {"leave_date": day.date.isoformat(), "leave_type": day.leave_type or "full", "reason": day.leave_reason or ""}|tojson|e }}'
+        data-can-log-base="{{ 'true' if day.date < today and day.base_status not in ['weekend', 'holiday'] else 'false' }}"
+        data-can-log-effort="{{ 'true' if day.can_log_effort else 'false' }}"
+        aria-disabled="{{ 'false' if day.can_log_effort else 'true' }}"
+        data-day-label="{{ day.date.strftime('%A, %d %b %Y') }}"
         data-date="{{ day.date.isoformat() }}"
         data-status="{{ day.status }}"
         data-base-status="{{ day.base_status }}"
         data-base-value="{{ day.base_value_short }}"
         data-base-detail="{{ day.base_detail }}"
+        title="{% if day.can_log_effort %}Add task effort for {{ day.date.strftime('%A') }}{% elif day.date >= today %}Effort can be added after this day ends{% else %}{{ day.detail }}{% endif %}"
       >
         <div>
           <span>{{ day.day_short }}</span>
@@ -271,7 +264,7 @@
         </div>
         <small>
           {{ day.date.strftime("%d %b") }}
-          {% if day.leave_reason %}· {{ day.leave_reason }}{% elif day.detail %}· {{ day.detail }}{% endif %}
+          {% if day.can_log_effort %}· Add effort{% elif day.leave_reason %}· {{ day.leave_reason }}{% elif day.detail %}· {{ day.detail }}{% endif %}
         </small>
       </button>
       {% endfor %}
@@ -585,6 +578,67 @@
   </section>
 </div>
 
+<div class="modal-backdrop" id="dashboard-day-log-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide monday-catchup-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-day-log-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="dashboard-day-log-title">Add Effort</h2>
+        <p data-dashboard-daylog-label>Choose a past workday.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close effort modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/dashboard/day-log" class="stack monday-catchup-flow" data-dashboard-daylog-form>
+      <label class="full">
+        <span class="monday-task-detail-label">Search task</span>
+        <input type="search" placeholder="Type a task id or name" data-dashboard-daylog-search autocomplete="off">
+      </label>
+      <div class="monday-catchup-search-results" data-dashboard-daylog-results>
+        {% for task in effort_task_candidates %}
+        <button
+          type="button"
+          class="monday-catchup-task-option"
+          data-dashboard-daylog-option
+          data-task-code="{{ task.task_id }}"
+          data-task-name="{{ task.name }}"
+          data-task-status="{{ task.status|replace('_', ' ') }}"
+          data-task-search="{{ task.search_text }}"
+        >
+          <span class="monday-catchup-task-option-main">
+            <strong>{{ task.task_id }} · {{ task.name }}</strong>
+            <small>{{ task.status|replace('_', ' ') }} · {{ "%.2f"|format(task.logged_hours or 0) }}h total</small>
+          </span>
+        </button>
+        {% endfor %}
+        <p class="empty" data-dashboard-daylog-empty hidden>No open tasks match this search.</p>
+      </div>
+      <div class="monday-catchup-selected" data-dashboard-daylog-selected hidden>
+        <span class="monday-task-detail-label">Selected task</span>
+        <div class="monday-catchup-selected-card">
+          <div>
+            <strong data-dashboard-daylog-selected-title></strong>
+            <small data-dashboard-daylog-selected-status></small>
+          </div>
+          <button type="button" class="button subtle-button" data-dashboard-daylog-clear>Change Task</button>
+        </div>
+      </div>
+      <input type="hidden" name="task_code" value="" data-dashboard-daylog-task-code>
+      <input type="hidden" name="log_date" value="" data-dashboard-daylog-date>
+      <div class="form-grid dashboard-daylog-fields">
+        <label>Effort<input type="number" name="hours" step="0.25" min="0.25" required placeholder="e.g. 1.5"></label>
+        <label class="dashboard-daylog-comment">Comment<textarea name="notes" rows="3" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on that day?"></textarea></label>
+      </div>
+      <p class="form-helper">{{ time_log_notes_min_length }}+ characters required.</p>
+      <div class="monday-catchup-footer">
+        <span></span>
+        <div class="page-head-actions">
+          <button type="submit" name="submit_action" value="save">Save</button>
+          <button type="submit" class="button subtle-button" name="submit_action" value="save_add_new">Save &amp; Add More</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="dashboard-view-modal" data-modal aria-hidden="true">
   <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="dashboard-view-title">
     <div class="modal-head">
@@ -682,6 +736,90 @@
 </div>
 <script>
   (() => {
+    const modal = document.getElementById("dashboard-day-log-modal");
+    const form = modal?.querySelector("[data-dashboard-daylog-form]");
+    const searchInput = form?.querySelector("[data-dashboard-daylog-search]");
+    const options = Array.from(form?.querySelectorAll("[data-dashboard-daylog-option]") || []);
+    const emptyState = form?.querySelector("[data-dashboard-daylog-empty]");
+    const selectedWrap = form?.querySelector("[data-dashboard-daylog-selected]");
+    const selectedTitle = form?.querySelector("[data-dashboard-daylog-selected-title]");
+    const selectedStatus = form?.querySelector("[data-dashboard-daylog-selected-status]");
+    const taskCodeInput = form?.querySelector("[data-dashboard-daylog-task-code]");
+    const dateInput = form?.querySelector("[data-dashboard-daylog-date]");
+    const dayLabel = modal?.querySelector("[data-dashboard-daylog-label]");
+    if (!modal || !form || !searchInput || !taskCodeInput || !dateInput) return;
+
+    function applySearch() {
+      const term = searchInput.value.trim().toLowerCase();
+      let visibleCount = 0;
+      options.forEach((option) => {
+        const matches = !term || (option.dataset.taskSearch || "").includes(term);
+        option.hidden = !matches;
+        if (matches) visibleCount += 1;
+      });
+      if (emptyState) emptyState.hidden = visibleCount > 0;
+    }
+
+    function syncSelection() {
+      const selected = options.find((option) => option.dataset.taskCode === taskCodeInput.value);
+      if (selectedTitle) selectedTitle.textContent = selected ? `${selected.dataset.taskCode} · ${selected.dataset.taskName}` : "";
+      if (selectedStatus) selectedStatus.textContent = selected?.dataset.taskStatus || "";
+      if (selectedWrap) selectedWrap.hidden = !selected;
+      searchInput.closest("label").hidden = Boolean(selected);
+      const results = form.querySelector("[data-dashboard-daylog-results]");
+      if (results) results.hidden = Boolean(selected);
+    }
+
+    function resetEntry(clearDate = false) {
+      taskCodeInput.value = "";
+      searchInput.value = "";
+      form.querySelector('[name="hours"]').value = "";
+      form.querySelector('[name="notes"]').value = "";
+      if (clearDate) dateInput.value = "";
+      syncSelection();
+      applySearch();
+    }
+
+    function openForDay(card) {
+      if (card.dataset.canLogEffort !== "true") return;
+      resetEntry();
+      dateInput.value = card.dataset.date || "";
+      if (dayLabel) dayLabel.textContent = card.dataset.dayLabel || "Selected workday";
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+      window.setTimeout(() => searchInput.focus(), 0);
+    }
+
+    options.forEach((option) => option.addEventListener("click", () => {
+      taskCodeInput.value = option.dataset.taskCode || "";
+      syncSelection();
+      form.querySelector('[name="hours"]')?.focus();
+    }));
+    form.querySelector("[data-dashboard-daylog-clear]")?.addEventListener("click", () => {
+      taskCodeInput.value = "";
+      syncSelection();
+      searchInput.focus();
+    });
+    searchInput.addEventListener("input", applySearch);
+    form.addEventListener("submit", (event) => {
+      if (!taskCodeInput.value) {
+        event.preventDefault();
+        searchInput.focus();
+      }
+    });
+    document.querySelectorAll("[data-dashboard-leave-day]").forEach((card) => {
+      card.addEventListener("click", () => openForDay(card));
+    });
+    resetEntry();
+
+    {% if daylog_open and daylog_date %}
+    const initialCard = document.querySelector('[data-dashboard-leave-day][data-date="{{ daylog_date }}"]');
+    if (initialCard) window.setTimeout(() => openForDay(initialCard), 0);
+    {% endif %}
+  })();
+
+  (() => {
     const form = document.querySelector("[data-dashboard-leave-form]");
     const weekWrap = document.querySelector("[data-dashboard-leave-week]");
     const leaveModal = document.getElementById("dashboard-leave-modal");
@@ -737,14 +875,12 @@
         const leave = leaveMap.get(card.dataset.date);
         const valueNode = card.querySelector("strong");
         const detailNode = card.querySelector("small");
+        const canLogEffort = !leave && card.dataset.canLogBase === "true";
+        card.dataset.canLogEffort = canLogEffort ? "true" : "false";
+        card.setAttribute("aria-disabled", canLogEffort ? "false" : "true");
         if (leave) {
           card.dataset.status = "leave";
           card.className = "dashboard-leave-day is-leave";
-          card.dataset.modalPayload = JSON.stringify({
-            leave_date: leave.leave_date,
-            leave_type: leave.leave_type,
-            reason: leave.reason || "",
-          });
           if (valueNode) valueNode.textContent = leaveLabel(leave.leave_type);
           if (detailNode) {
             const parts = detailNode.textContent.split("·");
@@ -753,17 +889,14 @@
         } else {
           const originalStatus = card.dataset.baseStatus || "empty";
           card.dataset.status = originalStatus;
-          card.className = `dashboard-leave-day is-${originalStatus}`;
-          card.dataset.modalPayload = JSON.stringify({
-            leave_date: card.dataset.date,
-            leave_type: "full",
-            reason: "",
-          });
+          card.className = `dashboard-leave-day is-${originalStatus}${canLogEffort ? " is-actionable" : ""}`;
           if (valueNode) valueNode.textContent = card.dataset.baseValue || "0h";
           if (detailNode) {
             const parts = detailNode.textContent.split("·");
             const baseDetail = card.dataset.baseDetail?.trim();
-            detailNode.textContent = baseDetail ? `${parts[0].trim()} · ${baseDetail}` : parts[0].trim();
+            detailNode.textContent = canLogEffort
+              ? `${parts[0].trim()} · Add effort`
+              : (baseDetail ? `${parts[0].trim()} · ${baseDetail}` : parts[0].trim());
           }
         }
       });
@@ -899,25 +1032,19 @@
   (() => {
     const storageKey = "ptlite-dashboard-view";
     const grid = document.querySelector("[data-dashboard-grid]");
-    const buttons = Array.from(document.querySelectorAll("[data-dashboard-view-button]"));
-    if (!grid || !buttons.length) {
+    const tableViewCheckbox = document.querySelector("[data-dashboard-table-view]");
+    if (!grid || !tableViewCheckbox) {
       return;
     }
 
     function applyView(view) {
       const normalized = view === "tables" ? "tables" : "cards";
       grid.classList.toggle("is-table-view", normalized === "tables");
-      buttons.forEach((button) => {
-        const active = button.dataset.view === normalized;
-        button.classList.toggle("is-active", active);
-        button.setAttribute("aria-pressed", active ? "true" : "false");
-      });
+      tableViewCheckbox.checked = normalized === "tables";
       window.localStorage.setItem(storageKey, normalized);
     }
 
-    buttons.forEach((button) => {
-      button.addEventListener("click", () => applyView(button.dataset.view || "cards"));
-    });
+    tableViewCheckbox.addEventListener("change", () => applyView(tableViewCheckbox.checked ? "tables" : "cards"));
 
     applyView(window.localStorage.getItem(storageKey) || "cards");
   })();

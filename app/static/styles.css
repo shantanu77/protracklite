@@ -1666,13 +1666,32 @@ textarea {
   margin-bottom: 1rem;
 }
 
+.dashboard-controls-panel {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem 1.1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.dashboard-controls-title {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .dashboard-search-panel {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem 0.85rem;
 }
 
 .dashboard-search-row {
   display: grid;
-  gap: 0.75rem;
+  grid-template-columns: minmax(240px, 1fr) minmax(150px, 190px) auto;
+  gap: 0.55rem;
+  align-items: center;
 }
 
 .dashboard-search-field {
@@ -1685,7 +1704,8 @@ textarea {
 
 .dashboard-search-hint {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.76rem;
+  white-space: nowrap;
 }
 
 .dashboard-color-filter {
@@ -1699,7 +1719,8 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
-  padding: 0.85rem 0.95rem;
+  min-height: 40px;
+  padding: 0.55rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
@@ -1788,8 +1809,42 @@ textarea {
 .dashboard-visibility-toggles {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.45rem;
   align-items: center;
+  flex: 1 1 auto;
+}
+
+.dashboard-visibility-toggles .checkbox {
+  min-height: 32px;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(248, 250, 252, 0.8);
+  font-size: 0.78rem;
+}
+
+.dashboard-view-card {
+  flex: 0 0 auto;
+  min-width: 142px;
+  gap: 0.55rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.dashboard-view-card span {
+  display: grid;
+  line-height: 1.15;
+}
+
+.dashboard-view-card strong {
+  font-size: 0.78rem;
+}
+
+.dashboard-view-card small {
+  color: var(--muted);
+  font-size: 0.68rem;
 }
 
 .dashboard-view-toggle {
@@ -2972,41 +3027,74 @@ mark {
 
 .dashboard-leave-panel {
   display: grid;
-  gap: 1rem;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+  padding: 0.85rem;
+}
+
+.dashboard-leave-panel .panel-head {
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.dashboard-week-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.dashboard-week-title h2 {
+  margin: 0;
+}
+
+.dashboard-week-title span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.dashboard-week-actions {
+  gap: 0.4rem;
 }
 
 .dashboard-leave-layout {
   display: grid;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .dashboard-leave-week {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.5rem;
+  grid-template-columns: repeat(7, minmax(88px, 1fr));
 }
 
 .dashboard-leave-day {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.22rem;
   width: 100%;
-  padding: 0.85rem;
-  border-radius: 18px;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
   border: 1px solid rgba(217, 224, 228, 0.92);
   background: linear-gradient(180deg, rgba(250, 251, 251, 0.96), rgba(255, 255, 255, 1));
   appearance: none;
   text-align: left;
   font: inherit;
-  cursor: pointer;
+  cursor: default;
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.dashboard-leave-day:hover,
-.dashboard-leave-day:focus-visible {
+.dashboard-leave-day.is-actionable:hover,
+.dashboard-leave-day.is-actionable:focus-visible {
   border-color: rgba(29, 78, 216, 0.24);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
   outline: none;
+}
+
+.dashboard-leave-day.is-actionable {
+  cursor: pointer;
+  border-color: rgba(29, 78, 216, 0.2);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), #fff);
 }
 
 .dashboard-leave-day > div {
@@ -3017,7 +3105,7 @@ mark {
 }
 
 .dashboard-leave-day span {
-  font-size: 0.76rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3026,10 +3114,36 @@ mark {
 
 .dashboard-leave-day strong {
   color: var(--primary);
+  font-size: 0.88rem;
 }
 
 .dashboard-leave-day small {
   color: var(--muted);
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-daylog-fields {
+  grid-template-columns: minmax(120px, 0.3fr) minmax(260px, 1fr);
+  align-items: start;
+}
+
+.dashboard-daylog-comment {
+  grid-column: auto;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .dashboard-leave-day.is-leave {
@@ -3839,6 +3953,26 @@ mark {
 }
 
 @media (max-width: 980px) {
+  .dashboard-controls-panel {
+    flex-wrap: wrap;
+  }
+
+  .dashboard-controls-title {
+    width: 100%;
+  }
+
+  .dashboard-search-row {
+    grid-template-columns: minmax(0, 1fr) 170px;
+  }
+
+  .dashboard-search-hint {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-leave-week {
+    grid-template-columns: repeat(4, minmax(88px, 1fr));
+  }
+
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
@@ -3859,6 +3993,35 @@ mark {
   .today-task-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-search-row,
+  .dashboard-daylog-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-color-filter {
+    min-width: 0;
+  }
+
+  .dashboard-leave-panel .panel-head,
+  .dashboard-week-title {
+    align-items: flex-start;
+  }
+
+  .dashboard-leave-panel .panel-head {
+    flex-direction: column;
+  }
+
+  .dashboard-week-title {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .dashboard-leave-week {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
