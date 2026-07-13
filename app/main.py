@@ -5909,6 +5909,9 @@ def work_rate_page(
 @app.get("/{org_slug}/reports/monday", response_class=HTMLResponse)
 def monday_report_page(
     request: Request,
+    created_task_id: str | None = None,
+    created_count: int | None = None,
+    created_summary: str | None = None,
     summary_generated: int | None = None,
     summary_error: str | None = None,
     catchup_saved: int | None = None,
@@ -5922,6 +5925,9 @@ def monday_report_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
+    created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
+    if created_task_id and created_task_id not in created_task_ids:
+        created_task_ids.insert(0, created_task_id)
     report = monday_report(db, org.id, user.id)
     task_lookup = {
         task["task_id"]: task
@@ -5997,6 +6003,10 @@ def monday_report_page(
             "user": user,
             "report": report,
             "today": local_today(),
+            "created_task_id": created_task_id,
+            "created_count": created_count,
+            "created_summary": created_summary,
+            "created_task_ids": created_task_ids,
             "summary_generated": bool(summary_generated),
             "summary_error": summary_error or "",
             "catchup_saved": int(catchup_saved or 0),

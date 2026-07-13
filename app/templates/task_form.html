@@ -7,12 +7,13 @@
     <p>Add new tasks at the top, then scan and manage your existing tasks below.</p>
   </div>
   <div class="page-head-actions">
-    <button type="button" class="button secondary" data-modal-open="bulk-backlog-modal">✦ Add Task Using AI</button>
+    <button type="button" class="button secondary" data-modal-open="bulk-backlog-modal" title="Shortcut: Ctrl+Shift+K or Cmd+Shift+K">✦ Add Task Using AI</button>
   </div>
 </section>
+<p class="form-helper">Shortcut: use <strong>Ctrl+Shift+K</strong> or <strong>Cmd+Shift+K</strong> to open quick task creation from anywhere.</p>
 <div class="stack">
   {% if created_count %}
-  <section class="panel">
+  <section class="panel ai-summary-feedback ai-summary-feedback-success">
     <p><strong>{{ created_count }}</strong> tasks were created.
       {% if created_task_ids %}
       Open:
@@ -20,12 +21,12 @@
       <a href="/{{ org.slug }}/tasks/{{ task_id }}">{{ task_id }}</a>{% if not loop.last %}, {% endif %}
       {% endfor %}
       {% endif %}
-      You can continue adding more tasks below.
+      Matching rows below are marked <strong>New</strong>. You can continue adding more tasks below.
     </p>
   </section>
   {% elif created_task_id %}
-  <section class="panel">
-    <p><a href="/{{ org.slug }}/tasks/{{ created_task_id }}"><strong>{{ created_task_id }}</strong></a> was created. You can continue adding more tasks below.</p>
+  <section class="panel ai-summary-feedback ai-summary-feedback-success">
+    <p><a href="/{{ org.slug }}/tasks/{{ created_task_id }}"><strong>{{ created_task_id }}</strong></a> was created. Matching rows below are marked <strong>New</strong>. You can continue adding more tasks below.</p>
   </section>
   {% endif %}
 
@@ -126,7 +127,7 @@
         <tbody data-manage-task-grid>
       {% for task in tasks %}
       <tr
-        class="monday-task-row is-status-{{ task.status|replace('_', '-') }}"
+        class="monday-task-row is-status-{{ task.status|replace('_', '-') }}{% if task.task_id in created_task_ids %} is-newly-created{% endif %}"
         data-manage-task-row
         data-detail-target="manage-task-detail-{{ loop.index }}"
         data-task-status="{{ task.status }}"
@@ -151,6 +152,9 @@
                 aria-label="Task color"
               ></span>
               <span class="chip">{{ task.task_id }}</span>
+              {% if task.task_id in created_task_ids %}
+              <span class="badge success">New</span>
+              {% endif %}
               {% if task.is_shared %}
               <span class="badge muted">Shared</span>
               {% endif %}
@@ -264,7 +268,7 @@
     <div class="modal-head">
       <div>
         <h2 id="bulk-backlog-title">Add Task Using AI</h2>
-        <p>Paste an email, meeting notes, daily update, or one task per line. AI will split multiple tasks, understand dates you mention, and can also create dated time-log entries when you mention effort already spent on a specific day.</p>
+        <p>Paste an email, meeting notes, daily update, or one task per line. AI will split multiple tasks, understand dates you mention, and can also create dated time-log entries when you mention effort already spent on a specific day. Shortcut: Ctrl+Shift+K or Cmd+Shift+K.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close bulk backlog modal">×</button>
     </div>
@@ -361,6 +365,7 @@
 
     let debounceId = null;
     let activeController = null;
+    const createdTaskIds = new Set({{ created_task_ids|tojson }});
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -390,6 +395,7 @@
 
     function buildTaskRows(task, index) {
       const tagsText = (task.tags || []).join(", ");
+      const isNewlyCreated = createdTaskIds.has(task.task_id);
       const stallButton = task.status !== "closed" && task.status !== "stalled"
         ? `<button type="button" class="icon-action danger-icon" title="Mark stalled" data-modal-open="stalled-task-modal" data-modal-payload='${escapeHtml(JSON.stringify({
             _action: `/${"{{ org.slug }}"}/tasks/${task.task_id}/stall`,
@@ -421,7 +427,7 @@
         : "";
       const detailId = `manage-task-detail-dynamic-${index}`;
       return `<tr
-          class="monday-task-row is-status-${escapeHtml(task.status.replaceAll("_", "-"))}"
+          class="monday-task-row is-status-${escapeHtml(task.status.replaceAll("_", "-"))}${isNewlyCreated ? " is-newly-created" : ""}"
           data-manage-task-row
           data-detail-target="${detailId}"
           data-task-status="${escapeHtml(task.status)}"
@@ -434,6 +440,7 @@
               <div class="task-card-headline">
                 <span class="task-color-trigger" data-task-color-trigger data-task-code="${escapeHtml(task.task_id)}" data-task-color="${escapeHtml(task.task_color)}" data-task-color-label="${escapeHtml(task.task_color_label)}" style="--task-color: ${escapeHtml(task.task_color)}; background: ${escapeHtml(task.task_color)}; background-color: ${escapeHtml(task.task_color)};" role="button" tabindex="0" aria-label="Task color"></span>
                 <span class="chip">${escapeHtml(task.task_id)}</span>
+                ${isNewlyCreated ? '<span class="badge success">New</span>' : ""}
                 ${task.is_shared ? '<span class="badge muted">Shared</span>' : ""}
               </div>
               <strong>${escapeHtml(task.name)}</strong>

@@ -13,6 +13,16 @@
         <h2>{{ title }}</h2>
         <p>{{ copy }}</p>
       </div>
+      {% if section_key == "pending" and tasks %}
+      <div class="manage-task-controls monday-local-search">
+        <div class="manage-task-filter">
+          <label>Search Pending Tasks
+            <input type="search" placeholder="Filter this section only" data-pending-task-search autocomplete="off">
+          </label>
+          <small class="monday-local-search-count" data-pending-search-count aria-live="polite"></small>
+        </div>
+      </div>
+      {% endif %}
       {% if plan_selectable and tasks %}
       <div class="page-head-actions">
         <button type="submit" class="button subtle-button" form="week-plan-form-{{ section_key }}">Add Selected To This Week Plan</button>
@@ -38,7 +48,13 @@
         <tbody>
           {% for task in tasks %}
           {% set detail_id = "monday-task-details-" ~ section_key ~ "-" ~ loop.index %}
-          <tr class="monday-task-row is-status-{{ task.status|replace('_', '-') }} is-deadline-{{ task.deadline_tone }}" data-monday-expand-row data-detail-target="{{ detail_id }}">
+          <tr
+            class="monday-task-row is-status-{{ task.status|replace('_', '-') }} is-deadline-{{ task.deadline_tone }}{% if task.task_id in created_task_ids %} is-newly-created{% endif %}"
+            data-monday-expand-row
+            data-detail-target="{{ detail_id }}"
+            data-task-code="{{ task.task_id }}"
+            data-task-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.deadline_label or ''))|lower|e }}"
+          >
             {% if plan_selectable %}
             <td class="monday-select-column">
               <input class="monday-plan-checkbox" type="checkbox" name="selected_task_codes" value="{{ task.task_id }}" {% if task.task_id in report.planned_task_codes or task.status in ["closed", "stalled"] %}disabled{% endif %}>
@@ -48,6 +64,9 @@
               <div class="dashboard-task-table-main">
                 <div class="task-card-headline">
                   <span class="chip">{{ task.task_id }}</span>
+                  {% if task.task_id in created_task_ids %}
+                  <span class="badge success">New</span>
+                  {% endif %}
                   {% if task.task_id in report.planned_task_codes %}
                   <span class="badge info">Planned This Week</span>
                   {% endif %}
@@ -162,7 +181,7 @@
     <p>{{ report.previous_week_start.strftime("%A, %d %b %Y") }} to {{ report.previous_week_end.strftime("%A, %d %b %Y") }}</p>
   </div>
   <div class="page-head-actions">
-    <button type="button" class="button secondary" data-modal-open="monday-ai-task-modal">✦ Add Task Using AI</button>
+    <button type="button" class="button secondary" data-modal-open="monday-ai-task-modal" title="Shortcut: Ctrl+Shift+K or Cmd+Shift+K">✦ Add Task Using AI</button>
     <button type="button" class="button{% if report.previous_week_missing_hours <= 0 %} subtle-button{% endif %}" data-modal-open="last-week-catchup-modal">
       Fill Last Week Effort{% if report.previous_week_missing_hours > 0 %} ({{ "%.2f"|format(report.previous_week_missing_hours) }}h missing){% endif %}
     </button>
@@ -171,13 +190,14 @@
     {% endif %}
   </div>
 </section>
+<p class="form-helper">Shortcut: use <strong>Ctrl+Shift+K</strong> or <strong>Cmd+Shift+K</strong> to open quick task creation from anywhere.</p>
 
 <div class="modal-backdrop" id="monday-ai-task-modal" data-modal aria-hidden="true">
   <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="monday-ai-task-title">
     <div class="modal-head">
       <div>
         <h2 id="monday-ai-task-title">Add Task Using AI</h2>
-        <p>Paste an email, meeting notes, daily update, or one task per line. AI will split multiple tasks, understand dates you mention, and can also create dated time-log entries when you mention effort already spent on a specific day.</p>
+        <p>Paste an email, meeting notes, daily update, or one task per line. AI will split multiple tasks, understand dates you mention, and can also create dated time-log entries when you mention effort already spent on a specific day. Shortcut: Ctrl+Shift+K or Cmd+Shift+K.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close add task using AI modal">×</button>
     </div>
@@ -190,6 +210,24 @@
     </form>
   </div>
 </div>
+
+{% if created_count %}
+<section class="panel monday-summary-panel ai-summary-feedback ai-summary-feedback-success">
+  <p><strong>{{ created_count }}</strong> tasks were created.
+    {% if created_task_ids %}
+    Open:
+    {% for task_id in created_task_ids %}
+    <a href="/{{ org.slug }}/tasks/{{ task_id }}">{{ task_id }}</a>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+    {% endif %}
+    Matching rows below are marked <strong>New</strong> where visible in this report.
+  </p>
+</section>
+{% elif created_task_id %}
+<section class="panel monday-summary-panel ai-summary-feedback ai-summary-feedback-success">
+  <p><a href="/{{ org.slug }}/tasks/{{ created_task_id }}"><strong>{{ created_task_id }}</strong></a> was created. Matching rows below are marked <strong>New</strong> where visible in this report.</p>
+</section>
+{% endif %}
 
 {% if catchup_error %}
 <section class="panel monday-summary-panel ai-summary-feedback">
@@ -934,6 +972,52 @@
         window.setTimeout(() => searchInput?.focus(), 0);
       }
       {% endif %}
+    }
+
+    const pendingSearchInput = document.querySelector("[data-pending-task-search]");
+    if (pendingSearchInput) {
+      const pendingSection = pendingSearchInput.closest(".panel");
+      const pendingRows = pendingSection ? Array.from(pendingSection.querySelectorAll("[data-monday-expand-row]")) : [];
+      const pendingSearchCount = pendingSection?.querySelector("[data-pending-search-count]");
+
+      function applyPendingSearch() {
+        const term = String(pendingSearchInput.value || "").trim().toLowerCase();
+        let visibleCount = 0;
+        pendingRows.forEach((row) => {
+          const detailId = row.dataset.detailTarget || "";
+          const detailRow = detailId ? document.getElementById(detailId) : null;
+          const haystack = String(row.dataset.taskSearch || row.textContent || "").trim().toLowerCase();
+          const matches = !term || haystack.includes(term);
+          row.hidden = !matches;
+          row.classList.toggle("is-search-match", Boolean(term) && matches);
+          if (detailRow) {
+            detailRow.hidden = !matches || !row.classList.contains("is-expanded");
+          }
+          if (matches) {
+            visibleCount += 1;
+          }
+        });
+        let emptyNote = pendingSection?.querySelector("[data-pending-search-empty]");
+        if (!emptyNote && pendingSection) {
+          emptyNote = document.createElement("p");
+          emptyNote.className = "empty";
+          emptyNote.dataset.pendingSearchEmpty = "true";
+          emptyNote.textContent = "No pending tasks match this search.";
+          emptyNote.hidden = true;
+          pendingSection.appendChild(emptyNote);
+        }
+        if (emptyNote) {
+          emptyNote.hidden = visibleCount !== 0;
+        }
+        if (pendingSearchCount) {
+          pendingSearchCount.textContent = term
+            ? `${visibleCount} of ${pendingRows.length} tasks shown`
+            : `${pendingRows.length} tasks`;
+        }
+      }
+
+      pendingSearchInput.addEventListener("input", applyPendingSearch);
+      applyPendingSearch();
     }
 
     const aiSummaryForm = document.querySelector("[data-ai-summary-form]");
