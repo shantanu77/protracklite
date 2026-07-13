@@ -264,12 +264,13 @@
     <div class="modal-head">
       <div>
         <h2 id="bulk-backlog-title">Add Task Using AI</h2>
-        <p>Paste a full email, meeting notes, or one task per line. AI will understand the content, extract one or more actionable tasks, and generate cleaner task names and descriptions before saving them with your default project and activity type.</p>
+        <p>Paste an email, meeting notes, daily update, or one task per line. AI will split multiple tasks, understand dates you mention, and can also create dated time-log entries when you mention effort already spent on a specific day.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close bulk backlog modal">×</button>
     </div>
     <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid">
-      <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Hi Shantanu, please prepare the client deck for Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday. Also block some time next week to review dashboard options." required></textarea></label>
+      <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Prepare the client deck by Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday.\n\nWorked 3h on last Monday on dashboard API fixes and 2h on last Tuesday on release note cleanup.\n\nReview dashboard options next week and follow up with the QA team on regression blockers." required></textarea></label>
+      <p class="form-helper full">Understands multiple tasks, explicit due dates, and effort already spent on dates like last Monday, last Tuesday, or 2026-07-07.</p>
       <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
       <button type="submit">Create Tasks With AI</button>
     </form>
