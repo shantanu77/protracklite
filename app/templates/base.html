@@ -1199,8 +1199,12 @@
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;");
+            const safeTargetStatus = String(item.target_status_label || "Target not set")
+              .replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;");
             const sharedIcon = item.is_shared ? '<span class="shared-list-icon" title="Shared list">⇄</span> ' : "";
-            return `<a class="nav-sublink${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}">${sharedIcon}${safeTitle}</a>`;
+            return `<a class="nav-sublink nav-list-link${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}"><span>${sharedIcon}${safeTitle}</span><small class="is-${item.target_state || "unset"}">${Math.round(Number(item.progress_percent || 0))}% · ${safeTargetStatus}</small></a>`;
           }).join("");
           sidebarListsContainer.innerHTML = `${manageMarkup}${listMarkup}`;
         })

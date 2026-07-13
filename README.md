@@ -72,6 +72,7 @@ The script:
 - reinstalls Python dependencies in `/opt/protracklite/.venv`
 - reloads systemd and restarts `protracklite`
 - installs and enables the Friday 3 PM weekly effort reminder timer
+- installs and enables weekday 9 AM list target progress reminders
 
 ## Weekly effort reminder
 

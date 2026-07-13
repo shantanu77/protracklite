@@ -1,0 +1,10 @@
+[Unit]
+Description=ProtrackLite list target progress reminder
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/protracklite
+EnvironmentFile=-/etc/protracklite.env
+ExecStart=/opt/protracklite/.venv/bin/python -m app.list_target_reminder

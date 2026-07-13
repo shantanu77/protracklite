@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ProtrackLite list target reminders on weekday mornings
+
+[Timer]
+OnCalendar=Mon..Fri 03:30 UTC
+Persistent=true
+Unit=protracklite-list-target-reminder.service
+
+[Install]
+WantedBy=timers.target

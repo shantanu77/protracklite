@@ -59,7 +59,11 @@
             </div>
           </div>
           <p>{{ item.description or "Checklist-style plan with no scheduling overhead." }}</p>
-          <small>{{ item.completed_items }}/{{ item.total_items }} completed{% if item.target_date_label %} · target {{ item.target_date_label }}{% endif %}</small>
+          <div class="list-target-summary is-{{ item.target_state }}">
+            <strong>{% if item.target_date_label %}Target {{ item.target_date_label }}{% else %}Set a target date{% endif %}</strong>
+            <span>{{ item.target_status_label }}</span>
+          </div>
+          <small>{{ item.completed_items }}/{{ item.total_items }} completed · {{ "%.0f"|format(item.progress_percent) }}%</small>
           <div class="list-progress-bar"><span style="width: {{ item.progress_percent }}%;"></span></div>
         </article>
         {% else %}
@@ -70,9 +74,9 @@
   </div>
 </section>
 {% elif selected_list %}
-{% set total_items = selected_items|length %}
-{% set completed_items = selected_items|selectattr('is_completed')|list|length %}
-{% set progress_percent = ((completed_items / total_items) * 100) if total_items else 0 %}
+{% set total_items = selected_progress.total_items %}
+{% set completed_items = selected_progress.completed_items %}
+{% set progress_percent = selected_progress.progress_percent %}
 <section class="panel list-detail-panel compact-list-detail">
   <div class="list-detail-top">
     <div>
@@ -108,11 +112,9 @@
     {% endif %}
   </div>
 
-  <div class="stats compact-stats">
-    <div class="stat"><span>Progress</span><strong>{{ "%.0f"|format(progress_percent) }}%</strong></div>
-    <div class="stat"><span>Completed</span><strong>{{ completed_items }}/{{ total_items }}</strong></div>
-    <div class="stat">
-      <span>Target</span>
+  <div class="stats compact-stats list-target-stats">
+    <div class="stat list-target-stat is-{{ selected_progress.target_state }}">
+      <span>Target date</span>
       <button type="button" class="list-inline-display list-inline-target" data-list-meta-display data-meta-kind="target">{{ selected_list.target_date.strftime("%d %b %Y") if selected_list.target_date else "Not set" }}</button>
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/update" class="list-inline-form" data-list-meta-form="target" hidden>
         <input type="hidden" name="title" value="{{ selected_list.title }}">
@@ -123,10 +125,13 @@
           <button type="button" class="button ghost small" data-list-meta-cancel>Cancel</button>
         </div>
       </form>
+      <small data-list-target-status>{{ selected_progress.target_status_label }}</small>
     </div>
-    <div class="stat"><span>Updated</span><strong>{{ selected_list.updated_at|local_datetime("%d %b %Y") }}</strong></div>
+    <div class="stat"><span>Progress</span><strong data-list-progress-value>{{ "%.0f"|format(progress_percent) }}%</strong></div>
+    <div class="stat"><span>Completed</span><strong data-list-progress-count>{{ completed_items }}/{{ total_items }}</strong></div>
+    <div class="stat"><span>List completion</span><strong data-list-completed-date>{{ selected_progress.completed_at_label or "In progress" }}</strong></div>
   </div>
-  <div class="list-progress-bar large"><span style="width: {{ progress_percent }}%;"></span></div>
+  <div class="list-progress-bar large"><span data-list-progress-bar style="width: {{ progress_percent }}%;"></span></div>
 
   <div class="list-add-item-actions">
     <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
@@ -244,9 +249,9 @@
   </div>
   {% endif %}
 
-  <div class="list-discussion-panel{% if not selected_list.members %} hidden{% endif %}">
-    <h3>Discussion</h3>
-    <div class="task-timeline">
+  <div class="list-discussion-panel">
+    <h3>Activity &amp; Discussion</h3>
+    <div class="task-timeline" data-list-activity-timeline>
       {% for comment in comments %}
       <article class="timeline-item">
         <span class="timeline-dot" aria-hidden="true"></span>
@@ -260,11 +265,11 @@
         </div>
       </article>
       {% else %}
-      <p class="empty">No discussion yet. Be the first to comment.</p>
+      <p class="empty" data-list-activity-empty>No activity yet. Complete an item or add a comment.</p>
       {% endfor %}
     </div>
     <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/comments" class="form-grid list-comment-form">
-      <label class="full">Add a comment<textarea name="body" rows="3" placeholder="Share an update with the group..." required></textarea></label>
+      <label class="full">Add a comment<textarea name="body" rows="3" placeholder="Share an update..." required></textarea></label>
       <button type="submit">Post Comment</button>
     </form>
   </div>
@@ -419,6 +424,55 @@
     const starButtons = document.querySelectorAll("[data-list-item-star]");
     const priorityButtons = document.querySelectorAll("[data-list-item-priority]");
     const toggleForms = document.querySelectorAll("[data-list-item-toggle-form]");
+    const progressValue = document.querySelector("[data-list-progress-value]");
+    const progressCount = document.querySelector("[data-list-progress-count]");
+    const progressBar = document.querySelector("[data-list-progress-bar]");
+    const completedDate = document.querySelector("[data-list-completed-date]");
+    const targetStatus = document.querySelector("[data-list-target-status]");
+    const targetStat = targetStatus?.closest(".list-target-stat");
+    const activityTimeline = document.querySelector("[data-list-activity-timeline]");
+
+    const setTargetState = (state) => {
+      if (!targetStat) return;
+      ["is-completed", "is-unset", "is-overdue", "is-due", "is-upcoming"].forEach((name) => targetStat.classList.remove(name));
+      targetStat.classList.add(`is-${String(state || "unset")}`);
+    };
+
+    const updateProgress = (progress) => {
+      if (!progress) return;
+      const percent = Number(progress.progress_percent || 0);
+      if (progressValue) progressValue.textContent = `${Math.round(percent)}%`;
+      if (progressCount) progressCount.textContent = `${progress.completed_items || 0}/${progress.total_items || 0}`;
+      if (progressBar) progressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      if (completedDate) completedDate.textContent = String(progress.completed_at_label || "In progress");
+      if (targetStatus) targetStatus.textContent = String(progress.target_status_label || "");
+      setTargetState(progress.target_state);
+    };
+
+    const appendActivity = (activity) => {
+      if (!activityTimeline || !activity) return;
+      activityTimeline.querySelector("[data-list-activity-empty]")?.remove();
+      const article = document.createElement("article");
+      article.className = "timeline-item list-activity-new";
+      const dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const card = document.createElement("div");
+      card.className = "timeline-card";
+      const head = document.createElement("div");
+      head.className = "timeline-head";
+      const actor = document.createElement("strong");
+      actor.textContent = String(activity.actor_name || "Team member");
+      const time = document.createElement("span");
+      time.textContent = String(activity.created_at_label || "Just now");
+      const body = document.createElement("p");
+      body.textContent = String(activity.body || "");
+      head.append(actor, time);
+      card.append(head, body);
+      article.append(dot, card);
+      activityTimeline.appendChild(article);
+      article.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
     const submitInlineEdit = async (form, button, input) => {
       const nextTitle = input.value.trim();
       const previousTitle = button.dataset.itemTitle || button.textContent.trim();
@@ -511,6 +565,8 @@
           meta.appendChild(document.createTextNode(" "));
           meta.appendChild(span);
         }
+        updateProgress(payload.progress);
+        appendActivity(payload.activity);
       });
     });
 
@@ -646,6 +702,8 @@
         });
       } else if (kind === "target") {
         display.textContent = String(payload.target_date_label || "Not set");
+        if (targetStatus) targetStatus.textContent = String(payload.target_status_label || "Target not set");
+        setTargetState(payload.target_state);
         document.querySelectorAll("[data-list-meta-form='title'] input[name='target_date'], [data-list-meta-form='description'] input[name='target_date']").forEach((input) => {
           input.value = String(payload.target_date || "");
         });

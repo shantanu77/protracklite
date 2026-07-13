@@ -3022,6 +3022,46 @@ def set_work_list_members(db: Session, work_list: WorkList, org_id: int, owner_u
         db.add(WorkListMember(work_list_id=work_list.id, user_id=member_id))
 
 
+def work_list_progress(work_list: WorkList, today: date | None = None) -> dict[str, Any]:
+    reference_date = today or local_today()
+    total_items = len(work_list.items)
+    completed_items = sum(1 for item in work_list.items if item.is_completed)
+    progress_percent = round((completed_items / total_items) * 100, 2) if total_items else 0
+    is_completed = total_items > 0 and completed_items == total_items
+    completed_at = max(
+        (item.completed_at for item in work_list.items if item.completed_at),
+        default=None,
+    ) if is_completed else None
+    days_remaining = (work_list.target_date - reference_date).days if work_list.target_date else None
+    if is_completed:
+        target_state = "completed"
+        target_status_label = f"Completed {format_local_datetime(completed_at, '%d %b %Y')}" if completed_at else "Completed"
+    elif days_remaining is None:
+        target_state = "unset"
+        target_status_label = "Target not set"
+    elif days_remaining < 0:
+        target_state = "overdue"
+        overdue_days = abs(days_remaining)
+        target_status_label = f"{overdue_days} day{'s' if overdue_days != 1 else ''} overdue"
+    elif days_remaining == 0:
+        target_state = "due"
+        target_status_label = "Due today"
+    else:
+        target_state = "upcoming"
+        target_status_label = f"{days_remaining} day{'s' if days_remaining != 1 else ''} remaining"
+    return {
+        "total_items": total_items,
+        "completed_items": completed_items,
+        "progress_percent": progress_percent,
+        "is_completed": is_completed,
+        "completed_at": completed_at,
+        "completed_at_label": format_local_datetime(completed_at, "%d %b %Y") if completed_at else "",
+        "days_remaining": days_remaining,
+        "target_state": target_state,
+        "target_status_label": target_status_label,
+    }
+
+
 def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str, Any]]:
     lists = db.scalars(
         select(WorkList)
@@ -3035,9 +3075,7 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
     ).all()
     summaries = []
     for work_list in lists:
-        total_items = len(work_list.items)
-        completed_items = sum(1 for item in work_list.items if item.is_completed)
-        progress_percent = round((completed_items / total_items) * 100, 2) if total_items else 0
+        progress = work_list_progress(work_list)
         summaries.append(
             {
                 "id": work_list.id,
@@ -3046,9 +3084,7 @@ def work_list_summaries(db: Session, org_id: int, user_id: int) -> list[dict[str
                 "target_date": work_list.target_date,
                 "target_date_label": work_list.target_date.strftime("%d %b %Y") if work_list.target_date else "",
                 "sort_order": work_list.sort_order,
-                "total_items": total_items,
-                "completed_items": completed_items,
-                "progress_percent": progress_percent,
+                **progress,
                 "updated_at": work_list.updated_at,
                 "updated_at_label": format_local_datetime(work_list.updated_at),
                 "is_shared": bool(work_list.members),
@@ -4058,7 +4094,7 @@ def lists_page(
     people_map = {person.id: person for person in org_users}
     comments = (
         sorted(selected.comments, key=lambda comment: comment.created_at)
-        if selected and selected.members
+        if selected
         else []
     )
     return templates.TemplateResponse(
@@ -4075,6 +4111,7 @@ def lists_page(
             "org_users": [person for person in org_users if person.id != user.id],
             "people_map": people_map,
             "comments": comments,
+            "selected_progress": work_list_progress(selected) if selected else None,
             "is_owner": bool(selected) and can_manage_work_list(selected, user.id),
             "member_ids": {member.user_id for member in selected.members} if selected else set(),
         },
@@ -4324,12 +4361,15 @@ async def update_list_page(
     work_list.description = description.strip()
     work_list.target_date = parse_optional_date(target_date)
     db.commit()
+    progress = work_list_progress(work_list)
     return {
         "ok": True,
         "title": work_list.title,
         "description": work_list.description or "",
         "target_date": work_list.target_date.isoformat() if work_list.target_date else "",
         "target_date_label": work_list.target_date.strftime("%d %b %Y") if work_list.target_date else "Not set",
+        "target_state": progress["target_state"],
+        "target_status_label": progress["target_status_label"],
     }
 
 
@@ -4351,6 +4391,11 @@ async def toggle_list_item_page(
     item.is_completed = not item.is_completed
     item.completed_at = datetime.utcnow() if item.is_completed else None
     item.completed_by = user.id if item.is_completed else None
+    activity = None
+    if item.is_completed:
+        activity_body = f"{user.full_name} completed task - {item.title}"
+        activity = WorkListComment(work_list_id=work_list.id, user_id=user.id, body=activity_body)
+        db.add(activity)
     db.commit()
     notify_shared_list_update(
         db,
@@ -4364,12 +4409,19 @@ async def toggle_list_item_page(
     if item.completed_by:
         completer = db.get(User, item.completed_by)
         completed_by_name = completer.full_name if completer else ""
+    progress = work_list_progress(work_list)
     return {
         "ok": True,
         "is_completed": bool(item.is_completed),
         "completed_at_label": format_local_datetime(item.completed_at),
         "created_at_label": item.created_at.strftime("%d %b %Y"),
         "completed_by_name": completed_by_name,
+        "progress": progress,
+        "activity": {
+            "body": activity.body,
+            "actor_name": user.full_name,
+            "created_at_label": format_local_datetime(activity.created_at),
+        } if activity else None,
     }
 
 

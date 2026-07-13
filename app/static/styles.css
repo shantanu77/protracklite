@@ -663,6 +663,28 @@ textarea {
   color: #ffffff;
 }
 
+.nav-list-link {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.nav-list-link > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-list-link small {
+  color: rgba(238, 243, 246, 0.5);
+  font-size: 0.64rem;
+  line-height: 1.25;
+}
+
+.nav-list-link small.is-overdue,
+.nav-list-link small.is-due {
+  color: #fbbf24;
+}
+
 .logout-form {
   margin: 0;
 }
@@ -826,6 +848,43 @@ textarea {
   line-height: 1.3;
 }
 
+.list-target-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  background: rgba(15, 118, 110, 0.08);
+  color: #115e59;
+}
+
+.list-target-summary strong {
+  font-size: 0.86rem;
+}
+
+.list-target-summary span {
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.list-target-summary.is-overdue,
+.list-target-summary.is-due {
+  background: rgba(220, 38, 38, 0.08);
+  color: #991b1b;
+}
+
+.list-target-summary.is-completed {
+  background: rgba(22, 163, 74, 0.09);
+  color: #166534;
+}
+
+.list-target-summary.is-unset {
+  background: rgba(29, 52, 66, 0.06);
+  color: var(--muted);
+}
+
 .list-drag-handle {
   color: var(--muted);
   font-size: 1rem;
@@ -875,6 +934,29 @@ textarea {
 
 .compact-list-detail {
   gap: 0.85rem;
+}
+
+.list-target-stat {
+  border-color: rgba(15, 118, 110, 0.24);
+  box-shadow: inset 4px 0 0 #0f766e;
+}
+
+.list-target-stat.is-overdue,
+.list-target-stat.is-due {
+  border-color: rgba(220, 38, 38, 0.24);
+  box-shadow: inset 4px 0 0 #dc2626;
+}
+
+.list-target-stat.is-completed {
+  border-color: rgba(22, 163, 74, 0.24);
+  box-shadow: inset 4px 0 0 #16a34a;
+}
+
+.list-target-stat .list-inline-target {
+  color: var(--text);
+  font-size: clamp(1.35rem, 4vw, 1.9rem);
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .list-detail-top {
@@ -1068,6 +1150,21 @@ textarea {
 
 .list-comment-form {
   margin-top: 0.75rem;
+}
+
+.list-activity-new {
+  animation: list-activity-arrive 320ms ease-out both;
+}
+
+@keyframes list-activity-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .checkbox-list {
