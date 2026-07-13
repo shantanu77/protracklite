@@ -2354,7 +2354,9 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
             .where(WeeklyTaskPlanItem.weekly_task_plan_id == weekly_plan.id, Task.org_id == org.id, Task.assigned_to == user.id)
             .order_by(WeeklyTaskPlanItem.sort_order.asc(), WeeklyTaskPlanItem.id.asc())
         ).all()
+        scheduled_task_map = {item["task_id"]: item for item in groups["planned_week"]}
         groups["planned_week"] = []
+        planned_task_codes: set[str] = set()
         for plan_item, task in plan_rows:
             if task.is_archived:
                 continue
@@ -2362,6 +2364,17 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
             summary["booked_this_week_hours"] = round(week_hours_by_task_id.get(task.id, 0.0), 2)
             summary["planned_note"] = plan_item.planned_note or ""
             groups["planned_week"].append(summary)
+            planned_task_codes.add(task.task_id)
+        extra_scheduled_tasks = [item for task_code, item in scheduled_task_map.items() if task_code not in planned_task_codes]
+        extra_scheduled_tasks.sort(
+            key=lambda item: (
+                item["end_date"] is None,
+                item["end_date"] or date.max,
+                item["start_date"] or date.max,
+                item["name"].lower(),
+            )
+        )
+        groups["planned_week"].extend(extra_scheduled_tasks)
     else:
         groups["planned_week"].sort(
             key=lambda item: (
