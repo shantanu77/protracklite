@@ -133,16 +133,35 @@
   </div>
   <div class="list-progress-bar large"><span data-list-progress-bar style="width: {{ progress_percent }}%;"></span></div>
 
-  <div class="list-add-item-actions">
-    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
-      <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
-    </form>
-    <button type="button" class="button secondary" data-modal-open="list-bulk-add-modal">Bulk Add</button>
-  </div>
+  <div class="list-workspace">
+    <section class="list-checklist-pane">
+      <div class="list-pane-head">
+        <div>
+          <p class="eyebrow">Execution</p>
+          <h3>Checklist</h3>
+        </div>
+        <span class="list-pane-count" data-list-visible-count>{{ total_items }} items</span>
+      </div>
+      <div class="list-pane-tools list-checklist-tools">
+        <input type="search" placeholder="Find an item" aria-label="Find a checklist item" data-list-item-search autocomplete="off">
+        <select aria-label="Filter checklist items" data-list-item-filter>
+          <option value="all">All items</option>
+          <option value="open">Open</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
 
-  <div class="list-item-stack compact-list-items">
+      <div class="list-add-item-actions">
+        <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
+          <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
+        </form>
+        <button type="button" class="button secondary" data-modal-open="list-bulk-add-modal">Bulk Add</button>
+      </div>
+
+      <div class="list-item-scroll">
+      <div class="list-item-stack compact-list-items">
     {% for item in selected_items %}
-    <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}" data-list-item-row>
+    <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}" data-list-item-row data-list-item-state="{{ 'completed' if item.is_completed else 'open' }}" data-list-item-search="{{ item.title|lower|e }}">
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle" class="list-item-toggle-form" data-list-item-toggle-form>
         <input type="checkbox" {% if item.is_completed %}checked{% endif %} data-list-item-toggle>
       </form>
@@ -184,8 +203,54 @@
       </div>
     </article>
     {% else %}
-    <p class="empty">This list has no items yet.</p>
+    <p class="empty" data-list-items-empty>This list has no items yet.</p>
     {% endfor %}
+      </div>
+      <p class="empty" data-list-filter-empty hidden>No checklist items match this filter.</p>
+      </div>
+    </section>
+
+    <section class="list-discussion-panel">
+      <div class="list-pane-head">
+        <div>
+          <p class="eyebrow">Shared context</p>
+          <h3>Activity &amp; Discussion</h3>
+        </div>
+        <span class="list-pane-count" data-activity-count>{{ comment_count }} updates</span>
+      </div>
+      <div class="list-pane-tools list-activity-tools">
+        <input type="search" placeholder="Search communication" aria-label="Search list communication" data-activity-search autocomplete="off">
+        <div class="list-activity-filters" role="group" aria-label="Filter communication">
+          <button type="button" class="is-active" data-activity-filter="all">All</button>
+          <button type="button" data-activity-filter="comment">Comments</button>
+          <button type="button" data-activity-filter="activity">Activity</button>
+        </div>
+      </div>
+      <div class="task-timeline list-activity-scroll" data-list-activity-timeline data-before-id="{{ older_comments_before_id or '' }}">
+        {% if has_older_comments %}
+        <button type="button" class="button ghost small list-load-older" data-load-older-comments data-url="/api/v1/lists/{{ selected_list.id }}/comments">Load older communication</button>
+        {% endif %}
+        {% for comment in comments %}
+        <article class="timeline-item" data-activity-entry data-activity-kind="{{ comment.kind }}" data-activity-search="{{ (comment.actor_name ~ ' ' ~ comment.body)|lower|e }}">
+          <span class="timeline-dot" aria-hidden="true"></span>
+          <div class="timeline-card">
+            <div class="timeline-head">
+              <strong class="list-activity-author"><span class="list-activity-avatar" aria-hidden="true">{{ comment.actor_initials }}</span>{{ comment.actor_name }}</strong>
+              <span>{{ comment.created_at_label }}</span>
+            </div>
+            <p>{{ comment.body }}</p>
+          </div>
+        </article>
+        {% else %}
+        <p class="empty" data-list-activity-empty>No activity yet. Complete an item or add a comment.</p>
+        {% endfor %}
+        <p class="empty" data-activity-filter-empty hidden>No communication matches this filter.</p>
+      </div>
+      <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/comments" class="form-grid list-comment-form">
+        <label class="full">Add a comment<textarea name="body" rows="3" placeholder="Share an update..." required></textarea></label>
+        <button type="submit">Post Comment</button>
+      </form>
+    </section>
   </div>
 
   <div class="modal-backdrop" id="list-bulk-add-modal" data-modal aria-hidden="true">
@@ -249,30 +314,6 @@
   </div>
   {% endif %}
 
-  <div class="list-discussion-panel">
-    <h3>Activity &amp; Discussion</h3>
-    <div class="task-timeline" data-list-activity-timeline>
-      {% for comment in comments %}
-      <article class="timeline-item">
-        <span class="timeline-dot" aria-hidden="true"></span>
-        <div class="timeline-card">
-          <div class="timeline-head">
-            {% set comment_user = people_map.get(comment.user_id) %}
-            <strong class="avatar-name">{{ user_avatar(comment_user, 24) }} {{ comment_user.full_name if comment_user else "Former member" }}</strong>
-            <span>{{ comment.created_at|local_datetime }}</span>
-          </div>
-          <p>{{ comment.body }}</p>
-        </div>
-      </article>
-      {% else %}
-      <p class="empty" data-list-activity-empty>No activity yet. Complete an item or add a comment.</p>
-      {% endfor %}
-    </div>
-    <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/comments" class="form-grid list-comment-form">
-      <label class="full">Add a comment<textarea name="body" rows="3" placeholder="Share an update..." required></textarea></label>
-      <button type="submit">Post Comment</button>
-    </form>
-  </div>
 </section>
 {% else %}
 <section class="panel list-detail-panel">
@@ -431,6 +472,75 @@
     const targetStatus = document.querySelector("[data-list-target-status]");
     const targetStat = targetStatus?.closest(".list-target-stat");
     const activityTimeline = document.querySelector("[data-list-activity-timeline]");
+    const listItemSearch = document.querySelector("[data-list-item-search]");
+    const listItemFilter = document.querySelector("[data-list-item-filter]");
+    const listVisibleCount = document.querySelector("[data-list-visible-count]");
+    const listFilterEmpty = document.querySelector("[data-list-filter-empty]");
+    const activitySearch = document.querySelector("[data-activity-search]");
+    const activityFilterButtons = Array.from(document.querySelectorAll("[data-activity-filter]"));
+    const activityFilterEmpty = document.querySelector("[data-activity-filter-empty]");
+    const activityCount = document.querySelector("[data-activity-count]");
+    const loadOlderCommentsButton = document.querySelector("[data-load-older-comments]");
+    let activeActivityFilter = "all";
+
+    const applyListItemFilters = () => {
+      const query = String(listItemSearch?.value || "").trim().toLowerCase();
+      const state = String(listItemFilter?.value || "all");
+      let visible = 0;
+      const rows = Array.from(document.querySelectorAll("[data-list-item-row]"));
+      rows.forEach((row) => {
+        const matchesQuery = !query || String(row.dataset.listItemSearch || "").includes(query);
+        const matchesState = state === "all" || row.dataset.listItemState === state;
+        row.hidden = !(matchesQuery && matchesState);
+        if (!row.hidden) visible += 1;
+      });
+      if (listVisibleCount) listVisibleCount.textContent = `${visible} item${visible === 1 ? "" : "s"}`;
+      if (listFilterEmpty) listFilterEmpty.hidden = rows.length === 0 || visible !== 0;
+    };
+
+    const applyActivityFilters = () => {
+      const query = String(activitySearch?.value || "").trim().toLowerCase();
+      let visible = 0;
+      const entries = Array.from(activityTimeline?.querySelectorAll("[data-activity-entry]") || []);
+      entries.forEach((entry) => {
+        const matchesKind = activeActivityFilter === "all" || entry.dataset.activityKind === activeActivityFilter;
+        const matchesQuery = !query || String(entry.dataset.activitySearch || "").includes(query);
+        entry.hidden = !(matchesKind && matchesQuery);
+        if (!entry.hidden) visible += 1;
+      });
+      if (activityFilterEmpty) activityFilterEmpty.hidden = entries.length === 0 || visible !== 0;
+    };
+
+    const createActivityEntry = (activity, isNew = false) => {
+      const article = document.createElement("article");
+      article.className = `timeline-item${isNew ? " list-activity-new" : ""}`;
+      article.dataset.activityEntry = "true";
+      article.dataset.activityKind = String(activity.kind || "activity");
+      article.dataset.activitySearch = `${activity.actor_name || ""} ${activity.body || ""}`.toLowerCase();
+      const dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const card = document.createElement("div");
+      card.className = "timeline-card";
+      const head = document.createElement("div");
+      head.className = "timeline-head";
+      const actor = document.createElement("strong");
+      actor.className = "list-activity-author";
+      const avatar = document.createElement("span");
+      avatar.className = "list-activity-avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = String(activity.actor_initials || "") || String(activity.actor_name || "?").split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+      actor.textContent = String(activity.actor_name || "Team member");
+      actor.prepend(avatar);
+      const time = document.createElement("span");
+      time.textContent = String(activity.created_at_label || "Just now");
+      const body = document.createElement("p");
+      body.textContent = String(activity.body || "");
+      head.append(actor, time);
+      card.append(head, body);
+      article.append(dot, card);
+      return article;
+    };
 
     const setTargetState = (state) => {
       if (!targetStat) return;
@@ -452,27 +562,57 @@
     const appendActivity = (activity) => {
       if (!activityTimeline || !activity) return;
       activityTimeline.querySelector("[data-list-activity-empty]")?.remove();
-      const article = document.createElement("article");
-      article.className = "timeline-item list-activity-new";
-      const dot = document.createElement("span");
-      dot.className = "timeline-dot";
-      dot.setAttribute("aria-hidden", "true");
-      const card = document.createElement("div");
-      card.className = "timeline-card";
-      const head = document.createElement("div");
-      head.className = "timeline-head";
-      const actor = document.createElement("strong");
-      actor.textContent = String(activity.actor_name || "Team member");
-      const time = document.createElement("span");
-      time.textContent = String(activity.created_at_label || "Just now");
-      const body = document.createElement("p");
-      body.textContent = String(activity.body || "");
-      head.append(actor, time);
-      card.append(head, body);
-      article.append(dot, card);
+      const article = createActivityEntry({ ...activity, kind: "activity" }, true);
       activityTimeline.appendChild(article);
+      if (activityCount) {
+        const nextCount = Number.parseInt(activityCount.textContent || "0", 10) + 1;
+        activityCount.textContent = `${nextCount} updates`;
+      }
+      applyActivityFilters();
       article.scrollIntoView({ behavior: "smooth", block: "nearest" });
     };
+
+    listItemSearch?.addEventListener("input", applyListItemFilters);
+    listItemFilter?.addEventListener("change", applyListItemFilters);
+    activitySearch?.addEventListener("input", applyActivityFilters);
+    activityFilterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activeActivityFilter = String(button.dataset.activityFilter || "all");
+        activityFilterButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+        applyActivityFilters();
+      });
+    });
+
+    loadOlderCommentsButton?.addEventListener("click", async () => {
+      if (!activityTimeline || !activityTimeline.dataset.beforeId) return;
+      loadOlderCommentsButton.disabled = true;
+      loadOlderCommentsButton.textContent = "Loading...";
+      const previousHeight = activityTimeline.scrollHeight;
+      const response = await fetch(`${loadOlderCommentsButton.dataset.url}?before_id=${encodeURIComponent(activityTimeline.dataset.beforeId)}`, { credentials: "same-origin" });
+      if (!response.ok) {
+        loadOlderCommentsButton.disabled = false;
+        loadOlderCommentsButton.textContent = "Try loading older communication again";
+        return;
+      }
+      const payload = await response.json();
+      const fragment = document.createDocumentFragment();
+      (payload.comments || []).forEach((comment) => fragment.appendChild(createActivityEntry(comment)));
+      const firstEntry = activityTimeline.querySelector("[data-activity-entry]");
+      activityTimeline.insertBefore(fragment, firstEntry || activityFilterEmpty);
+      activityTimeline.dataset.beforeId = String(payload.next_before_id || "");
+      if (payload.has_more) {
+        loadOlderCommentsButton.disabled = false;
+        loadOlderCommentsButton.textContent = "Load older communication";
+      } else {
+        loadOlderCommentsButton.remove();
+      }
+      applyActivityFilters();
+      activityTimeline.scrollTop += activityTimeline.scrollHeight - previousHeight;
+    });
+
+    applyListItemFilters();
+    applyActivityFilters();
+    if (activityTimeline) activityTimeline.scrollTop = activityTimeline.scrollHeight;
     const submitInlineEdit = async (form, button, input) => {
       const nextTitle = input.value.trim();
       const previousTitle = button.dataset.itemTitle || button.textContent.trim();
@@ -501,9 +641,12 @@
       const resolvedTitle = String(payload.title || nextTitle);
       button.textContent = resolvedTitle;
       button.dataset.itemTitle = resolvedTitle;
+      const itemRow = button.closest("[data-list-item-row]");
+      if (itemRow) itemRow.dataset.listItemSearch = resolvedTitle.toLowerCase();
       input.value = resolvedTitle;
       form.hidden = true;
       button.hidden = false;
+      applyListItemFilters();
     };
 
     editButtons.forEach((button) => {
@@ -553,6 +696,7 @@
         const payload = await response.json();
         const isCompleted = Boolean(payload.is_completed);
         row.classList.toggle("is-completed", isCompleted);
+        row.dataset.listItemState = isCompleted ? "completed" : "open";
         checkbox.checked = isCompleted;
         const dateLabel = isCompleted ? String(payload.completed_at_label || "") : String(payload.created_at_label || "");
         const completedByName = isCompleted ? String(payload.completed_by_name || "") : "";
@@ -567,6 +711,7 @@
         }
         updateProgress(payload.progress);
         appendActivity(payload.activity);
+        applyListItemFilters();
       });
     });
 

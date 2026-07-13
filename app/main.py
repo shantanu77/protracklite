@@ -3109,6 +3109,35 @@ def work_list_detail(db: Session, org_id: int, user_id: int, list_id: int | None
     )
 
 
+def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None = None, limit: int = 60) -> dict[str, Any]:
+    stmt = select(WorkListComment).where(WorkListComment.work_list_id == work_list_id)
+    if before_id:
+        stmt = stmt.where(WorkListComment.id < before_id)
+    rows = db.scalars(stmt.order_by(WorkListComment.id.desc()).limit(limit + 1)).all()
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    user_ids = {comment.user_id for comment in page_rows}
+    people = db.scalars(select(User).where(User.id.in_(user_ids))).all() if user_ids else []
+    people_map = {person.id: person for person in people}
+    comments = []
+    for comment in reversed(page_rows):
+        actor_name = people_map.get(comment.user_id).full_name if people_map.get(comment.user_id) else "Former member"
+        actor_initials = "".join(part[0] for part in actor_name.split() if part)[:2].upper() or "?"
+        comments.append({
+            "id": comment.id,
+            "body": comment.body,
+            "created_at_label": format_local_datetime(comment.created_at),
+            "actor_name": actor_name,
+            "actor_initials": actor_initials,
+            "kind": "activity" if " completed task - " in comment.body else "comment",
+        })
+    return {
+        "comments": comments,
+        "has_more": has_more,
+        "next_before_id": page_rows[-1].id if page_rows and has_more else None,
+    }
+
+
 def performance_plan_query(org_id: int):
     return (
         select(PerformancePlan)
@@ -4092,11 +4121,8 @@ def lists_page(
     )
     org_users = org_people(db, org.id)
     people_map = {person.id: person for person in org_users}
-    comments = (
-        sorted(selected.comments, key=lambda comment: comment.created_at)
-        if selected
-        else []
-    )
+    comment_page = work_list_comment_page(db, selected.id) if selected else {"comments": [], "has_more": False, "next_before_id": None}
+    comment_count = db.scalar(select(func.count(WorkListComment.id)).where(WorkListComment.work_list_id == selected.id)) if selected else 0
     return templates.TemplateResponse(
         "lists.html",
         {
@@ -4110,7 +4136,10 @@ def lists_page(
             "manage_mode": selected is None,
             "org_users": [person for person in org_users if person.id != user.id],
             "people_map": people_map,
-            "comments": comments,
+            "comments": comment_page["comments"],
+            "has_older_comments": comment_page["has_more"],
+            "older_comments_before_id": comment_page["next_before_id"],
+            "comment_count": int(comment_count or 0),
             "selected_progress": work_list_progress(selected) if selected else None,
             "is_owner": bool(selected) and can_manage_work_list(selected, user.id),
             "member_ids": {member.user_id for member in selected.members} if selected else set(),
@@ -4505,6 +4534,20 @@ async def add_list_comment_page(
     db.commit()
     notify_shared_list_update(db, org, user, work_list, "Posted a comment.", detail=normalized_body[:240])
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={list_id}", status_code=303)
+
+
+@app.get("/api/v1/lists/{list_id}/comments")
+def api_work_list_comments(
+    list_id: int,
+    before_id: int | None = None,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    work_list = work_list_detail(db, org.id, user.id, list_id)
+    if not work_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    return work_list_comment_page(db, work_list.id, before_id=before_id)
 
 
 @app.post("/{org_slug}/lists/reorder")
