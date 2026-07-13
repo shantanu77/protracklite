@@ -231,7 +231,7 @@
         <button type="button" class="button ghost small list-load-older" data-load-older-comments data-url="/api/v1/lists/{{ selected_list.id }}/comments">Load older communication</button>
         {% endif %}
         {% for comment in comments %}
-        <article class="timeline-item" data-activity-entry data-activity-kind="{{ comment.kind }}" data-activity-search="{{ (comment.actor_name ~ ' ' ~ comment.body)|lower|e }}">
+        <article class="timeline-item list-chat-entry tone-{{ comment.actor_tone }} is-{{ comment.kind }}{% if comment.actor_id == user.id %} is-own{% endif %}" data-activity-entry data-activity-kind="{{ comment.kind }}" data-activity-search="{{ (comment.actor_name ~ ' ' ~ comment.body)|lower|e }}">
           <span class="timeline-dot" aria-hidden="true"></span>
           <div class="timeline-card">
             <div class="timeline-head">
@@ -481,6 +481,7 @@
     const activityFilterEmpty = document.querySelector("[data-activity-filter-empty]");
     const activityCount = document.querySelector("[data-activity-count]");
     const loadOlderCommentsButton = document.querySelector("[data-load-older-comments]");
+    const currentListUserId = {{ user.id }};
     let activeActivityFilter = "all";
 
     const applyListItemFilters = () => {
@@ -513,7 +514,9 @@
 
     const createActivityEntry = (activity, isNew = false) => {
       const article = document.createElement("article");
-      article.className = `timeline-item${isNew ? " list-activity-new" : ""}`;
+      const actorTone = Number(activity.actor_tone || 0) % 6;
+      const isOwn = Number(activity.actor_id || 0) === currentListUserId;
+      article.className = `timeline-item list-chat-entry tone-${actorTone} is-${activity.kind || "activity"}${isOwn ? " is-own" : ""}${isNew ? " list-activity-new" : ""}`;
       article.dataset.activityEntry = "true";
       article.dataset.activityKind = String(activity.kind || "activity");
       article.dataset.activitySearch = `${activity.actor_name || ""} ${activity.body || ""}`.toLowerCase();

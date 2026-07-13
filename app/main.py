@@ -3129,6 +3129,8 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
             "created_at_label": format_local_datetime(comment.created_at),
             "actor_name": actor_name,
             "actor_initials": actor_initials,
+            "actor_id": comment.user_id,
+            "actor_tone": comment.user_id % 6,
             "kind": "activity" if " completed task - " in comment.body else "comment",
         })
     return {
@@ -4449,6 +4451,8 @@ async def toggle_list_item_page(
         "activity": {
             "body": activity.body,
             "actor_name": user.full_name,
+            "actor_id": user.id,
+            "actor_tone": user.id % 6,
             "created_at_label": format_local_datetime(activity.created_at),
         } if activity else None,
     }
