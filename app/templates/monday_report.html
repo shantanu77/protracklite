@@ -162,6 +162,7 @@
     <p>{{ report.previous_week_start.strftime("%A, %d %b %Y") }} to {{ report.previous_week_end.strftime("%A, %d %b %Y") }}</p>
   </div>
   <div class="page-head-actions">
+    <button type="button" class="button secondary" data-modal-open="monday-ai-task-modal">✦ Add Task Using AI</button>
     <button type="button" class="button{% if report.previous_week_missing_hours <= 0 %} subtle-button{% endif %}" data-modal-open="last-week-catchup-modal">
       Fill Last Week Effort{% if report.previous_week_missing_hours > 0 %} ({{ "%.2f"|format(report.previous_week_missing_hours) }}h missing){% endif %}
     </button>
@@ -170,6 +171,26 @@
     {% endif %}
   </div>
 </section>
+
+<div class="modal-backdrop" id="monday-ai-task-modal" data-modal aria-hidden="true">
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="monday-ai-task-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="monday-ai-task-title">Add Task Using AI</h2>
+        <p>Paste an email, meeting notes, daily update, or one task per line. AI will split multiple tasks, understand dates you mention, and can also create dated time-log entries when you mention effort already spent on a specific day.</p>
+      </div>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close add task using AI modal">×</button>
+    </div>
+    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid">
+      <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Prepare the client deck by Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday.\n\nWorked 3h on last Monday on dashboard API fixes and 2h on last Tuesday on release note cleanup.\n\nReview dashboard options next week and follow up with the QA team on regression blockers." required></textarea></label>
+      <p class="form-helper full">Understands multiple tasks, explicit due dates, and effort already spent on dates like last Monday, last Tuesday, or 2026-07-07.</p>
+      <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
+      <input name="redirect_to" type="hidden" value="/{{ org.slug }}/reports/monday">
+      <button type="submit">Create Tasks With AI</button>
+    </form>
+  </div>
+</div>
+
 {% if catchup_error %}
 <section class="panel monday-summary-panel ai-summary-feedback">
   <p class="empty">{{ catchup_error }}</p>
