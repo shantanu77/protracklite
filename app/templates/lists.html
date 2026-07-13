@@ -342,11 +342,11 @@
 
       const syncSidebarOrder = (listIds) => {
         const sidebarContainer = document.querySelector("[data-sidebar-lists]");
-        if (!sidebarContainer) {
+        const sidebarItems = sidebarContainer?.querySelector("[data-sidebar-list-items]");
+        if (!sidebarContainer || !sidebarItems) {
           return;
         }
-        const manageLink = sidebarContainer.querySelector('a[href="/{{ org.slug }}/lists"]');
-        const anchors = Array.from(sidebarContainer.querySelectorAll(".nav-sublink")).filter((link) => link !== manageLink);
+        const anchors = Array.from(sidebarItems.querySelectorAll(".nav-list-link"));
         const anchorMap = new Map(
           anchors.map((link) => {
             const href = link.getAttribute("href") || "";
@@ -357,7 +357,7 @@
         listIds.forEach((listId) => {
           const link = anchorMap.get(listId);
           if (link) {
-            sidebarContainer.appendChild(link);
+            sidebarItems.appendChild(link);
           }
         });
       };
