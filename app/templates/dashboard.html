@@ -753,8 +753,10 @@
       const term = searchInput.value.trim().toLowerCase();
       let visibleCount = 0;
       options.forEach((option) => {
-        const matches = !term || (option.dataset.taskSearch || "").includes(term);
-        option.hidden = !matches;
+        const haystack = String(option.dataset.taskSearch || option.textContent || "").trim().toLowerCase();
+        const matches = !term || haystack.includes(term);
+        option.hidden = false;
+        option.style.display = matches ? "" : "none";
         if (matches) visibleCount += 1;
       });
       if (emptyState) emptyState.hidden = visibleCount > 0;

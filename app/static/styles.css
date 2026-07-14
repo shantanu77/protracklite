@@ -4326,6 +4326,10 @@ mark {
   box-shadow: none;
 }
 
+.monday-catchup-task-option[hidden] {
+  display: none;
+}
+
 .monday-catchup-task-option:hover,
 .monday-catchup-task-option.is-active {
   background: rgba(19, 78, 74, 0.08);
