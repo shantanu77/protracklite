@@ -40,6 +40,8 @@ The repo includes:
 - [deploy/protracklite.service](/home/shantanu/ptlite/deploy/protracklite.service)
 - [deploy/protracklite-effort-reminder.service](/home/shantanu/ptlite/deploy/protracklite-effort-reminder.service)
 - [deploy/protracklite-effort-reminder.timer](/home/shantanu/ptlite/deploy/protracklite-effort-reminder.timer)
+- [deploy/protracklite-list-activity-digest.service](/home/shantanu/ptlite/deploy/protracklite-list-activity-digest.service)
+- [deploy/protracklite-list-activity-digest.timer](/home/shantanu/ptlite/deploy/protracklite-list-activity-digest.timer)
 - [deploy.sh](/home/shantanu/ptlite/deploy.sh)
 
 Use `/etc/protracklite.env` on the server for runtime settings. Do not keep production settings inside `/opt/protracklite`, because deploys refresh that directory. For MySQL, for example:
@@ -72,7 +74,8 @@ The script:
 - reinstalls Python dependencies in `/opt/protracklite/.venv`
 - reloads systemd and restarts `protracklite`
 - installs and enables the Friday 3 PM weekly effort reminder timer
-- installs and enables weekday 9 AM list target progress reminders
+- installs and enables the daily 5 PM shared-list activity digest
+- disables the old automatic list-target reminder timer
 
 ## Weekly effort reminder
 
@@ -88,4 +91,14 @@ To preview the reminder for a single user without sending email:
 
 ```bash
 python3 -m app.weekly_effort_reminder --dry-run --email shantanu.singh@solulever.com
+```
+
+## Shared-list activity digest
+
+Shared-list participants receive one consolidated activity email at 5 PM Asia/Kolkata. Immediate list emails are sent only when another user manually posts a comment. The old target-progress email schedule is disabled.
+
+To preview a digest without sending email or recording a delivery:
+
+```bash
+python3 -m app.list_activity_digest --dry-run --email shantanu.singh@solulever.com
 ```

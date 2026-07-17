@@ -264,6 +264,20 @@ class WorkListComment(Base):
     work_list: Mapped[WorkList] = relationship(back_populates="comments")
 
 
+class WorkListActivityDigestDelivery(Base):
+    __tablename__ = "work_list_activity_digest_deliveries"
+    __table_args__ = (
+        UniqueConstraint("org_id", "user_id", "digest_date", name="uq_work_list_activity_digest_recipient_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    digest_date: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="sent")
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class PerformancePlan(Base):
     __tablename__ = "performance_plans"
     __table_args__ = (UniqueConstraint("org_id", "user_id", "year", name="uq_performance_plan_org_user_year"),)

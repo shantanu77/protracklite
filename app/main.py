@@ -3027,20 +3027,16 @@ def work_list_participant_ids(work_list: WorkList) -> set[int]:
     return participant_ids
 
 
-def notify_shared_list_update(
+def notify_manual_list_comment(
     db: Session,
     org: Organization,
     actor: User,
     work_list: WorkList,
-    action: str,
-    *,
-    detail: str = "",
-    extra_user_ids: set[int] | None = None,
+    comment: str,
 ) -> None:
     recipient_ids = work_list_participant_ids(work_list)
-    if extra_user_ids:
-        recipient_ids.update(extra_user_ids)
-    if len(recipient_ids) <= 1:
+    recipient_ids.discard(actor.id)
+    if not recipient_ids:
         return
     recipients = db.scalars(
         select(User).where(
@@ -3051,21 +3047,21 @@ def notify_shared_list_update(
     ).all()
     if not recipients:
         return
-    subject = f"Shared list updated: {work_list.title}"
+    subject = f"New comment on shared list: {work_list.title}"
     list_url = work_list_page_url(org.slug, work_list)
     body_parts = [
-        f"{actor.full_name} updated the shared list \"{work_list.title}\".",
-        f"Update: {action}",
+        f"{actor.full_name} posted a comment on the shared list \"{work_list.title}\".",
+        "",
+        comment,
+        "",
+        f"Open list: {list_url}",
     ]
-    if detail:
-        body_parts.append(f"Details: {detail}")
-    body_parts.extend(["", f"Open list: {list_url}"])
     body = "\n".join(body_parts)
     for recipient in recipients:
         try:
             send_email(recipient.email, subject, body)
         except Exception as exc:
-            logger.warning("Shared list notification failed for %s: %s", recipient.email, exc)
+            logger.warning("Shared list comment notification failed for %s: %s", recipient.email, exc)
 
 
 def set_work_list_members(db: Session, work_list: WorkList, org_id: int, owner_user_id: int, member_ids: list[int]) -> None:
@@ -4369,16 +4365,6 @@ async def create_list_page(
     if shared_with:
         set_work_list_members(db, work_list, org.id, user.id, shared_with)
     db.commit()
-    if shared_with:
-        notify_shared_list_update(
-            db,
-            org,
-            user,
-            work_list,
-            "Created the shared list.",
-            detail=f"{len(items)} initial item(s).",
-            extra_user_ids=set(shared_with),
-        )
     return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
 
 
@@ -4421,16 +4407,6 @@ async def create_ai_list_page(
     if shared_with:
         set_work_list_members(db, work_list, org.id, user.id, shared_with)
     db.commit()
-    if shared_with:
-        notify_shared_list_update(
-            db,
-            org,
-            user,
-            work_list,
-            "Created the shared list using AI.",
-            detail=f"{len(parsed.get('items') or [])} generated item(s).",
-            extra_user_ids=set(shared_with),
-        )
     return RedirectResponse(url=f"/{org_slug}/lists?created_list_id={work_list.id}", status_code=303)
 
 
@@ -4616,14 +4592,6 @@ async def toggle_list_item_page(
         activity = WorkListComment(work_list_id=work_list.id, user_id=user.id, body=activity_body)
         db.add(activity)
     db.commit()
-    notify_shared_list_update(
-        db,
-        org,
-        user,
-        work_list,
-        "Changed an item completion state.",
-        detail=f"{'Completed' if item.is_completed else 'Reopened'}: {item.title}",
-    )
     completed_by_name = ""
     if item.completed_by:
         completer = db.get(User, item.completed_by)
@@ -4682,7 +4650,6 @@ async def update_list_members_page(
     raw_ids = payload.get("user_ids") if isinstance(payload, dict) else None
     if not isinstance(raw_ids, list):
         raise HTTPException(status_code=400, detail="user_ids is required")
-    old_participant_ids = work_list_participant_ids(work_list)
     member_ids: list[int] = []
     for raw in raw_ids:
         try:
@@ -4690,16 +4657,8 @@ async def update_list_members_page(
         except (TypeError, ValueError):
             continue
     set_work_list_members(db, work_list, org.id, user.id, member_ids)
+    work_list.updated_at = datetime.utcnow()
     db.commit()
-    notify_shared_list_update(
-        db,
-        org,
-        user,
-        work_list,
-        "Updated sharing.",
-        detail=f"{len(member_ids)} selected member(s).",
-        extra_user_ids=old_participant_ids | set(member_ids),
-    )
     return {
         "ok": True,
         "is_shared": bool(member_ids),
@@ -4724,7 +4683,7 @@ async def add_list_comment_page(
         raise HTTPException(status_code=400, detail="Comment cannot be empty")
     db.add(WorkListComment(work_list_id=work_list.id, user_id=user.id, body=normalized_body))
     db.commit()
-    notify_shared_list_update(db, org, user, work_list, "Posted a comment.", detail=normalized_body[:240])
+    notify_manual_list_comment(db, org, user, work_list, normalized_body)
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={list_id}", status_code=303)
 
 

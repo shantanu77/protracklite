@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ProtrackLite shared-list activity digest daily at 5 PM
+
+[Timer]
+OnCalendar=*-*-* 17:00:00 Asia/Kolkata
+Persistent=true
+Unit=protracklite-list-activity-digest.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=ProtrackLite shared-list daily activity digest
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/protracklite
+EnvironmentFile=-/etc/protracklite.env
+ExecStart=/opt/protracklite/.venv/bin/python -m app.list_activity_digest
