@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.database import Base, engine, get_db
+from app.list_templates import LIST_TEMPLATES
 from app.models import (
     ActivityType,
     Department,
@@ -4296,6 +4297,7 @@ def lists_page(
             "selected_progress": work_list_progress(selected) if selected else None,
             "is_owner": bool(selected) and can_manage_work_list(selected, user.id),
             "member_ids": {member.user_id for member in selected.members} if selected else set(),
+            "list_templates": LIST_TEMPLATES,
         },
     )
 

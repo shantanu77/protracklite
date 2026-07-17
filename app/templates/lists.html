@@ -20,13 +20,22 @@
       <div class="panel-head full">
         <div>
           <h2>Manage Lists</h2>
-          <p>Create a named checklist and optionally paste one item per line.</p>
+          <p>Start from scratch or choose a template, then tailor every item to your needs.</p>
         </div>
       </div>
-      <label>Name<input name="title" required></label>
+      <label class="full">Start From
+        <select name="template_key" data-list-template-select>
+          <option value="">Blank list</option>
+          {% for template in list_templates %}
+          <option value="{{ template.key }}">{{ template.title }}</option>
+          {% endfor %}
+        </select>
+        <small class="empty">Templates add predefined items that you can freely edit below.</small>
+      </label>
+      <label>Name<input name="title" data-list-template-title required></label>
       <label>Target Date<input name="target_date" type="date"></label>
-      <label class="full">Description<textarea name="description" rows="4" placeholder="What is this list for?"></textarea></label>
-      <label class="full">Items<textarea name="items_text" rows="8" placeholder="Paste one item per line"></textarea></label>
+      <label class="full">Description<textarea name="description" rows="4" placeholder="What is this list for?" data-list-template-description></textarea></label>
+      <label class="full">Items<textarea name="items_text" rows="12" placeholder="Paste one item per line" data-list-template-items></textarea></label>
       <label class="full">Shared With <small class="empty">(optional &mdash; people who can see and work on this list)</small>
         <select name="shared_with" multiple size="5">
           {% for person in org_users %}
@@ -353,6 +362,29 @@
 
 <script>
   (() => {
+    const templates = {{ list_templates|tojson }};
+    const templateSelect = document.querySelector("[data-list-template-select]");
+    const titleInput = document.querySelector("[data-list-template-title]");
+    const descriptionInput = document.querySelector("[data-list-template-description]");
+    const itemsInput = document.querySelector("[data-list-template-items]");
+    if (templateSelect && titleInput && descriptionInput && itemsInput) {
+      const templatesByKey = Object.fromEntries(templates.map((template) => [template.key, template]));
+      templateSelect.addEventListener("change", () => {
+        const template = templatesByKey[templateSelect.value];
+        if (!template) {
+          titleInput.value = "";
+          descriptionInput.value = "";
+          itemsInput.value = "";
+          titleInput.focus();
+          return;
+        }
+        titleInput.value = template.title;
+        descriptionInput.value = template.description;
+        itemsInput.value = template.items.join("\n");
+        itemsInput.focus();
+      });
+    }
+
     const shouldOpenAi = {{ "true" if open_ai else "false" }};
     if (shouldOpenAi) {
       window.addEventListener("load", () => {

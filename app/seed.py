@@ -1,3 +1,4 @@
+import secrets
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -16,6 +17,7 @@ DEFAULT_DEPARTMENTS = (
     "Support",
     "IT",
     "QA",
+    "Human Resource",
 )
 
 SOLULEVER_DEPARTMENT_ASSIGNMENTS = {
@@ -26,6 +28,11 @@ SOLULEVER_DEPARTMENT_ASSIGNMENTS = {
     "devendra.mule@solulever.com": "Delivery(Customer Activation)",
     "shrey.srivastava@solulever.com": "Delivery(Customer Activation)",
     "jitin.gera@solulever.com": "Delivery(Customer Activation)",
+    "pragya.srivastava@solulever.com": "Human Resource",
+}
+
+SOLULEVER_REQUIRED_USERS = {
+    "pragya.srivastava@solulever.com": "Pragya Srivastava",
 }
 
 DEPARTMENT_ACTIVITY_DEFINITIONS = {
@@ -111,6 +118,17 @@ DEPARTMENT_ACTIVITY_DEFINITIONS = {
         ("QA-ADM", "General: Internal Meetings & Admin", "others", False),
         ("QA-RSK", "General: Research & Skill Development", "others", False),
         ("QA-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
+    ],
+    "Human Resource": [
+        ("HR-REC", "Recruitment & Hiring", "people_management", True),
+        ("HR-ONB", "Employee Onboarding", "people_management", True),
+        ("HR-EMP", "Employee Relations & Engagement", "people_management", True),
+        ("HR-PERF", "Performance Management", "people_management", True),
+        ("HR-LND", "Learning & Development", "people_management", True),
+        ("HR-OFF", "Employee Offboarding", "people_management", True),
+        ("HR-ADM", "General: Internal Meetings & Admin", "others", False),
+        ("HR-RSK", "General: Research & Skill Development", "others", False),
+        ("HR-ADH", "General: Unplanned / Ad-hoc Requests", "others", True),
     ],
 }
 
@@ -341,11 +359,30 @@ def seed_department_assignments(db: Session, org_slug: str = "solulever") -> Non
     engineering_id = departments_by_name["Engineering"].id
 
     users = db.scalars(select(User).where(User.org_id == org.id)).all()
+    users_by_email = {user.email.strip().lower(): user for user in users}
+    for email, full_name in SOLULEVER_REQUIRED_USERS.items():
+        if email in users_by_email:
+            continue
+        user = User(
+            org_id=org.id,
+            email=email,
+            full_name=full_name,
+            password_hash=hash_password(secrets.token_urlsafe(32)),
+            role=Role.EMPLOYEE,
+            is_active=True,
+            force_password_change=True,
+        )
+        db.add(user)
+        db.flush()
+        users.append(user)
+        users_by_email[email] = user
+
     for user in users:
-        user.department_id = engineering_id
+        if user.department_id is None:
+            user.department_id = engineering_id
 
     for email, department_name in SOLULEVER_DEPARTMENT_ASSIGNMENTS.items():
-        user = next((item for item in users if item.email.strip().lower() == email), None)
+        user = users_by_email.get(email)
         if user:
             user.department_id = departments_by_name[department_name].id
 

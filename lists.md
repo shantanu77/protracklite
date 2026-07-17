@@ -83,6 +83,7 @@ Route:
 Main experience:
 
 - create a manual list
+- create a list from a predefined, editable template
 - create a list using AI
 - open an existing list
 - tick items complete / incomplete
@@ -161,6 +162,20 @@ If AI is unavailable:
 
 - split pasted input into one item per bullet or line
 - create a list using the supplied title or a fallback title
+
+## List Templates
+
+The manual list form can start from a curated template. Selecting a template fills
+the list name, description, and predefined checklist items. These values are copied
+into the normal list form, so the user can remove, rewrite, or add items before the
+list is created. The resulting list is independent of the template and remains fully
+editable.
+
+Initial templates:
+
+- Employee Onboarding
+- Project Initiation
+- Employee Offboarding
 
 ## Boundaries
 
