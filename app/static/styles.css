@@ -671,11 +671,18 @@ textarea {
 
 .nav-list-link {
   justify-content: space-between;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .nav-list-link > .sidebar-list-link-title {
+  display: block;
   flex: 1 1 auto;
+  width: 0;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -730,7 +737,10 @@ textarea {
 .sidebar-list-items {
   display: grid;
   gap: 0.04rem;
+  width: 100%;
+  min-width: 0;
   max-height: clamp(150px, 30vh, 300px);
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
