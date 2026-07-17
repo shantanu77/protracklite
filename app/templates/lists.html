@@ -1,11 +1,7 @@
 {% extends "base.html" %}
 {% macro people_picker(field_name, picker_label) %}
 <div class="people-picker" data-people-picker>
-  <select name="{{ field_name }}" multiple hidden data-people-picker-select aria-label="{{ picker_label }}">
-    {% for person in org_users %}
-    <option value="{{ person.id }}" data-person-name="{{ person.full_name }}">{{ person.full_name }}</option>
-    {% endfor %}
-  </select>
+  <div data-people-picker-values data-field-name="{{ field_name }}"></div>
   <div class="people-picker-control">
     <div class="people-picker-tags" data-people-picker-tags></div>
     <input type="text" class="people-picker-input" placeholder="Type a name and press Enter" autocomplete="off" data-people-picker-input role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="{{ picker_label }}">
@@ -433,15 +429,14 @@
     };
 
     document.querySelectorAll("[data-people-picker]").forEach((picker) => {
-      const select = picker.querySelector("[data-people-picker-select]");
+      const values = picker.querySelector("[data-people-picker-values]");
       const tags = picker.querySelector("[data-people-picker-tags]");
       const menu = picker.querySelector("[data-people-picker-menu]");
       const input = picker.querySelector("[data-people-picker-input]");
       const optionButtons = Array.from(picker.querySelectorAll("[data-people-picker-option]"));
-      if (!select || !tags || !input || !menu) return;
+      if (!values || !tags || !input || !menu) return;
+      const selectedPeople = new Map();
       let activeIndex = -1;
-
-      const selectedOptionFor = (button) => Array.from(select.options).find((item) => item.value === button.dataset.personId);
 
       const visibleOptions = () => optionButtons.filter((button) => !button.hidden);
 
@@ -469,35 +464,40 @@
 
       const renderSelection = () => {
         tags.querySelectorAll("[data-people-picker-tag]").forEach((tag) => tag.remove());
-        const selectedOptions = Array.from(select.selectedOptions);
-        selectedOptions.forEach((option) => {
+        values.replaceChildren();
+        selectedPeople.forEach((personName, personId) => {
+          const hiddenInput = document.createElement("input");
+          hiddenInput.type = "hidden";
+          hiddenInput.name = values.dataset.fieldName || "shared_with";
+          hiddenInput.value = personId;
+          values.appendChild(hiddenInput);
           const tag = document.createElement("span");
           tag.className = "people-picker-tag";
           tag.dataset.peoplePickerTag = "";
           const name = document.createElement("span");
-          name.textContent = option.dataset.personName || option.textContent || "";
+          name.textContent = personName;
           const remove = document.createElement("button");
           remove.type = "button";
           remove.setAttribute("aria-label", `Remove ${name.textContent}`);
           remove.textContent = "×";
           remove.addEventListener("click", () => {
-            option.selected = false;
+            selectedPeople.delete(personId);
             renderSelection();
           });
           tag.append(name, remove);
           tags.appendChild(tag);
         });
         optionButtons.forEach((button) => {
-          const option = selectedOptionFor(button);
-          button.classList.toggle("is-selected", Boolean(option?.selected));
-          button.setAttribute("aria-selected", option?.selected ? "true" : "false");
+          const isSelected = selectedPeople.has(String(button.dataset.personId));
+          button.classList.toggle("is-selected", isSelected);
+          button.setAttribute("aria-selected", isSelected ? "true" : "false");
         });
       };
 
       const addPerson = (button) => {
-        const option = selectedOptionFor(button);
-        if (!option) return;
-        option.selected = true;
+        const personId = String(button.dataset.personId || "");
+        if (!personId) return;
+        selectedPeople.set(personId, String(button.dataset.personName || ""));
         input.value = "";
         renderSelection();
         closePeoplePicker(picker);
@@ -531,10 +531,10 @@
           return;
         }
         if (event.key === "Backspace" && !input.value) {
-          const selected = Array.from(select.selectedOptions);
-          const last = selected[selected.length - 1];
-          if (last) {
-            last.selected = false;
+          const selectedIds = Array.from(selectedPeople.keys());
+          const lastId = selectedIds[selectedIds.length - 1];
+          if (lastId) {
+            selectedPeople.delete(lastId);
             renderSelection();
           }
           return;
