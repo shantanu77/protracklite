@@ -1536,6 +1536,8 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
     return {
         "id": task.id,
         "task_id": task.task_id,
+        "project_id": task.project_id,
+        "activity_type_id": task.activity_type_id,
         "name": task.name,
         "description": bleach.clean(task.description or "", tags=[], strip=True),
         "created_at": task.created_at,
@@ -2513,6 +2515,39 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
             .order_by(Task.end_date.asc(), Task.dashboard_rank.asc(), Task.created_at.desc())
         ).all()
     ]
+
+    today_summaries = [*worked_today, *tasks_needing_action, *delayed_tasks]
+    project_ids = {item["project_id"] for item in today_summaries}
+    activity_type_ids = {item["activity_type_id"] for item in today_summaries}
+    project_map = (
+        {
+            project_id: {"name": name, "code": code}
+            for project_id, name, code in db.execute(
+                select(Project.id, Project.name, Project.code).where(Project.id.in_(project_ids))
+            ).all()
+        }
+        if project_ids
+        else {}
+    )
+    activity_type_map = (
+        {
+            activity_type_id: name
+            for activity_type_id, name in db.execute(
+                select(ActivityType.id, ActivityType.name).where(ActivityType.id.in_(activity_type_ids))
+            ).all()
+        }
+        if activity_type_ids
+        else {}
+    )
+    for item in today_summaries:
+        project = project_map.get(item["project_id"], {})
+        item["project_name"] = project.get("name", "Unassigned project")
+        item["project_code"] = project.get("code", "")
+        item["activity_type_name"] = activity_type_map.get(item["activity_type_id"], "Unassigned activity")
+        estimated_hours = float(item["estimated_hours"] or 0)
+        logged_hours = float(item["logged_hours"] or 0)
+        item["remaining_hours"] = round(max(estimated_hours - logged_hours, 0), 2) if estimated_hours else None
+        item["effort_percent"] = round(min((logged_hours / estimated_hours) * 100, 100), 1) if estimated_hours else None
 
     week_rates = compute_work_rate(db, org.id, user.id, week_start, today, settings=settings_obj)
 
