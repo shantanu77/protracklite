@@ -7,18 +7,13 @@
     {% endfor %}
   </select>
   <div class="people-picker-control">
-    <div class="people-picker-tags" data-people-picker-tags>
-      <span class="people-picker-placeholder" data-people-picker-placeholder>No people added</span>
-    </div>
-    <button type="button" class="button secondary small people-picker-toggle" data-people-picker-toggle aria-expanded="false">
-      <span aria-hidden="true">+</span> Add people
-    </button>
+    <div class="people-picker-tags" data-people-picker-tags></div>
+    <input type="text" class="people-picker-input" placeholder="Type a name and press Enter" autocomplete="off" data-people-picker-input role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="{{ picker_label }}">
   </div>
-  <div class="people-picker-menu" data-people-picker-menu hidden>
-    <input type="search" placeholder="Find a person" autocomplete="off" data-people-picker-search aria-label="Find a person">
+  <div class="people-picker-menu" data-people-picker-menu role="listbox" hidden>
     <div class="people-picker-options" data-people-picker-options>
       {% for person in org_users %}
-      <button type="button" class="people-picker-option" data-people-picker-option data-person-id="{{ person.id }}" data-person-name="{{ person.full_name|e }}" data-person-search="{{ (person.full_name ~ ' ' ~ person.email)|lower|e }}">
+      <button type="button" class="people-picker-option" data-people-picker-option data-person-id="{{ person.id }}" data-person-name="{{ person.full_name|e }}" data-person-search="{{ (person.full_name ~ ' ' ~ person.email)|lower|e }}" role="option" aria-selected="false" tabindex="-1">
         <span class="people-picker-avatar" aria-hidden="true">{{ person.full_name[:1]|upper }}</span>
         <span><strong>{{ person.full_name }}</strong><small>{{ person.email }}</small></span>
         <span class="people-picker-check" aria-hidden="true">✓</span>
@@ -66,8 +61,8 @@
       <label>Name<input name="title" data-list-template-title required></label>
       <label>Target Date<input name="target_date" type="date"></label>
       <label class="full">Description<input name="description" maxlength="500" placeholder="One-line purpose for this list" data-list-template-description></label>
-      <label class="full">Items<textarea name="items_text" rows="12" placeholder="Paste one item per line" data-list-template-items></textarea></label>
-      <div class="full list-create-sharing list-form-field"><span>Shared With</span><small class="empty">(optional &mdash; people who can see and work on this list)</small>
+      <label class="full">Items<textarea name="items_text" rows="7" placeholder="Paste one item per line" data-list-template-items></textarea></label>
+      <div class="full list-create-sharing list-form-field"><span>Shared With</span><small class="empty">Type a name and press Enter to add.</small>
         {{ people_picker("shared_with", "People who can access this list") }}
       </div>
       <button type="submit">Create List</button>
@@ -396,7 +391,7 @@
     <form method="post" action="/{{ org.slug }}/lists/ai" class="form-grid">
       <label>Name<input name="list_title" placeholder="Optional title for the list"></label>
       <label class="full">Plan Text<textarea name="plan_text" rows="12" placeholder="Paste a plan, a reminder dump, or one item per line." required></textarea></label>
-      <div class="full list-create-sharing list-form-field"><span>Shared With</span><small class="empty">(optional &mdash; people who can see and work on this list)</small>
+      <div class="full list-create-sharing list-form-field"><span>Shared With</span><small class="empty">Type a name and press Enter to add.</small>
         {{ people_picker("shared_with", "People who can access this AI-created list") }}
       </div>
       <button type="submit">Create List With AI</button>
@@ -431,25 +426,50 @@
 
     const closePeoplePicker = (picker) => {
       const menu = picker.querySelector("[data-people-picker-menu]");
-      const toggle = picker.querySelector("[data-people-picker-toggle]");
+      const input = picker.querySelector("[data-people-picker-input]");
       if (menu) menu.hidden = true;
-      if (toggle) toggle.setAttribute("aria-expanded", "false");
+      if (input) input.setAttribute("aria-expanded", "false");
+      picker.querySelectorAll("[data-people-picker-option]").forEach((option) => option.classList.remove("is-active"));
     };
 
     document.querySelectorAll("[data-people-picker]").forEach((picker) => {
       const select = picker.querySelector("[data-people-picker-select]");
       const tags = picker.querySelector("[data-people-picker-tags]");
-      const placeholder = picker.querySelector("[data-people-picker-placeholder]");
-      const toggle = picker.querySelector("[data-people-picker-toggle]");
       const menu = picker.querySelector("[data-people-picker-menu]");
-      const search = picker.querySelector("[data-people-picker-search]");
+      const input = picker.querySelector("[data-people-picker-input]");
       const optionButtons = Array.from(picker.querySelectorAll("[data-people-picker-option]"));
-      if (!select || !tags || !toggle || !menu) return;
+      if (!select || !tags || !input || !menu) return;
+      let activeIndex = -1;
+
+      const selectedOptionFor = (button) => Array.from(select.options).find((item) => item.value === button.dataset.personId);
+
+      const visibleOptions = () => optionButtons.filter((button) => !button.hidden);
+
+      const setActiveOption = (index) => {
+        const visible = visibleOptions();
+        optionButtons.forEach((button) => button.classList.remove("is-active"));
+        if (!visible.length) {
+          activeIndex = -1;
+          return;
+        }
+        activeIndex = ((index % visible.length) + visible.length) % visible.length;
+        visible[activeIndex].classList.add("is-active");
+        visible[activeIndex].scrollIntoView({ block: "nearest" });
+      };
+
+      const filterOptions = () => {
+        const query = input.value.trim().toLowerCase();
+        optionButtons.forEach((button) => {
+          button.hidden = !String(button.dataset.personSearch || "").includes(query);
+        });
+        menu.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+        setActiveOption(0);
+      };
 
       const renderSelection = () => {
         tags.querySelectorAll("[data-people-picker-tag]").forEach((tag) => tag.remove());
         const selectedOptions = Array.from(select.selectedOptions);
-        if (placeholder) placeholder.hidden = selectedOptions.length > 0;
         selectedOptions.forEach((option) => {
           const tag = document.createElement("span");
           tag.className = "people-picker-tag";
@@ -468,35 +488,61 @@
           tags.appendChild(tag);
         });
         optionButtons.forEach((button) => {
-          const option = Array.from(select.options).find((item) => item.value === button.dataset.personId);
+          const option = selectedOptionFor(button);
           button.classList.toggle("is-selected", Boolean(option?.selected));
+          button.setAttribute("aria-selected", option?.selected ? "true" : "false");
         });
       };
 
-      toggle.addEventListener("click", () => {
-        const willOpen = menu.hidden;
-        document.querySelectorAll("[data-people-picker]").forEach((other) => {
-          if (other !== picker) closePeoplePicker(other);
-        });
-        menu.hidden = !willOpen;
-        toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        if (willOpen) {
-          search?.focus();
-        }
-      });
+      const addPerson = (button) => {
+        const option = selectedOptionFor(button);
+        if (!option) return;
+        option.selected = true;
+        input.value = "";
+        renderSelection();
+        closePeoplePicker(picker);
+        input.focus();
+      };
+
       optionButtons.forEach((button) => {
         button.addEventListener("click", () => {
-          const option = Array.from(select.options).find((item) => item.value === button.dataset.personId);
-          if (!option) return;
-          option.selected = !option.selected;
-          renderSelection();
+          addPerson(button);
         });
       });
-      search?.addEventListener("input", () => {
-        const query = search.value.trim().toLowerCase();
-        optionButtons.forEach((button) => {
-          button.hidden = Boolean(query) && !String(button.dataset.personSearch || "").includes(query);
-        });
+
+      input.addEventListener("input", filterOptions);
+      input.addEventListener("keydown", (event) => {
+        const visible = visibleOptions();
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (menu.hidden) filterOptions();
+          else setActiveOption(activeIndex + 1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (menu.hidden) filterOptions();
+          else setActiveOption(activeIndex - 1);
+          return;
+        }
+        if (event.key === "Enter" && !menu.hidden && visible.length) {
+          event.preventDefault();
+          addPerson(visible[Math.max(activeIndex, 0)]);
+          return;
+        }
+        if (event.key === "Backspace" && !input.value) {
+          const selected = Array.from(select.selectedOptions);
+          const last = selected[selected.length - 1];
+          if (last) {
+            last.selected = false;
+            renderSelection();
+          }
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closePeoplePicker(picker);
+        }
       });
       renderSelection();
     });

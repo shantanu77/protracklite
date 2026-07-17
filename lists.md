@@ -112,8 +112,10 @@ actions. Summary rows are not draggable; ordering happens directly in the sideba
 
 ### Sharing Picker
 
-The create form uses a searchable people picker. Selected people appear as tags and
-can be removed with the tag's close button before submission.
+The create form uses a tag combobox. Typing filters the available people, arrow keys
+move through matches, and Enter adds the highlighted person. Selected people appear
+as tags and can be removed with the tag's close button or with Backspace from an
+empty combobox.
 
 ### Selected List Detail
 
