@@ -92,10 +92,11 @@ Main experience:
 
 Layout:
 
-- left side: create form + list summaries
-- right side: selected list details + items
+- Manage view: compact create form followed by a one-row-per-list management grid
+- Sidebar: list navigation with persistent drag-and-drop ordering for owned lists
+- Selected list view: list details, items, progress, and discussion
 
-### List Summary Card
+### List Summary Row
 
 Should show:
 
@@ -105,6 +106,14 @@ Should show:
 - total count
 - progress percentage
 - target date when present
+
+The Manage view presents these attributes as compact rows with Open and Archive
+actions. Summary rows are not draggable; ordering happens directly in the sidebar.
+
+### Sharing Picker
+
+The create form uses a searchable people picker. Selected people appear as tags and
+can be removed with the tag's close button before submission.
 
 ### Selected List Detail
 

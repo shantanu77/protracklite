@@ -1,4 +1,35 @@
 {% extends "base.html" %}
+{% macro people_picker(field_name, picker_label) %}
+<div class="people-picker" data-people-picker>
+  <select name="{{ field_name }}" multiple hidden data-people-picker-select aria-label="{{ picker_label }}">
+    {% for person in org_users %}
+    <option value="{{ person.id }}" data-person-name="{{ person.full_name }}">{{ person.full_name }}</option>
+    {% endfor %}
+  </select>
+  <div class="people-picker-control">
+    <div class="people-picker-tags" data-people-picker-tags>
+      <span class="people-picker-placeholder" data-people-picker-placeholder>No people added</span>
+    </div>
+    <button type="button" class="button secondary small people-picker-toggle" data-people-picker-toggle aria-expanded="false">
+      <span aria-hidden="true">+</span> Add people
+    </button>
+  </div>
+  <div class="people-picker-menu" data-people-picker-menu hidden>
+    <input type="search" placeholder="Find a person" autocomplete="off" data-people-picker-search aria-label="Find a person">
+    <div class="people-picker-options" data-people-picker-options>
+      {% for person in org_users %}
+      <button type="button" class="people-picker-option" data-people-picker-option data-person-id="{{ person.id }}" data-person-name="{{ person.full_name|e }}" data-person-search="{{ (person.full_name ~ ' ' ~ person.email)|lower|e }}">
+        <span class="people-picker-avatar" aria-hidden="true">{{ person.full_name[:1]|upper }}</span>
+        <span><strong>{{ person.full_name }}</strong><small>{{ person.email }}</small></span>
+        <span class="people-picker-check" aria-hidden="true">✓</span>
+      </button>
+      {% else %}
+      <p class="empty">No other active people are available.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
 {% block content %}
 <section class="page-head">
   <div>
@@ -16,7 +47,7 @@
 {% if manage_mode %}
 <section class="lists-layout manage-lists-layout">
   <div class="stack">
-    <form method="post" action="/{{ org.slug }}/lists" class="panel form-grid">
+    <form method="post" action="/{{ org.slug }}/lists" class="panel form-grid list-create-form">
       <div class="panel-head full">
         <div>
           <h2>Manage Lists</h2>
@@ -34,15 +65,11 @@
       </label>
       <label>Name<input name="title" data-list-template-title required></label>
       <label>Target Date<input name="target_date" type="date"></label>
-      <label class="full">Description<textarea name="description" rows="4" placeholder="What is this list for?" data-list-template-description></textarea></label>
+      <label class="full">Description<input name="description" maxlength="500" placeholder="One-line purpose for this list" data-list-template-description></label>
       <label class="full">Items<textarea name="items_text" rows="12" placeholder="Paste one item per line" data-list-template-items></textarea></label>
-      <label class="full">Shared With <small class="empty">(optional &mdash; people who can see and work on this list)</small>
-        <select name="shared_with" multiple size="5">
-          {% for person in org_users %}
-          <option value="{{ person.id }}">{{ person.full_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
+      <div class="full list-create-sharing list-form-field"><span>Shared With</span><small class="empty">(optional &mdash; people who can see and work on this list)</small>
+        {{ people_picker("shared_with", "People who can access this list") }}
+      </div>
       <button type="submit">Create List</button>
     </form>
 
@@ -50,33 +77,54 @@
       <div class="panel-head">
         <div>
           <h2>My Lists</h2>
-          <p>Drag to reorder. The same order will appear under `Lists` in the sidebar after `Manage`.</p>
+          <p>Review every list in one place. Drag lists directly in the left sidebar to change their order.</p>
         </div>
       </div>
-      <div class="lists-summary-grid" data-list-sort-grid data-org-slug="{{ org.slug }}">
+      <div class="lists-table" role="table" aria-label="My lists">
+        <div class="lists-table-head" role="row">
+          <span role="columnheader">List</span>
+          <span role="columnheader">Target</span>
+          <span role="columnheader">Progress</span>
+          <span role="columnheader">Items</span>
+          <span role="columnheader">Updated</span>
+          <span role="columnheader">Actions</span>
+        </div>
         {% for item in lists %}
-        <article class="card list-summary-card sortable-list-card" draggable="true" data-list-card data-list-id="{{ item.id }}">
-          <div class="list-summary-head">
+        <article class="lists-table-row" role="row">
+          <div class="lists-table-name" role="cell">
             <div class="list-summary-title-wrap">
-              <span class="list-drag-handle" aria-hidden="true">⋮⋮</span>
               <strong>{{ item.title }}</strong>
               {% if item.is_shared %}<span class="shared-list-icon" title="Shared list">⇄</span>{% endif %}
             </div>
-            <div class="list-summary-actions">
-              <span class="badge muted">{{ "%.0f"|format(item.progress_percent) }}%</span>
-              <a class="button ghost small" href="/{{ org.slug }}/lists?list_id={{ item.id }}">Open</a>
-            </div>
+            <small title="{{ item.description or '' }}">{{ item.description or "No description" }}</small>
           </div>
-          <p>{{ item.description or "Checklist-style plan with no scheduling overhead." }}</p>
-          <div class="list-target-summary is-{{ item.target_state }}">
-            <strong>{% if item.target_date_label %}Target {{ item.target_date_label }}{% else %}Set a target date{% endif %}</strong>
-            <span>{{ item.target_status_label }}</span>
+          <div class="lists-table-target is-{{ item.target_state }}" role="cell">
+            <strong>{{ item.target_date_label or "Not set" }}</strong>
+            <small>{{ item.target_status_label }}</small>
           </div>
-          <small>{{ item.completed_items }}/{{ item.total_items }} completed · {{ "%.0f"|format(item.progress_percent) }}%</small>
-          <div class="list-progress-bar"><span style="width: {{ item.progress_percent }}%;"></span></div>
+          <div class="lists-table-progress" role="cell">
+            <strong>{{ "%.0f"|format(item.progress_percent) }}%</strong>
+            <div class="list-progress-bar"><span style="width: {{ item.progress_percent }}%;"></span></div>
+          </div>
+          <div class="lists-table-items" role="cell">
+            <strong>{{ item.completed_items }}/{{ item.total_items }}</strong>
+            <small>completed</small>
+          </div>
+          <div class="lists-table-updated" role="cell">
+            <strong>{{ item.updated_at_label }}</strong>
+            <small>{% if item.is_owner %}Owned by you{% else %}Shared with you{% endif %}</small>
+          </div>
+          <div class="lists-table-actions" role="cell">
+            <a class="button ghost small" href="/{{ org.slug }}/lists?list_id={{ item.id }}">Open</a>
+            {% if item.is_owner %}
+            <form method="post" action="/{{ org.slug }}/lists/{{ item.id }}/archive" onsubmit="return confirm('Archive this list?');">
+              <button type="submit" class="button danger small">Archive</button>
+            </form>
+            {% endif %}
+          </div>
         </article>
         {% else %}
-        <p class="empty">No lists created yet.</p>
+        <p class="empty lists-table-empty">No lists created yet.</p>
         {% endfor %}
       </div>
     </section>
@@ -348,13 +396,9 @@
     <form method="post" action="/{{ org.slug }}/lists/ai" class="form-grid">
       <label>Name<input name="list_title" placeholder="Optional title for the list"></label>
       <label class="full">Plan Text<textarea name="plan_text" rows="12" placeholder="Paste a plan, a reminder dump, or one item per line." required></textarea></label>
-      <label class="full">Shared With <small class="empty">(optional &mdash; people who can see and work on this list)</small>
-        <select name="shared_with" multiple size="5">
-          {% for person in org_users %}
-          <option value="{{ person.id }}">{{ person.full_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
+      <div class="full list-create-sharing list-form-field"><span>Shared With</span><small class="empty">(optional &mdash; people who can see and work on this list)</small>
+        {{ people_picker("shared_with", "People who can access this AI-created list") }}
+      </div>
       <button type="submit">Create List With AI</button>
     </form>
   </div>
@@ -385,6 +429,84 @@
       });
     }
 
+    const closePeoplePicker = (picker) => {
+      const menu = picker.querySelector("[data-people-picker-menu]");
+      const toggle = picker.querySelector("[data-people-picker-toggle]");
+      if (menu) menu.hidden = true;
+      if (toggle) toggle.setAttribute("aria-expanded", "false");
+    };
+
+    document.querySelectorAll("[data-people-picker]").forEach((picker) => {
+      const select = picker.querySelector("[data-people-picker-select]");
+      const tags = picker.querySelector("[data-people-picker-tags]");
+      const placeholder = picker.querySelector("[data-people-picker-placeholder]");
+      const toggle = picker.querySelector("[data-people-picker-toggle]");
+      const menu = picker.querySelector("[data-people-picker-menu]");
+      const search = picker.querySelector("[data-people-picker-search]");
+      const optionButtons = Array.from(picker.querySelectorAll("[data-people-picker-option]"));
+      if (!select || !tags || !toggle || !menu) return;
+
+      const renderSelection = () => {
+        tags.querySelectorAll("[data-people-picker-tag]").forEach((tag) => tag.remove());
+        const selectedOptions = Array.from(select.selectedOptions);
+        if (placeholder) placeholder.hidden = selectedOptions.length > 0;
+        selectedOptions.forEach((option) => {
+          const tag = document.createElement("span");
+          tag.className = "people-picker-tag";
+          tag.dataset.peoplePickerTag = "";
+          const name = document.createElement("span");
+          name.textContent = option.dataset.personName || option.textContent || "";
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.setAttribute("aria-label", `Remove ${name.textContent}`);
+          remove.textContent = "×";
+          remove.addEventListener("click", () => {
+            option.selected = false;
+            renderSelection();
+          });
+          tag.append(name, remove);
+          tags.appendChild(tag);
+        });
+        optionButtons.forEach((button) => {
+          const option = Array.from(select.options).find((item) => item.value === button.dataset.personId);
+          button.classList.toggle("is-selected", Boolean(option?.selected));
+        });
+      };
+
+      toggle.addEventListener("click", () => {
+        const willOpen = menu.hidden;
+        document.querySelectorAll("[data-people-picker]").forEach((other) => {
+          if (other !== picker) closePeoplePicker(other);
+        });
+        menu.hidden = !willOpen;
+        toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        if (willOpen) {
+          search?.focus();
+        }
+      });
+      optionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const option = Array.from(select.options).find((item) => item.value === button.dataset.personId);
+          if (!option) return;
+          option.selected = !option.selected;
+          renderSelection();
+        });
+      });
+      search?.addEventListener("input", () => {
+        const query = search.value.trim().toLowerCase();
+        optionButtons.forEach((button) => {
+          button.hidden = Boolean(query) && !String(button.dataset.personSearch || "").includes(query);
+        });
+      });
+      renderSelection();
+    });
+
+    document.addEventListener("click", (event) => {
+      document.querySelectorAll("[data-people-picker]").forEach((picker) => {
+        if (!picker.contains(event.target)) closePeoplePicker(picker);
+      });
+    });
+
     const shouldOpenAi = {{ "true" if open_ai else "false" }};
     if (shouldOpenAi) {
       window.addEventListener("load", () => {
@@ -398,95 +520,6 @@
       });
     }
 
-    const sortGrid = document.querySelector("[data-list-sort-grid]");
-    if (sortGrid) {
-      const getDragAfterElement = (container, clientY) => {
-        const siblings = Array.from(container.querySelectorAll("[data-list-card]:not(.is-dragging)"));
-        let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
-        siblings.forEach((child) => {
-          const rect = child.getBoundingClientRect();
-          const offset = clientY - rect.top - rect.height / 2;
-          if (offset < 0 && offset > closest.offset) {
-            closest = { offset, element: child };
-          }
-        });
-        return closest.element;
-      };
-
-      const syncSidebarOrder = (listIds) => {
-        const sidebarContainer = document.querySelector("[data-sidebar-lists]");
-        const sidebarItems = sidebarContainer?.querySelector("[data-sidebar-list-items]");
-        if (!sidebarContainer || !sidebarItems) {
-          return;
-        }
-        const anchors = Array.from(sidebarItems.querySelectorAll(".nav-list-link"));
-        const anchorMap = new Map(
-          anchors.map((link) => {
-            const href = link.getAttribute("href") || "";
-            const url = new URL(href, window.location.origin);
-            return [Number(url.searchParams.get("list_id")), link];
-          }),
-        );
-        listIds.forEach((listId) => {
-          const link = anchorMap.get(listId);
-          if (link) {
-            sidebarItems.appendChild(link);
-          }
-        });
-      };
-
-      const saveOrder = async () => {
-        const listIds = Array.from(sortGrid.querySelectorAll("[data-list-card]")).map((card) => Number(card.dataset.listId));
-        const response = await fetch(`/${sortGrid.dataset.orgSlug}/lists/reorder`, {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ list_ids: listIds }),
-        });
-        if (response.ok) {
-          syncSidebarOrder(listIds);
-        }
-      };
-
-      let draggedCard = null;
-      sortGrid.querySelectorAll("[data-list-card]").forEach((card) => {
-        card.addEventListener("dragstart", (event) => {
-          draggedCard = card;
-          card.classList.add("is-dragging");
-          if (event.dataTransfer) {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", card.dataset.listId || "");
-          }
-        });
-        card.addEventListener("dragend", () => {
-          card.classList.remove("is-dragging");
-          draggedCard = null;
-        });
-      });
-
-      sortGrid.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        if (!draggedCard) {
-          return;
-        }
-        const afterElement = getDragAfterElement(sortGrid, event.clientY);
-        if (!afterElement) {
-          sortGrid.appendChild(draggedCard);
-        } else {
-          sortGrid.insertBefore(draggedCard, afterElement);
-        }
-      });
-
-      sortGrid.addEventListener("drop", async (event) => {
-        event.preventDefault();
-        if (!draggedCard) {
-          return;
-        }
-        await saveOrder();
-      });
-    }
   })();
 </script>
 {% else %}

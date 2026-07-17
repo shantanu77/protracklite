@@ -1201,7 +1201,9 @@
               .replaceAll(">", "&gt;")
               .replaceAll('"', "&quot;");
             const sharedIcon = item.is_shared ? '<span class="shared-list-icon" title="Shared list">⇄</span> ' : "";
-            return `<a class="nav-sublink nav-list-link${isActive ? " active" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}" data-sidebar-list-link data-list-search="${safeTitle.toLowerCase()}" title="${safeTitle} · ${safeTargetStatus}"><span>${sharedIcon}${safeTitle}</span><small class="is-${item.target_state || "unset"}">${Math.round(Number(item.progress_percent || 0))}%</small></a>`;
+            const canReorder = Boolean(item.is_owner);
+            const dragHint = canReorder ? "Drag to reorder · " : "";
+            return `<a class="nav-sublink nav-list-link${isActive ? " active" : ""}${canReorder ? " is-sortable" : ""}" href="/${orgSlug}/lists?list_id=${encodeURIComponent(item.id)}" data-sidebar-list-link data-list-id="${Number(item.id)}" data-list-search="${safeTitle.toLowerCase()}" draggable="${canReorder ? "true" : "false"}" title="${dragHint}${safeTitle} · ${safeTargetStatus}">${canReorder ? '<span class="sidebar-list-drag-handle" aria-hidden="true">⋮⋮</span>' : '<span class="sidebar-list-drag-spacer" aria-hidden="true"></span>'}<span class="sidebar-list-link-title">${sharedIcon}${safeTitle}</span><small class="is-${item.target_state || "unset"}">${Math.round(Number(item.progress_percent || 0))}%</small></a>`;
           }).join("");
           listItemsContainer.innerHTML = listMarkup;
           if (listCount) {
@@ -1220,6 +1222,68 @@
               if (matches) visible += 1;
             });
             if (listCount) listCount.textContent = query ? `${visible}/${lists.length}` : String(lists.length);
+          });
+
+          let draggedLink = null;
+          const sortableLinks = links.filter((link) => link.classList.contains("is-sortable"));
+          const getDragAfterLink = (clientY) => {
+            const candidates = Array.from(listItemsContainer.querySelectorAll("[data-sidebar-list-link]:not(.is-dragging):not([hidden])"));
+            let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+            candidates.forEach((candidate) => {
+              const rect = candidate.getBoundingClientRect();
+              const offset = clientY - rect.top - rect.height / 2;
+              if (offset < 0 && offset > closest.offset) {
+                closest = { offset, element: candidate };
+              }
+            });
+            return closest.element;
+          };
+          const saveSidebarListOrder = async () => {
+            const listIds = Array.from(listItemsContainer.querySelectorAll("[data-sidebar-list-link]"))
+              .map((link) => Number(link.dataset.listId))
+              .filter(Number.isFinite);
+            const response = await fetch(`/${orgSlug}/lists/reorder`, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ list_ids: listIds }),
+            });
+            if (!response.ok) {
+              window.location.reload();
+            }
+          };
+          sortableLinks.forEach((link) => {
+            link.addEventListener("dragstart", (event) => {
+              if (listSearch?.value.trim()) {
+                event.preventDefault();
+                return;
+              }
+              draggedLink = link;
+              link.classList.add("is-dragging");
+              if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", link.dataset.listId || "");
+              }
+            });
+            link.addEventListener("dragend", () => {
+              link.classList.remove("is-dragging");
+              draggedLink = null;
+            });
+          });
+          listItemsContainer.addEventListener("dragover", (event) => {
+            if (!draggedLink) return;
+            event.preventDefault();
+            const afterLink = getDragAfterLink(event.clientY);
+            if (afterLink) {
+              listItemsContainer.insertBefore(draggedLink, afterLink);
+            } else {
+              listItemsContainer.appendChild(draggedLink);
+            }
+          });
+          listItemsContainer.addEventListener("drop", async (event) => {
+            if (!draggedLink) return;
+            event.preventDefault();
+            await saveSidebarListOrder();
           });
           listItemsContainer.querySelector(".nav-list-link.active")?.scrollIntoView({ block: "nearest" });
         })
