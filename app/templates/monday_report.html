@@ -150,6 +150,14 @@
                       <div class="dashboard-log-meta">
                         <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
                         <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
+                        <button
+                          type="button"
+                          class="icon-action link-action monday-log-edit"
+                          title="Edit logged hours"
+                          aria-label="Edit {{ "%.2f"|format(log.hours or 0) }} logged hours for {{ task.task_id }}"
+                          data-modal-open="shared-log-modal"
+                          data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ task.task_id ~ "/time-log/" ~ log.id, "log_date": log.date.isoformat(), "hours": "%.2f"|format(log.hours or 0), "notes": log.notes or "", "mark_completed": false, "redirect_to": "/" ~ org.slug ~ "/reports/monday", "task_name_text": task.task_id ~ " · " ~ task.name, "_submitText": "Update Hours"}|tojson|e }}'
+                        >✎</button>
                       </div>
                       <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
                     </article>
@@ -505,6 +513,14 @@
                     <div class="dashboard-log-meta">
                       <span>{{ log.date.strftime("%d %b %Y") if log.date else "" }}</span>
                       <span class="dashboard-log-hours">{{ "%.2f"|format(log.hours or 0) }}h</span>
+                      <button
+                        type="button"
+                        class="icon-action link-action monday-log-edit"
+                        title="Edit logged hours"
+                        aria-label="Edit {{ "%.2f"|format(log.hours or 0) }} logged hours for {{ item.task_id }}"
+                        data-modal-open="shared-log-modal"
+                        data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ item.task_id ~ "/time-log/" ~ log.id, "log_date": log.date.isoformat(), "hours": "%.2f"|format(log.hours or 0), "notes": log.notes or "", "mark_completed": false, "redirect_to": "/" ~ org.slug ~ "/reports/monday", "task_name_text": item.task_id ~ " · " ~ item.name, "_submitText": "Update Hours"}|tojson|e }}'
+                      >✎</button>
                     </div>
                     <div class="dashboard-log-notes">{{ log.notes or "No comments added." }}</div>
                   </article>

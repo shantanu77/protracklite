@@ -2753,6 +2753,14 @@ label:not(.checkbox) textarea {
   color: var(--primary);
 }
 
+.monday-log-edit {
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  margin-left: auto;
+  border-radius: 9px;
+}
+
 .dashboard-log-notes {
   color: var(--text);
   font-size: 0.92rem;

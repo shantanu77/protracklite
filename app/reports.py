@@ -363,6 +363,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
         report_hours_by_task_id[log.task_id] += float(log.hours or 0)
         report_logs_by_task_id[log.task_id].append(
             {
+                "id": log.id,
                 "date": log.log_date,
                 "hours": float(log.hours or 0),
                 "notes": log.notes or "",
@@ -389,6 +390,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             )
             logs_by_task_id[log.task_id].append(
                 {
+                    "id": log.id,
                     "date": log.log_date,
                     "hours": float(log.hours or 0),
                     "notes": log.notes or "",
