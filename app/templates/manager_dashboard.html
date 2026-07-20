@@ -33,6 +33,13 @@
       </label>
     </div>
   </div>
+  <div class="manager-effort-legend" aria-label="Effort anomaly colors">
+    <span class="is-missing"><i></i>Not filled</span>
+    <span class="is-low"><i></i>Low &lt;80%</span>
+    <span class="is-partial"><i></i>Partial 80–99%</span>
+    <span class="is-on-track"><i></i>On track 100–120%</span>
+    <span class="is-high"><i></i>High &gt;120%</span>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -48,11 +55,14 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr data-grid-row data-grid-search="{{ row.member.full_name }}">
+        <tr class="manager-effort-row is-{{ row.effort_health.key }}" data-grid-row data-grid-search="{{ row.member.full_name }}" title="{{ row.effort_health.detail }}">
           <td><a href="/{{ org.slug }}/team/{{ row.member.id }}/tasks">{{ row.member.full_name }}</a></td>
-          <td>{{ row.rates.available_hours }}</td>
-          <td>{{ row.rates.total_logged_hours }}</td>
-          <td>{{ row.rates.total_rate }}</td>
+          <td>{{ "%.2f"|format(row.rates.available_hours) }}h</td>
+          <td class="manager-effort-value">{{ "%.2f"|format(row.rates.total_logged_hours) }}h</td>
+          <td class="manager-effort-rate">
+            <strong>{{ "%.2f"|format(row.rates.total_rate) }}%</strong>
+            <span class="manager-effort-badge">{{ row.effort_health.label }}</span>
+          </td>
           <td>{{ row.open_tasks }}</td>
           <td>{{ row.closed_tasks }}</td>
           <td>{% if row.has_plan %}{{ "%.2f"|format(row.goal_progress) }}%{% else %}No plan{% endif %}</td>

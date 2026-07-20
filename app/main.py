@@ -3362,6 +3362,21 @@ def scoped_team_dashboard_payload(db: Session, org: Organization, members: list[
     rows = []
     for member in members:
         rates = compute_work_rate(db, org.id, member.id, month_start, today)
+        available_hours = float(rates["available_hours"] or 0)
+        logged_hours = float(rates["total_logged_hours"] or 0)
+        total_rate = float(rates["total_rate"] or 0)
+        if available_hours <= 0:
+            effort_health = {"key": "neutral", "label": "No capacity", "detail": "No working capacity in this period"}
+        elif logged_hours <= 0:
+            effort_health = {"key": "missing", "label": "Not filled", "detail": "No hours have been logged this month"}
+        elif total_rate < 80:
+            effort_health = {"key": "low", "label": "Low", "detail": "Less than 80% of available hours logged"}
+        elif total_rate < 100:
+            effort_health = {"key": "partial", "label": "Partial", "detail": "80–99% of available hours logged"}
+        elif total_rate <= 120:
+            effort_health = {"key": "on-track", "label": "On track", "detail": "100–120% of available hours logged"}
+        else:
+            effort_health = {"key": "high", "label": "High", "detail": "More than 120% of available hours logged"}
         open_tasks = db.scalar(
             select(func.count()).select_from(Task).where(
                 Task.org_id == org.id,
@@ -3383,6 +3398,7 @@ def scoped_team_dashboard_payload(db: Session, org: Organization, members: list[
             {
                 "member": member,
                 "rates": rates,
+                "effort_health": effort_health,
                 "open_tasks": open_tasks,
                 "closed_tasks": closed_tasks,
                 "goal_progress": calculate_plan_achievement_percent(plan) if plan else 0.0,

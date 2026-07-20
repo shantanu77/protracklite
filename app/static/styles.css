@@ -5934,6 +5934,78 @@ mark {
   color: var(--muted);
 }
 
+.manager-effort-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.9rem;
+  padding: 0.65rem 0.85rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.manager-effort-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.manager-effort-legend i {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.manager-effort-legend .is-missing i { background: #dc2626; }
+.manager-effort-legend .is-low i { background: #ea580c; }
+.manager-effort-legend .is-partial i { background: #ca8a04; }
+.manager-effort-legend .is-on-track i { background: #16a34a; }
+.manager-effort-legend .is-high i { background: #2563eb; }
+
+.manager-effort-row {
+  --effort-color: #64748b;
+  --effort-bg: rgba(100, 116, 139, 0.045);
+}
+
+.manager-effort-row.is-missing { --effort-color: #b91c1c; --effort-bg: rgba(220, 38, 38, 0.08); }
+.manager-effort-row.is-low { --effort-color: #c2410c; --effort-bg: rgba(234, 88, 12, 0.075); }
+.manager-effort-row.is-partial { --effort-color: #a16207; --effort-bg: rgba(202, 138, 4, 0.075); }
+.manager-effort-row.is-on-track { --effort-color: #15803d; --effort-bg: rgba(22, 163, 74, 0.06); }
+.manager-effort-row.is-high { --effort-color: #1d4ed8; --effort-bg: rgba(37, 99, 235, 0.07); }
+
+.manager-effort-row td {
+  background: var(--effort-bg);
+}
+
+.manager-effort-row td:first-child {
+  box-shadow: inset 4px 0 0 var(--effort-color);
+}
+
+.manager-effort-value,
+.manager-effort-rate strong {
+  color: var(--effort-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.manager-effort-rate {
+  white-space: nowrap;
+}
+
+.manager-effort-badge {
+  display: inline-flex;
+  margin-left: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--effort-color) 12%, white);
+  color: var(--effort-color);
+  font-size: 0.65rem;
+  font-weight: 850;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
 table {
   width: 100%;
   min-width: 640px;
