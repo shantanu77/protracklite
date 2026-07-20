@@ -18,6 +18,7 @@ STATUS_LABELS = {
     "planned": "Planned Leave",
     "unplanned": "Unplanned / Sick",
     "holiday": "Public Holiday",
+    "weekend": "Weekend",
 }
 
 
@@ -132,6 +133,9 @@ def build_capacity_payload(
             if holiday:
                 status = "holiday"
                 detail = holiday.name
+            elif day.weekday() in {5, 6}:
+                status = "weekend"
+                detail = day.strftime("%A")
             elif leave:
                 status = "planned" if leave_is_planned(leave) else "unplanned"
                 detail = {
@@ -160,6 +164,15 @@ def build_capacity_payload(
         for day in days
     ]
     holiday_bands = [segment for segment in _contiguous_segments(holiday_statuses) if segment["status"] == "holiday"]
+    weekend_statuses = [
+        {
+            "date": day,
+            "status": "available" if day in holiday_map or day.weekday() not in {5, 6} else "weekend",
+            "detail": day.strftime("%A") if day.weekday() in {5, 6} else "",
+        }
+        for day in days
+    ]
+    weekend_bands = [segment for segment in _contiguous_segments(weekend_statuses) if segment["status"] == "weekend"]
 
     max_unavailable = max((len(people) for people in unavailable_by_day.values()), default=0)
     conflict_dates = [day for day, people in unavailable_by_day.items() if len(people) == max_unavailable] if max_unavailable else []
@@ -194,6 +207,7 @@ def build_capacity_payload(
         "day_count": len(days),
         "rows": rows,
         "holiday_bands": holiday_bands,
+        "weekend_bands": weekend_bands,
         "conflict_text": conflict_text,
         "conflict_tone": conflict_tone,
         "planned_legend_label": planned_label,

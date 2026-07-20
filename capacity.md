@@ -46,6 +46,7 @@ For managers, My Team contains the manager and their direct reports. All Organiz
 | Active / Available | Solid green `#22C55E` | Active employee with no registered leave and no public holiday on the date. |
 | Planned Leave | Yellow `#FBBF24` with diagonal stripes | Leave date is later than the date on which the leave record was submitted. |
 | Unplanned / Sick | Solid red `#EF4444` | Leave is entered on or after the affected date. ProTrack currently has no separate medical-leave category, so timing is the implemented classification rule. |
+| Weekend | Light gray `#EEF1F4` | Saturday and Sunday. Weekend bands span all rows and replace green availability bars. |
 | Public Holiday | Light blue `#DBEAFE` | Organization holiday registered by an admin. It overrides individual availability for that day. |
 
 Full-day and half-day leave use the same planned/unplanned color category; the tooltip identifies Full day, Half day AM, or Half day PM.

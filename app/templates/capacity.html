@@ -64,13 +64,16 @@
           </div>
         </div>
         <div class="capacity-timeline-body">
+          {% for band in report.weekend_bands %}
+          <div class="capacity-weekend-band" style="--segment-start: {{ band.start }}; --segment-span: {{ band.span }};" title="{{ band.title }}"></div>
+          {% endfor %}
           {% for band in report.holiday_bands %}
           <div class="capacity-holiday-band" style="--segment-start: {{ band.start }}; --segment-span: {{ band.span }};" title="{{ band.title }}"></div>
           {% endfor %}
           {% for row in report.rows %}
           <div class="capacity-timeline-row">
             {% for segment in row.segments %}
-            {% if segment.status != 'holiday' %}
+            {% if segment.status not in ['holiday', 'weekend'] %}
             <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-start: {{ segment.start }}; --segment-span: {{ segment.span }};" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ segment.title }}</span></div>
             {% endif %}
             {% endfor %}
@@ -88,6 +91,7 @@
     <span><i class="is-available"></i>Active / Available</span>
     <span><i class="is-planned"></i>{{ report.planned_legend_label }}</span>
     <span><i class="is-unplanned"></i>Unplanned / Sick</span>
+    <span><i class="is-weekend"></i>Weekend</span>
     <span><i class="is-holiday"></i>Public Holiday</span>
   </div>
 </section>

@@ -4055,7 +4055,8 @@ mark {
 }
 
 .capacity-status-bar,
-.capacity-holiday-band {
+.capacity-holiday-band,
+.capacity-weekend-band {
   position: absolute;
   left: calc(var(--segment-start) * var(--capacity-day-width));
   width: calc(var(--segment-span) * var(--capacity-day-width));
@@ -4101,6 +4102,14 @@ mark {
   box-shadow: inset 1px 0 #bfdbfe, inset -1px 0 #bfdbfe;
 }
 
+.capacity-weekend-band {
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  background: #eef1f4;
+  box-shadow: inset 1px 0 #d9e0e4, inset -1px 0 #d9e0e4;
+}
+
 .capacity-legend {
   justify-content: center;
   margin-top: 0.9rem;
@@ -4124,6 +4133,11 @@ mark {
 .capacity-legend i.is-holiday {
   background: #dbeafe;
   border: 1px solid #bfdbfe;
+}
+
+.capacity-legend i.is-weekend {
+  background: #eef1f4;
+  border: 1px solid #d9e0e4;
 }
 
 .capacity-empty {
