@@ -726,6 +726,10 @@
         End Date
         <input type="date" name="end_date" value="{{ today.isoformat() }}" required>
       </label>
+      <div class="dashboard-leave-duration full" data-dashboard-leave-duration-summary>
+        <strong>1 working day of leave</strong>
+        <span>Weekends and holidays are excluded automatically.</span>
+      </div>
       <label class="full dashboard-leave-backup">
         Designated Backup Person
         <select name="backup_user_id" required>
@@ -744,6 +748,9 @@
         <div class="dashboard-leave-tasks-head">
           <strong>Tasks assigned during this period</strong>
           <span data-dashboard-leave-task-count>0 tasks</span>
+        </div>
+        <div class="dashboard-leave-task-grid dashboard-leave-task-grid-head" aria-hidden="true">
+          <span>Task</span><span>Deadline</span><span>Effort</span>
         </div>
         <div class="dashboard-leave-task-list" data-dashboard-leave-task-list>
           <p class="empty">Select valid dates to check affected tasks.</p>
@@ -856,10 +863,11 @@
     const backupInput = form?.querySelector('[name="backup_user_id"]');
     const reasonInput = form?.querySelector('[name="reason"]');
     const noteHelper = form?.querySelector("[data-dashboard-leave-note-helper]");
+    const durationSummary = form?.querySelector("[data-dashboard-leave-duration-summary]");
     const taskList = form?.querySelector("[data-dashboard-leave-task-list]");
     const taskCount = form?.querySelector("[data-dashboard-leave-task-count]");
     const halfDayOptions = Array.from(form?.querySelectorAll("[data-half-day-option]") || []);
-    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !backupInput || !reasonInput || !noteHelper || !taskList || !taskCount || !deleteButton) {
+    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !deleteButton) {
       return;
     }
 
@@ -924,29 +932,34 @@
       noteHelper.classList.toggle("is-valid", remaining === 0);
     }
 
-    function renderAffectedTasks(tasks) {
-      const safeTasks = Array.isArray(tasks) ? tasks : [];
+    function renderAffectedTasks(summary) {
+      const safeTasks = Array.isArray(summary?.tasks) ? summary.tasks : [];
+      const leaveDays = Number(summary?.leave_days || 0);
+      const excludedDays = Number(summary?.excluded_day_count || 0);
+      durationSummary.innerHTML = `<strong>${leaveDays} working day${leaveDays === 1 ? "" : "s"} of leave</strong><span>${excludedDays} weekend / holiday day${excludedDays === 1 ? "" : "s"} excluded.</span>`;
       taskCount.textContent = `${safeTasks.length} task${safeTasks.length === 1 ? "" : "s"}`;
       if (!safeTasks.length) {
         taskList.innerHTML = '<p class="empty">No scheduled open tasks overlap this leave period.</p>';
         return;
       }
       taskList.innerHTML = safeTasks.map((task) => {
-        const dates = [task.start_date || "No start", task.end_date || "No end"].join(" → ");
-        return `<article class="dashboard-leave-task"><span class="chip">${escapeLeaveHtml(task.task_id || "")}</span><div><strong>${escapeLeaveHtml(task.name || "")}</strong><small>${escapeLeaveHtml(dates)}</small></div></article>`;
+        const effort = Number(task.logged_hours || 0);
+        const estimate = task.estimated_hours === null || task.estimated_hours === undefined ? "" : ` / ${Number(task.estimated_hours)}h plan`;
+        return `<article class="dashboard-leave-task-grid dashboard-leave-task"><span class="dashboard-leave-task-name" title="${escapeLeaveHtml(task.task_id || "")} · ${escapeLeaveHtml(task.name || "")}"><b>${escapeLeaveHtml(task.task_id || "")}</b> ${escapeLeaveHtml(task.name || "")}</span><span>${escapeLeaveHtml(task.deadline || "No deadline")}</span><span>${effort}h${escapeLeaveHtml(estimate)}</span></article>`;
       }).join("");
     }
 
     async function loadAffectedTasks() {
       if (!startDateInput.value || !endDateInput.value || endDateInput.value < startDateInput.value) {
         taskCount.textContent = "0 tasks";
+        durationSummary.innerHTML = "<strong>0 working days of leave</strong><span>Select a valid date range.</span>";
         taskList.innerHTML = '<p class="empty">Select a valid date range to check affected tasks.</p>';
         return;
       }
       taskRequestController?.abort();
       taskRequestController = new AbortController();
       taskList.innerHTML = '<p class="empty">Checking assigned tasks…</p>';
-      const params = new URLSearchParams({ start_date: startDateInput.value, end_date: endDateInput.value });
+      const params = new URLSearchParams({ start_date: startDateInput.value, end_date: endDateInput.value, leave_type: typeInput.value });
       try {
         const response = await fetch(`/api/v1/leaves/affected-tasks?${params}`, { signal: taskRequestController.signal });
         if (!response.ok) throw new Error("Unable to load affected tasks.");
@@ -1022,7 +1035,7 @@
         }
         const saved = await response.json();
         syncLeaveDays(await loadLeaves());
-        renderMessage(`Leave saved for ${saved.saved_count} day${saved.saved_count === 1 ? "" : "s"}. ${saved.notified_count} notification email${saved.notified_count === 1 ? "" : "s"} sent.`);
+        renderMessage(`${saved.leave_days} working day${saved.leave_days === 1 ? "" : "s"} of leave saved; ${saved.excluded_day_count} weekend / holiday day${saved.excluded_day_count === 1 ? "" : "s"} excluded. ${saved.notified_count} notification email${saved.notified_count === 1 ? "" : "s"} sent.`);
       } catch (error) {
         renderMessage(error.message || "Unable to save leave.", true);
       }
@@ -1062,6 +1075,7 @@
     });
 
     reasonInput.addEventListener("input", syncReasonHelper);
+    typeInput.addEventListener("change", loadAffectedTasks);
 
     document.querySelectorAll('[data-modal-open="dashboard-leave-modal"]').forEach((button) => {
       button.addEventListener("click", () => {

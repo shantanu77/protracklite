@@ -6944,21 +6944,65 @@ def serialize_affected_leave_task(task: Task) -> dict[str, Any]:
         "status": task.status.value,
         "start_date": task.start_date.isoformat() if task.start_date else None,
         "end_date": task.end_date.isoformat() if task.end_date else None,
+        "deadline": task.end_date.strftime("%d %b %Y") if task.end_date else "No deadline",
+        "logged_hours": round(float(task.logged_hours or 0), 2),
+        "estimated_hours": round(float(task.estimated_hours), 2) if task.estimated_hours is not None else None,
     }
+
+
+def leave_working_dates(db: Session, org_id: int, start_date: date, end_date: date) -> tuple[list[date], list[dict[str, str]]]:
+    holidays = {
+        holiday.holiday_date: holiday.name
+        for holiday in db.scalars(
+            select(Holiday).where(
+                Holiday.org_id == org_id,
+                Holiday.holiday_date >= start_date,
+                Holiday.holiday_date <= end_date,
+            )
+        ).all()
+    }
+    working_dates: list[date] = []
+    excluded_dates: list[dict[str, str]] = []
+    current_date = start_date
+    while current_date <= end_date:
+        exclusion_reason = ""
+        if current_date.weekday() in {5, 6}:
+            exclusion_reason = "Weekend"
+        elif current_date in holidays:
+            exclusion_reason = f"Holiday: {holidays[current_date]}"
+        if exclusion_reason:
+            excluded_dates.append({"date": current_date.isoformat(), "reason": exclusion_reason})
+        else:
+            working_dates.append(current_date)
+        current_date += timedelta(days=1)
+    return working_dates, excluded_dates
 
 
 @app.get("/api/v1/leaves/affected-tasks")
 def api_leave_affected_tasks(
     start_date: date,
     end_date: date,
+    leave_type: LeaveType = LeaveType.FULL,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     if end_date < start_date:
         raise HTTPException(status_code=400, detail="End date cannot be before start date")
+    if start_date != end_date and leave_type != LeaveType.FULL:
+        raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
+    working_dates, excluded_dates = leave_working_dates(db, org.id, start_date, end_date)
     tasks = affected_leave_tasks(db, org.id, user.id, start_date, end_date)
-    return [serialize_affected_leave_task(task) for task in tasks]
+    leave_days = Decimal(len(working_dates))
+    if leave_type != LeaveType.FULL and len(working_dates) == 1:
+        leave_days = Decimal("0.5")
+    return {
+        "working_day_count": len(working_dates),
+        "leave_days": float(leave_days),
+        "excluded_day_count": len(excluded_dates),
+        "excluded_dates": excluded_dates,
+        "tasks": [serialize_affected_leave_task(task) for task in tasks],
+    }
 
 
 def leave_type_display(leave_type: LeaveType) -> str:
@@ -6977,6 +7021,8 @@ def notify_leave_submission(
     start_date: date,
     end_date: date,
     leave_type: LeaveType,
+    leave_days: Decimal,
+    excluded_dates: list[dict[str, str]],
     reason: str,
     tasks: list[Task],
 ) -> int:
@@ -7006,6 +7052,8 @@ def notify_leave_submission(
             "",
             f"Leave period: {date_label}",
             f"Leave type: {leave_type_display(leave_type)}",
+            f"Leave total: {leave_days.normalize()} working day(s)",
+            f"Excluded weekends / holidays: {len(excluded_dates)}",
             f"Designated backup: {backup.full_name}",
             f"Reason / note: {reason}",
             "",
@@ -7067,6 +7115,12 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         raise HTTPException(status_code=400, detail="Leave duration cannot exceed 366 days")
     if start_date != end_date and leave_type != LeaveType.FULL:
         raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
+    working_dates, excluded_dates = leave_working_dates(db, org.id, start_date, end_date)
+    if not working_dates:
+        raise HTTPException(status_code=400, detail="The selected period contains no working days")
+    leave_days = Decimal(len(working_dates))
+    if leave_type != LeaveType.FULL:
+        leave_days = Decimal("0.5")
 
     reason = re.sub(r"\s+", " ", str(payload.get("reason", "") or "").strip())
     if len(reason) < 80:
@@ -7091,8 +7145,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
 
     request_group = secrets.token_hex(16)
     saved_leaves: list[Leave] = []
-    leave_date = start_date
-    while leave_date <= end_date:
+    for leave_date in working_dates:
         leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
         if leave:
             leave.leave_type = leave_type
@@ -7110,7 +7163,6 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
             )
             db.add(leave)
         saved_leaves.append(leave)
-        leave_date += timedelta(days=1)
     db.commit()
     affected_tasks = affected_leave_tasks(db, org.id, user.id, start_date, end_date)
     notified_count = notify_leave_submission(
@@ -7121,6 +7173,8 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         start_date,
         end_date,
         leave_type,
+        leave_days,
+        excluded_dates,
         reason,
         affected_tasks,
     )
@@ -7129,6 +7183,9 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "leave_type": leave_type.value,
+        "leave_days": float(leave_days),
+        "excluded_day_count": len(excluded_dates),
+        "excluded_dates": excluded_dates,
         "reason": reason,
         "backup_user_id": backup.id,
         "backup_name": backup.full_name,

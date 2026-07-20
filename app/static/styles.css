@@ -3681,6 +3681,23 @@ mark {
   resize: vertical;
 }
 
+.dashboard-leave-duration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(31, 122, 82, 0.08);
+  color: var(--success);
+  font-size: 0.78rem;
+}
+
+.dashboard-leave-duration span {
+  color: var(--muted);
+  text-align: right;
+}
+
 .dashboard-leave-note-helper {
   margin-top: -0.45rem;
 }
@@ -3698,8 +3715,7 @@ mark {
   background: rgba(29, 52, 66, 0.025);
 }
 
-.dashboard-leave-tasks-head,
-.dashboard-leave-task {
+.dashboard-leave-tasks-head {
   display: flex;
   align-items: center;
   gap: 0.65rem;
@@ -3716,42 +3732,64 @@ mark {
 
 .dashboard-leave-task-list {
   display: grid;
-  gap: 0.35rem;
-  max-height: 150px;
+  gap: 0.18rem;
+  max-height: 112px;
   overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.dashboard-leave-task-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 92px 112px;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.dashboard-leave-task-grid-head {
+  padding: 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .dashboard-leave-task {
-  padding: 0.45rem 0.5rem;
-  border-radius: 9px;
+  min-height: 27px;
+  padding: 0.3rem 0.45rem;
+  border-radius: 7px;
   background: #fff;
+  font-size: 0.72rem;
 }
 
-.dashboard-leave-task div {
-  min-width: 0;
-}
-
-.dashboard-leave-task strong,
-.dashboard-leave-task small {
-  display: block;
-}
-
-.dashboard-leave-task strong {
+.dashboard-leave-task-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.84rem;
 }
 
-.dashboard-leave-task small {
-  margin-top: 0.1rem;
+.dashboard-leave-task > span:not(.dashboard-leave-task-name) {
   color: var(--muted);
-  font-size: 0.74rem;
+  white-space: nowrap;
 }
 
 @media (max-width: 700px) {
   .dashboard-leave-form {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-leave-duration {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-leave-duration span {
+    text-align: left;
+  }
+
+  .dashboard-leave-task-grid {
+    grid-template-columns: minmax(130px, 1fr) 78px 82px;
+    gap: 0.35rem;
   }
 }
 
