@@ -84,13 +84,15 @@ It runs:
 /opt/protracklite/.venv/bin/python -m app.capacity_digest
 ```
 
-The job posts a read-only text summary through a Microsoft Teams **Workflows incoming webhook**. Configure a Teams workflow for the intended `#daily-availability` channel using the “When a Teams webhook request is received” trigger, then add the copied URL to `/etc/protracklite.env`:
+The job posts a read-only summary as an Adaptive Card through a Microsoft Teams **Workflows incoming webhook**. Configure a Teams workflow for the intended `#daily-availability` channel using the “When a Teams webhook request is received” trigger and pass the trigger body to the “Post card in a chat or channel” action, then add the copied URL to `/etc/protracklite.env`:
 
 ```env
 TEAMS_AVAILABILITY_WEBHOOK_URL=https://...
 ```
 
 If the URL is absent, the timer exits safely with `skipped-no-webhook` and sends nothing.
+
+The webhook request body is the Adaptive Card itself (not a `{ "text": ... }` wrapper), with `type: "AdaptiveCard"`, schema version `1.4`, and a wrapping text block. This matches the card object expected by the Teams Flow bot action.
 
 Example message:
 

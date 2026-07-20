@@ -75,7 +75,19 @@ def build_daily_summary(db, org: Organization, summary_date: date) -> tuple[str,
 
 
 def post_to_teams(webhook_url: str, body: str) -> None:
-    response = httpx.post(webhook_url, json={"text": body}, timeout=20.0)
+    card = {
+        "$schema": "https://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+            {
+                "type": "TextBlock",
+                "text": body,
+                "wrap": True,
+            }
+        ],
+    }
+    response = httpx.post(webhook_url, json=card, timeout=20.0)
     response.raise_for_status()
 
 
