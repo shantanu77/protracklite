@@ -3666,6 +3666,95 @@ mark {
   flex-wrap: wrap;
 }
 
+.dashboard-leave-modal-card {
+  max-height: min(92vh, 760px);
+  overflow-y: auto;
+}
+
+.dashboard-leave-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem 0.8rem;
+}
+
+.dashboard-leave-form textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.dashboard-leave-note-helper {
+  margin-top: -0.45rem;
+}
+
+.dashboard-leave-note-helper.is-valid {
+  color: var(--success);
+}
+
+.dashboard-leave-tasks {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(29, 52, 66, 0.025);
+}
+
+.dashboard-leave-tasks-head,
+.dashboard-leave-task {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.dashboard-leave-tasks-head {
+  justify-content: space-between;
+  font-size: 0.84rem;
+}
+
+.dashboard-leave-tasks-head span {
+  color: var(--muted);
+}
+
+.dashboard-leave-task-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.dashboard-leave-task {
+  padding: 0.45rem 0.5rem;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.dashboard-leave-task div {
+  min-width: 0;
+}
+
+.dashboard-leave-task strong,
+.dashboard-leave-task small {
+  display: block;
+}
+
+.dashboard-leave-task strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+}
+
+.dashboard-leave-task small {
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+@media (max-width: 700px) {
+  .dashboard-leave-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 .small-button {
   min-height: 34px;
   padding: 0.4rem 0.65rem;

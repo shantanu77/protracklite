@@ -701,7 +701,7 @@
 </div>
 
 <div class="modal-backdrop" id="dashboard-leave-modal" data-modal aria-hidden="true">
-  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="dashboard-leave-title">
+  <div class="modal-card wide dashboard-leave-modal-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-leave-title">
     <div class="modal-head">
       <div>
         <h2 id="dashboard-leave-title">Add Leave</h2>
@@ -709,23 +709,46 @@
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close leave modal">×</button>
     </div>
-    <form class="form-grid" data-dashboard-leave-form>
+    <form class="form-grid dashboard-leave-form" data-dashboard-leave-form>
       <label>
-        Date
-        <input type="date" name="leave_date" value="{{ today.isoformat() }}" required>
-      </label>
-      <label>
-        Type
-        <select name="leave_type">
+        Leave Type
+        <select name="leave_type" required>
           <option value="full">Full Day</option>
-          <option value="half_am">Half Day AM</option>
-          <option value="half_pm">Half Day PM</option>
+          <option value="half_am" data-half-day-option>Half Day AM</option>
+          <option value="half_pm" data-half-day-option>Half Day PM</option>
         </select>
       </label>
-      <label class="full">
-        Note
-        <input type="text" name="reason" maxlength="255" placeholder="Optional note">
+      <label>
+        Start Date
+        <input type="date" name="start_date" value="{{ today.isoformat() }}" required>
       </label>
+      <label>
+        End Date
+        <input type="date" name="end_date" value="{{ today.isoformat() }}" required>
+      </label>
+      <label class="full dashboard-leave-backup">
+        Designated Backup Person
+        <select name="backup_user_id" required>
+          <option value="">Select backup person</option>
+          {% for person in leave_backup_people %}
+          <option value="{{ person.id }}">{{ person.full_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="full dashboard-leave-reason">
+        Reason / Note
+        <textarea name="reason" rows="3" minlength="80" maxlength="255" placeholder="Explain the leave and provide any handover information (minimum 80 characters)." required></textarea>
+      </label>
+      <p class="form-helper full dashboard-leave-note-helper" data-dashboard-leave-note-helper>Minimum 80 characters. 80 characters left.</p>
+      <section class="dashboard-leave-tasks full" aria-live="polite">
+        <div class="dashboard-leave-tasks-head">
+          <strong>Tasks assigned during this period</strong>
+          <span data-dashboard-leave-task-count>0 tasks</span>
+        </div>
+        <div class="dashboard-leave-task-list" data-dashboard-leave-task-list>
+          <p class="empty">Select valid dates to check affected tasks.</p>
+        </div>
+      </section>
       <div class="dashboard-leave-modal-actions full">
         <button type="submit">Save Leave</button>
         <button type="button" class="button secondary" data-dashboard-leave-delete hidden>Remove Leave</button>
@@ -827,14 +850,30 @@
     const leaveModal = document.getElementById("dashboard-leave-modal");
     const feedbackNodes = Array.from(document.querySelectorAll("[data-dashboard-leave-feedback]"));
     const deleteButton = leaveModal?.querySelector("[data-dashboard-leave-delete]");
-    const dateInput = form?.querySelector('[name="leave_date"]');
+    const startDateInput = form?.querySelector('[name="start_date"]');
+    const endDateInput = form?.querySelector('[name="end_date"]');
     const typeInput = form?.querySelector('[name="leave_type"]');
+    const backupInput = form?.querySelector('[name="backup_user_id"]');
     const reasonInput = form?.querySelector('[name="reason"]');
-    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !dateInput || !typeInput || !reasonInput || !deleteButton) {
+    const noteHelper = form?.querySelector("[data-dashboard-leave-note-helper]");
+    const taskList = form?.querySelector("[data-dashboard-leave-task-list]");
+    const taskCount = form?.querySelector("[data-dashboard-leave-task-count]");
+    const halfDayOptions = Array.from(form?.querySelectorAll("[data-half-day-option]") || []);
+    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !backupInput || !reasonInput || !noteHelper || !taskList || !taskCount || !deleteButton) {
       return;
     }
 
     let leaveMap = new Map();
+    let taskRequestController = null;
+
+    function escapeLeaveHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
 
     function renderMessage(message, isError = false) {
       feedbackNodes.forEach((feedback) => {
@@ -861,15 +900,77 @@
       return "";
     }
 
+    function isSingleDay() {
+      return Boolean(startDateInput.value) && startDateInput.value === endDateInput.value;
+    }
+
+    function syncLeaveTypeOptions() {
+      const singleDay = isSingleDay();
+      endDateInput.min = startDateInput.value || "";
+      halfDayOptions.forEach((option) => {
+        option.hidden = !singleDay;
+        option.disabled = !singleDay;
+      });
+      if (!singleDay && typeInput.value !== "full") {
+        typeInput.value = "full";
+      }
+    }
+
+    function syncReasonHelper() {
+      const remaining = Math.max(80 - reasonInput.value.trim().length, 0);
+      noteHelper.textContent = remaining
+        ? `Minimum 80 characters. ${remaining} characters left.`
+        : `${reasonInput.value.trim().length}/255 characters.`;
+      noteHelper.classList.toggle("is-valid", remaining === 0);
+    }
+
+    function renderAffectedTasks(tasks) {
+      const safeTasks = Array.isArray(tasks) ? tasks : [];
+      taskCount.textContent = `${safeTasks.length} task${safeTasks.length === 1 ? "" : "s"}`;
+      if (!safeTasks.length) {
+        taskList.innerHTML = '<p class="empty">No scheduled open tasks overlap this leave period.</p>';
+        return;
+      }
+      taskList.innerHTML = safeTasks.map((task) => {
+        const dates = [task.start_date || "No start", task.end_date || "No end"].join(" → ");
+        return `<article class="dashboard-leave-task"><span class="chip">${escapeLeaveHtml(task.task_id || "")}</span><div><strong>${escapeLeaveHtml(task.name || "")}</strong><small>${escapeLeaveHtml(dates)}</small></div></article>`;
+      }).join("");
+    }
+
+    async function loadAffectedTasks() {
+      if (!startDateInput.value || !endDateInput.value || endDateInput.value < startDateInput.value) {
+        taskCount.textContent = "0 tasks";
+        taskList.innerHTML = '<p class="empty">Select a valid date range to check affected tasks.</p>';
+        return;
+      }
+      taskRequestController?.abort();
+      taskRequestController = new AbortController();
+      taskList.innerHTML = '<p class="empty">Checking assigned tasks…</p>';
+      const params = new URLSearchParams({ start_date: startDateInput.value, end_date: endDateInput.value });
+      try {
+        const response = await fetch(`/api/v1/leaves/affected-tasks?${params}`, { signal: taskRequestController.signal });
+        if (!response.ok) throw new Error("Unable to load affected tasks.");
+        renderAffectedTasks(await response.json());
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          taskList.innerHTML = '<p class="empty">Unable to load affected tasks.</p>';
+        }
+      }
+    }
+
     function syncModalState() {
-      const leave = leaveMap.get(dateInput.value);
+      syncLeaveTypeOptions();
+      const leave = isSingleDay() ? leaveMap.get(startDateInput.value) : null;
       deleteButton.hidden = !leave;
       deleteButton.dataset.leaveId = leave ? String(leave.id) : "";
       if (!leave) {
+        syncReasonHelper();
         return;
       }
       typeInput.value = leave.leave_type || "full";
+      backupInput.value = leave.backup_user_id ? String(leave.backup_user_id) : "";
       reasonInput.value = leave.reason || "";
+      syncReasonHelper();
     }
 
     function syncLeaveDays(leaves) {
@@ -916,12 +1017,14 @@
           body: JSON.stringify(payload),
         });
         if (!response.ok) {
-          throw new Error("Unable to save leave day.");
+          const errorPayload = await response.json().catch(() => ({}));
+          throw new Error(errorPayload.detail || "Unable to save leave.");
         }
+        const saved = await response.json();
         syncLeaveDays(await loadLeaves());
-        renderMessage("Leave day saved.");
+        renderMessage(`Leave saved for ${saved.saved_count} day${saved.saved_count === 1 ? "" : "s"}. ${saved.notified_count} notification email${saved.notified_count === 1 ? "" : "s"} sent.`);
       } catch (error) {
-        renderMessage(error.message || "Unable to save leave day.", true);
+        renderMessage(error.message || "Unable to save leave.", true);
       }
     });
 
@@ -943,21 +1046,36 @@
       }
     });
 
-    dateInput.addEventListener("change", () => {
+    startDateInput.addEventListener("change", () => {
+      renderMessage("");
+      if (!endDateInput.value || endDateInput.value < startDateInput.value) {
+        endDateInput.value = startDateInput.value;
+      }
+      syncModalState();
+      loadAffectedTasks();
+    });
+
+    endDateInput.addEventListener("change", () => {
       renderMessage("");
       syncModalState();
+      loadAffectedTasks();
     });
+
+    reasonInput.addEventListener("input", syncReasonHelper);
 
     document.querySelectorAll('[data-modal-open="dashboard-leave-modal"]').forEach((button) => {
       button.addEventListener("click", () => {
         window.setTimeout(() => {
           renderMessage("");
           syncModalState();
-          dateInput.focus();
+          loadAffectedTasks();
+          typeInput.focus();
         }, 0);
       });
     });
 
+    syncReasonHelper();
+    syncLeaveTypeOptions();
     loadLeaves().then(syncLeaveDays).catch(() => {});
   })();
 

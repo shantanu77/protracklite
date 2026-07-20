@@ -851,6 +851,21 @@ def ensure_time_logs_schema() -> None:
             connection.execute(text("ALTER TABLE time_logs MODIFY COLUMN notes TEXT NOT NULL"))
 
 
+def ensure_leaves_schema() -> None:
+    inspector = inspect(engine)
+    if "leaves" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("leaves")}
+    ddl_by_column = {
+        "backup_user_id": "ALTER TABLE leaves ADD COLUMN backup_user_id INTEGER NULL",
+        "request_group": "ALTER TABLE leaves ADD COLUMN request_group VARCHAR(40) NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in ddl_by_column.items():
+            if column_name not in columns:
+                connection.execute(text(ddl))
+
+
 def ensure_dev_releases_schema() -> None:
     inspector = inspect(engine)
     if "dev_releases" not in inspector.get_table_names():
@@ -992,6 +1007,8 @@ def ensure_query_indexes() -> None:
                 "CREATE INDEX ix_leaves_user_leave_date "
                 "ON leaves (user_id, leave_date)"
             ),
+            "ix_leaves_backup_user_id": "CREATE INDEX ix_leaves_backup_user_id ON leaves (backup_user_id)",
+            "ix_leaves_request_group": "CREATE INDEX ix_leaves_request_group ON leaves (request_group)",
         },
         "weekly_ai_summaries": {
             "ix_weekly_ai_summaries_org_user_week_generated": (
@@ -1061,6 +1078,7 @@ def on_startup() -> None:
     ensure_work_lists_schema()
     ensure_work_list_items_schema()
     ensure_time_logs_schema()
+    ensure_leaves_schema()
     ensure_dev_releases_schema()
     ensure_query_indexes()
     db = next(get_db())
@@ -3627,6 +3645,7 @@ def dashboard(
         }
         for task in groups["all_unclosed"]
     ]
+    leave_backup_people = [person for person in org_people(db, org.id) if person.id != user.id]
     created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
     if created_task_id and created_task_id not in created_task_ids:
         created_task_ids.insert(0, created_task_id)
@@ -3642,6 +3661,7 @@ def dashboard(
             "week_end": week_end,
             "week_leave_days": week_days,
             "effort_task_candidates": effort_task_candidates,
+            "leave_backup_people": leave_backup_people,
             "created_task_id": created_task_id,
             "created_count": created_count,
             "created_summary": created_summary,
@@ -6888,7 +6908,121 @@ def api_my_standing(
 def api_list_leaves(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     _, user = org_user
     leaves = db.scalars(select(Leave).where(Leave.user_id == user.id).order_by(Leave.leave_date.desc())).all()
-    return [{"id": item.id, "leave_date": item.leave_date.isoformat(), "leave_type": item.leave_type.value, "reason": item.reason} for item in leaves]
+    return [
+        {
+            "id": item.id,
+            "leave_date": item.leave_date.isoformat(),
+            "leave_type": item.leave_type.value,
+            "reason": item.reason,
+            "backup_user_id": item.backup_user_id,
+            "request_group": item.request_group,
+        }
+        for item in leaves
+    ]
+
+
+def affected_leave_tasks(db: Session, org_id: int, user_id: int, start_date: date, end_date: date) -> list[Task]:
+    return db.scalars(
+        select(Task)
+        .where(
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
+            Task.status != TaskStatus.CLOSED,
+            or_(Task.start_date.is_not(None), Task.end_date.is_not(None)),
+            or_(Task.start_date.is_(None), Task.start_date <= end_date),
+            or_(Task.end_date.is_(None), Task.end_date >= start_date),
+        )
+        .order_by(Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
+    ).all()
+
+
+def serialize_affected_leave_task(task: Task) -> dict[str, Any]:
+    return {
+        "task_id": task.task_id,
+        "name": task.name,
+        "status": task.status.value,
+        "start_date": task.start_date.isoformat() if task.start_date else None,
+        "end_date": task.end_date.isoformat() if task.end_date else None,
+    }
+
+
+@app.get("/api/v1/leaves/affected-tasks")
+def api_leave_affected_tasks(
+    start_date: date,
+    end_date: date,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="End date cannot be before start date")
+    tasks = affected_leave_tasks(db, org.id, user.id, start_date, end_date)
+    return [serialize_affected_leave_task(task) for task in tasks]
+
+
+def leave_type_display(leave_type: LeaveType) -> str:
+    return {
+        LeaveType.FULL: "Full day",
+        LeaveType.HALF_AM: "Half day (AM)",
+        LeaveType.HALF_PM: "Half day (PM)",
+    }[leave_type]
+
+
+def notify_leave_submission(
+    db: Session,
+    org: Organization,
+    employee: User,
+    backup: User,
+    start_date: date,
+    end_date: date,
+    leave_type: LeaveType,
+    reason: str,
+    tasks: list[Task],
+) -> int:
+    recipients = db.scalars(
+        select(User).where(
+            User.org_id == org.id,
+            User.is_active.is_(True),
+            or_(User.id == employee.id, User.role.in_([Role.ADMIN, Role.MANAGER])),
+        )
+    ).all()
+    recipient_by_email = {recipient.email.strip().lower(): recipient for recipient in recipients if recipient.email.strip()}
+    if not recipient_by_email:
+        return 0
+
+    date_label = start_date.strftime("%d %b %Y")
+    if end_date != start_date:
+        date_label = f"{date_label} to {end_date.strftime('%d %b %Y')}"
+    dashboard_url = f"{app_base_url()}/{org.slug}/dashboard"
+    task_lines = [
+        f"- {task.task_id}: {task.name}"
+        for task in tasks
+    ] or ["- No scheduled open tasks overlap this leave period."]
+    subject = f"Leave submitted: {employee.full_name} · {date_label}"
+    body = "\n".join(
+        [
+            f"{employee.full_name} submitted leave.",
+            "",
+            f"Leave period: {date_label}",
+            f"Leave type: {leave_type_display(leave_type)}",
+            f"Designated backup: {backup.full_name}",
+            f"Reason / note: {reason}",
+            "",
+            "Tasks assigned during this period:",
+            *task_lines,
+            "",
+            f"Open dashboard: {dashboard_url}",
+        ]
+    )
+    sent_count = 0
+    for recipient in recipient_by_email.values():
+        try:
+            send_email(recipient.email, subject, body)
+            sent_count += 1
+        except Exception as exc:
+            logger.warning("Leave notification failed for %s: %s", recipient.email, exc)
+    return sent_count
 
 
 def bounded_page(value: int, total_pages: int) -> int:
@@ -6920,24 +7054,87 @@ def pagination_payload(request: Request, total: int, page: int, page_size: int) 
 
 @app.post("/api/v1/leaves/")
 def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
-    _, user = org_user
-    leave_date = date.fromisoformat(payload["leave_date"])
-    leave_type = LeaveType(payload.get("leave_type", "full"))
-    reason = str(payload.get("reason", "") or "").strip()
-    leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
-    if leave:
-        leave.leave_type = leave_type
-        leave.reason = reason
-    else:
-        leave = Leave(
-            user_id=user.id,
-            leave_date=leave_date,
-            leave_type=leave_type,
-            reason=reason,
+    org, user = org_user
+    try:
+        start_date = date.fromisoformat(str(payload.get("start_date") or ""))
+        end_date = date.fromisoformat(str(payload.get("end_date") or ""))
+        leave_type = LeaveType(payload.get("leave_type", "full"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Select valid leave dates and leave type")
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="End date cannot be before start date")
+    if (end_date - start_date).days > 366:
+        raise HTTPException(status_code=400, detail="Leave duration cannot exceed 366 days")
+    if start_date != end_date and leave_type != LeaveType.FULL:
+        raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
+
+    reason = re.sub(r"\s+", " ", str(payload.get("reason", "") or "").strip())
+    if len(reason) < 80:
+        raise HTTPException(status_code=400, detail="Reason / note must be at least 80 characters")
+    if len(reason) > 255:
+        raise HTTPException(status_code=400, detail="Reason / note cannot exceed 255 characters")
+
+    try:
+        backup_user_id = int(payload.get("backup_user_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Select a designated backup person")
+    backup = db.scalar(
+        select(User).where(
+            User.id == backup_user_id,
+            User.org_id == org.id,
+            User.is_active.is_(True),
+            User.id != user.id,
         )
-        db.add(leave)
+    )
+    if not backup:
+        raise HTTPException(status_code=400, detail="Select a valid designated backup person")
+
+    request_group = secrets.token_hex(16)
+    saved_leaves: list[Leave] = []
+    leave_date = start_date
+    while leave_date <= end_date:
+        leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
+        if leave:
+            leave.leave_type = leave_type
+            leave.reason = reason
+            leave.backup_user_id = backup.id
+            leave.request_group = request_group
+        else:
+            leave = Leave(
+                user_id=user.id,
+                leave_date=leave_date,
+                leave_type=leave_type,
+                reason=reason,
+                backup_user_id=backup.id,
+                request_group=request_group,
+            )
+            db.add(leave)
+        saved_leaves.append(leave)
+        leave_date += timedelta(days=1)
     db.commit()
-    return {"id": leave.id, "leave_date": leave.leave_date.isoformat(), "leave_type": leave.leave_type.value, "reason": leave.reason}
+    affected_tasks = affected_leave_tasks(db, org.id, user.id, start_date, end_date)
+    notified_count = notify_leave_submission(
+        db,
+        org,
+        user,
+        backup,
+        start_date,
+        end_date,
+        leave_type,
+        reason,
+        affected_tasks,
+    )
+    return {
+        "saved_count": len(saved_leaves),
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "leave_type": leave_type.value,
+        "reason": reason,
+        "backup_user_id": backup.id,
+        "backup_name": backup.full_name,
+        "affected_tasks": [serialize_affected_leave_task(task) for task in affected_tasks],
+        "notified_count": notified_count,
+    }
 
 
 @app.delete("/api/v1/leaves/{leave_id}")

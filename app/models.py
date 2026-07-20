@@ -484,6 +484,8 @@ class Leave(Base):
     leave_date: Mapped[date] = mapped_column(Date)
     leave_type: Mapped[LeaveType] = mapped_column(SqlEnum(LeaveType), default=LeaveType.FULL)
     reason: Mapped[str] = mapped_column(String(255), default="")
+    backup_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
+    request_group: Mapped[str] = mapped_column(String(40), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
