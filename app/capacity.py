@@ -14,11 +14,11 @@ from app.time_utils import local_datetime
 
 CAPACITY_VIEWS = {"month", "sprint", "week"}
 STATUS_LABELS = {
-    "available": "Active / Available",
-    "planned": "Planned Leave",
-    "unplanned": "Unplanned / Sick",
-    "holiday": "Public Holiday",
-    "weekend": "Weekend",
+    "available": "Avl",
+    "planned": "PL",
+    "unplanned": "UL/Sick",
+    "holiday": "PH",
+    "weekend": "Wknd",
 }
 
 
@@ -191,9 +191,9 @@ def build_capacity_payload(
         period_label = period_start.strftime("%B %Y")
     else:
         period_label = f"{period_start.strftime('%d %b')} – {period_end.strftime('%d %b %Y')}"
-    planned_label = "Planned Leave"
+    planned_label = "PL"
     if planned_dates:
-        planned_label = f"Planned Leave ({date_range_label(min(planned_dates), max(planned_dates))})"
+        planned_label = f"PL ({date_range_label(min(planned_dates), max(planned_dates))})"
 
     return {
         "view": normalized_view,

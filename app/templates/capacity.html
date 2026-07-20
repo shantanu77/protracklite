@@ -88,11 +88,11 @@
   {% endif %}
 
   <div class="capacity-legend" aria-label="Capacity status legend">
-    <span><i class="is-available"></i>Active / Available</span>
-    <span><i class="is-planned"></i>{{ report.planned_legend_label }}</span>
-    <span><i class="is-unplanned"></i>Unplanned / Sick</span>
-    <span><i class="is-weekend"></i>Weekend</span>
-    <span><i class="is-holiday"></i>Public Holiday</span>
+    <span title="Active / Available"><i class="is-available"></i>Avl</span>
+    <span title="Planned Leave"><i class="is-planned"></i>{{ report.planned_legend_label }}</span>
+    <span title="Unplanned / Sick"><i class="is-unplanned"></i>UL/Sick</span>
+    <span title="Weekend"><i class="is-weekend"></i>Wknd</span>
+    <span title="Public Holiday"><i class="is-holiday"></i>PH</span>
   </div>
 </section>
 
