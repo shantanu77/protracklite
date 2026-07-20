@@ -28,6 +28,7 @@ from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
+from app.capacity import build_capacity_payload
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
 from app.models import (
@@ -6830,6 +6831,7 @@ def reports_calendar_page(
             "org": org,
             "user": user,
             "report": report,
+            "today": local_today(),
         },
     )
 
@@ -7241,6 +7243,48 @@ def manager_dashboard_page(request: Request, org_user: tuple[Organization, User]
             "user": user,
             "summary": payload["summary"],
             "rows": payload["rows"],
+        },
+    )
+
+
+@app.get("/{org_slug}/manager/capacity", response_class=HTMLResponse)
+def manager_capacity_page(
+    request: Request,
+    view: str = "month",
+    scope: str = "team",
+    anchor: str = "",
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    normalized_scope = "org" if scope == "org" else "team"
+    if normalized_scope == "org" or user.role == Role.ADMIN:
+        members = org_people(db, org.id)
+    else:
+        members_by_id = {person.id: person for person in managed_people(db, org.id, user)}
+        members_by_id[user.id] = user
+        members = sorted(members_by_id.values(), key=lambda person: person.full_name.lower())
+    try:
+        anchor_date = date.fromisoformat(anchor) if anchor else local_today()
+    except ValueError:
+        anchor_date = local_today()
+    report = build_capacity_payload(
+        db,
+        org,
+        members,
+        view=view,
+        anchor=anchor_date,
+        scope=normalized_scope,
+    )
+    return templates.TemplateResponse(
+        "capacity.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "report": report,
+            "today": local_today(),
         },
     )
 

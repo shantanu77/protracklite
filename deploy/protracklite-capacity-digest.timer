@@ -1,0 +1,9 @@
+[Unit]
+Description=Post ProTrack capacity digest to Teams daily at 8:30 AM
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 Asia/Kolkata
+Unit=protracklite-capacity-digest.service
+
+[Install]
+WantedBy=timers.target

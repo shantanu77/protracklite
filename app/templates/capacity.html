@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head capacity-page-head">
+  <div>
+    <p class="eyebrow">Manager Planning</p>
+    <h1>TEAM AVAILABILITY &amp; CAPACITY PLANNING</h1>
+    <p>See planned availability, leave conflicts, and public holidays across your team or the organization.</p>
+  </div>
+  <div class="capacity-header-controls">
+    <form method="get" action="/{{ org.slug }}/manager/capacity" class="capacity-view-form">
+      <select name="scope" aria-label="Capacity scope" onchange="this.form.submit()">
+        <option value="team" {% if report.scope == 'team' %}selected{% endif %}>My Team</option>
+        <option value="org" {% if report.scope == 'org' %}selected{% endif %}>All Organization</option>
+      </select>
+      <select name="view" aria-label="Timeline view" onchange="this.form.submit()">
+        <option value="month" {% if report.view == 'month' %}selected{% endif %}>Month View</option>
+        <option value="sprint" {% if report.view == 'sprint' %}selected{% endif %}>Sprint View</option>
+        <option value="week" {% if report.view == 'week' %}selected{% endif %}>Week View</option>
+      </select>
+      <input type="hidden" name="anchor" value="{{ report.period_start.isoformat() }}">
+    </form>
+    <a class="button capacity-timeline-cta" href="#capacity-timeline" data-capacity-view-timeline>View Timeline</a>
+  </div>
+</section>
+
+<section class="capacity-summary-grid" aria-label="Capacity summary">
+  <article class="capacity-summary-card"><span>People in view</span><strong>{{ report.member_count }}</strong></article>
+  <article class="capacity-summary-card"><span>Leave entries</span><strong>{{ report.leave_entry_count }}</strong></article>
+  <article class="capacity-summary-card"><span>Public holidays</span><strong>{{ report.holiday_count }}</strong></article>
+  <article class="capacity-summary-card"><span>Planning period</span><strong>{{ report.day_count }} days</strong></article>
+</section>
+
+<section class="capacity-card" id="capacity-timeline">
+  <div class="capacity-card-toolbar">
+    <div class="capacity-alert is-{{ report.conflict_tone }}"><span aria-hidden="true">⚠️</span><strong>{{ report.conflict_text }}</strong></div>
+    <div class="capacity-period-nav">
+      <a class="button secondary small-button" href="/{{ org.slug }}/manager/capacity?view={{ report.view }}&amp;scope={{ report.scope }}&amp;anchor={{ report.previous_anchor.isoformat() }}" aria-label="Previous {{ report.view }}">←</a>
+      <strong>{{ report.period_label }}</strong>
+      <a class="button secondary small-button" href="/{{ org.slug }}/manager/capacity?view={{ report.view }}&amp;scope={{ report.scope }}&amp;anchor={{ report.next_anchor.isoformat() }}" aria-label="Next {{ report.view }}">→</a>
+    </div>
+  </div>
+
+  {% if report.rows %}
+  <div class="capacity-gantt" style="--capacity-days: {{ report.day_count }};">
+    <div class="capacity-member-pane">
+      <div class="capacity-member-header">Team Member</div>
+      {% for row in report.rows %}
+      <div class="capacity-member-row">
+        {{ user_avatar(row.user, 24, "capacity-avatar") }}
+        <div><strong>{{ row.display_name }}</strong><small>{{ row.role_label }}</small></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="capacity-scroll" data-capacity-scroll>
+      <div class="capacity-track">
+        <div class="capacity-calendar-header">
+          <div class="capacity-month-row">{{ report.period_label }}</div>
+          <div class="capacity-day-row">
+            {% for day in report.days %}
+            <div class="capacity-day-head{% if day.weekday() in [5, 6] %} is-weekend{% endif %}{% if day == today %} is-today{% endif %}" data-capacity-date="{{ day.isoformat() }}">
+              <span>{{ day.strftime('%a')[:1] }}</span><strong>{{ day.day }}</strong>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="capacity-timeline-body">
+          {% for band in report.holiday_bands %}
+          <div class="capacity-holiday-band" style="--segment-start: {{ band.start }}; --segment-span: {{ band.span }};" title="{{ band.title }}"></div>
+          {% endfor %}
+          {% for row in report.rows %}
+          <div class="capacity-timeline-row">
+            {% for segment in row.segments %}
+            {% if segment.status != 'holiday' %}
+            <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-start: {{ segment.start }}; --segment-span: {{ segment.span }};" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ segment.title }}</span></div>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty capacity-empty">No active team members are available in this scope.</p>
+  {% endif %}
+
+  <div class="capacity-legend" aria-label="Capacity status legend">
+    <span><i class="is-available"></i>Active / Available</span>
+    <span><i class="is-planned"></i>{{ report.planned_legend_label }}</span>
+    <span><i class="is-unplanned"></i>Unplanned / Sick</span>
+    <span><i class="is-holiday"></i>Public Holiday</span>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const scroll = document.querySelector("[data-capacity-scroll]");
+    const today = scroll?.querySelector(`[data-capacity-date="{{ today.isoformat() }}"]`);
+    document.querySelector("[data-capacity-view-timeline]")?.addEventListener("click", () => {
+      window.setTimeout(() => {
+        if (scroll && today) scroll.scrollLeft = Math.max(today.offsetLeft - scroll.clientWidth / 2, 0);
+      }, 0);
+    });
+  })();
+</script>
+{% endblock %}

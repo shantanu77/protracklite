@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     base_domain: str = "tasks.omnihire.in"
     openai_api_key: str = ""
     openai_backlog_model: str = "gpt-5.4-mini"
+    teams_availability_webhook_url: str = ""
     dev_release_upload_dir: str = "/var/lib/protracklite/uploads/dev-releases"
     user_content_dir: str = "/var/lib/protracklite/user-content"
 

@@ -99,6 +99,7 @@
             </button>
             <div class="nav-group-body">
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/manager/dashboard' %} primary{% endif %}" href="/{{ org.slug }}/manager/dashboard" {% if current_path == '/' ~ org.slug ~ '/manager/dashboard' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">♙</span><span>Team Dashboard</span></a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/manager/capacity' %} primary{% endif %}" href="/{{ org.slug }}/manager/capacity" {% if current_path == '/' ~ org.slug ~ '/manager/capacity' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">▥</span><span>Capacity View</span></a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/admin/leaderboard' %} primary{% endif %}" href="/{{ org.slug }}/admin/leaderboard" {% if current_path == '/' ~ org.slug ~ '/admin/leaderboard' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">△</span><span>Leaderboard</span></a>
             </div>
           </div>
