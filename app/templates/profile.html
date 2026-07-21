@@ -118,14 +118,14 @@
       <label>Duration
         <select name="leave_type" required><option value="full">Full day</option><option value="half_am">Half day (AM)</option><option value="half_pm">Half day (PM)</option></select>
       </label>
-      <label class="full">Designated backup
+      <label class="profile-leave-backup-field">Designated backup
         <select name="backup_user_id" required>
           <option value="">Select backup</option>{% for person in leave_backup_people %}<option value="{{ person.id }}">{{ person.full_name }}</option>{% endfor %}
         </select>
       </label>
-      <div class="dashboard-leave-duration full" data-profile-leave-duration><strong>1 working day of leave</strong><span>Weekends and holidays are excluded.</span></div>
-      <label class="full">Reason / handover note<textarea name="reason" rows="3" minlength="80" maxlength="255" required></textarea><small data-profile-leave-reason-count></small></label>
-      <section class="dashboard-leave-tasks profile-leave-tasks full" aria-live="polite">
+      <div class="dashboard-leave-duration profile-leave-duration-summary" data-profile-leave-duration><strong>1 working day of leave</strong><span>Weekends and holidays are excluded.</span></div>
+      <label class="profile-leave-reason-field">Reason / handover note<textarea name="reason" rows="3" minlength="80" maxlength="255" required></textarea><small data-profile-leave-reason-count></small></label>
+      <section class="dashboard-leave-tasks profile-leave-tasks" aria-live="polite">
         <div class="dashboard-leave-tasks-head"><strong>Tasks during this period</strong><span data-profile-leave-task-count>0 tasks</span></div>
         <div class="dashboard-leave-task-grid dashboard-leave-task-grid-head" aria-hidden="true"><span>Task</span><span>Deadline</span><span>Effort</span></div>
         <div class="dashboard-leave-task-list" data-profile-leave-task-list><p class="empty">Select dates to check affected tasks.</p></div>
