@@ -349,6 +349,113 @@ textarea {
   box-shadow: 0 7px 16px rgba(190, 24, 93, 0.2);
 }
 
+.profile-leaves-panel {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.profile-leaves-head,
+.profile-leaves-actions,
+.profile-leave-row-actions,
+.profile-leave-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.profile-leaves-head {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.profile-leaves-head h2 { margin: 0; }
+.profile-leaves-head p:not(.eyebrow) { margin-top: 0.2rem; color: var(--muted); font-size: 0.8rem; }
+.profile-leaves-actions { flex: 0 0 auto; }
+
+.profile-leave-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.profile-leave-stats article {
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(29, 52, 66, 0.09);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #fff, #f7faf9);
+}
+
+.profile-leave-stats article.is-balance {
+  border-color: rgba(22, 163, 74, 0.2);
+  background: linear-gradient(145deg, #f0fdf4, #fff);
+}
+
+.profile-leave-stats span,
+.profile-leave-stats small { display: block; color: var(--muted); font-size: 0.62rem; }
+.profile-leave-stats strong { display: block; margin: 0.12rem 0; font-size: 1.35rem; line-height: 1; }
+
+.profile-zoho-status {
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(15, 118, 110, 0.06);
+  color: #0f766e;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.profile-zoho-status.is-error,
+.profile-leave-edit-feedback.is-error { background: rgba(194, 65, 59, 0.08); color: var(--danger); }
+
+.profile-zoho-types { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.profile-zoho-types span { padding: 0.22rem 0.45rem; border-radius: 999px; background: rgba(29, 52, 66, 0.06); color: var(--muted); font-size: 0.62rem; font-weight: 700; }
+
+.profile-leave-table-wrap {
+  max-height: 25rem;
+  overflow: auto;
+  border: 1px solid rgba(29, 52, 66, 0.09);
+  border-radius: 12px;
+  scrollbar-width: thin;
+}
+
+.profile-leave-table { min-width: 820px; }
+.profile-leave-table th { position: sticky; top: 0; z-index: 1; }
+.profile-leave-table th,
+.profile-leave-table td { padding: 0.52rem 0.58rem; font-size: 0.72rem; vertical-align: middle; }
+.profile-leave-table td > strong,
+.profile-leave-table td > small { display: block; }
+.profile-leave-table td > small { max-width: 26rem; margin-top: 0.12rem; overflow: hidden; color: var(--muted); font-size: 0.61rem; text-overflow: ellipsis; white-space: nowrap; }
+.profile-leave-row-actions .button { min-height: 1.85rem; padding: 0.3rem 0.48rem; font-size: 0.65rem; }
+.profile-leave-locked { color: var(--muted); white-space: nowrap; }
+
+.profile-leave-sync {
+  display: inline-flex;
+  padding: 0.2rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.1);
+  color: #92400e;
+  font-size: 0.6rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.profile-leave-sync.is-synced { background: rgba(22, 163, 74, 0.1); color: #166534; }
+.profile-leave-sync.is-failed { background: rgba(194, 65, 59, 0.1); color: var(--danger); }
+
+.profile-leave-edit-modal { width: min(680px, calc(100vw - 2rem)); }
+.profile-leave-edit-form { gap: 0.65rem; }
+.profile-leave-edit-form label > small { display: block; margin-top: 0.2rem; color: var(--muted); font-size: 0.65rem; }
+.profile-leave-edit-feedback { padding: 0.55rem 0.65rem; border-radius: 9px; font-size: 0.75rem; font-weight: 700; }
+.profile-leave-edit-actions { justify-content: flex-end; }
+
+@media (max-width: 760px) {
+  .profile-leaves-head { display: grid; }
+  .profile-leaves-actions { flex-wrap: wrap; }
+  .profile-leave-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .goals-layout {
   display: grid;
   gap: 1.2rem;

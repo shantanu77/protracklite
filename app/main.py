@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.capacity import build_capacity_payload
-from app.zoho_people import sync_zoho_leave
+from app.zoho_people import cancel_zoho_leave, fetch_zoho_leave_balance, sync_zoho_leave
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
 from app.models import (
@@ -3572,14 +3572,24 @@ def logout_action(org_slug: str):
 def profile_page(
     request: Request,
     org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
 ):
     org, user = org_user
+    leave_requests = profile_leave_requests(db, user.id)
+    current_year = local_today().year
     return templates.TemplateResponse(
         "profile.html",
         {
             "request": request,
             "org": org,
             "user": user,
+            "leave_requests": leave_requests,
+            "leave_year": current_year,
+            "leave_min_date": (local_today() + timedelta(days=1)).isoformat(),
+            "leave_year_applied": sum(
+                item["year_leave_days"] for item in leave_requests if item["year_leave_days"]
+            ),
+            "leave_backup_people": [person for person in org_people(db, org.id) if person.id != user.id],
         },
     )
 
@@ -6994,6 +7004,70 @@ def api_my_standing(
     return {"mine": mine, "comparison": comparison}
 
 
+def leave_day_count(leave: Leave) -> float:
+    return 0.5 if leave.leave_type in {LeaveType.HALF_AM, LeaveType.HALF_PM} else 1.0
+
+
+def profile_leave_requests(db: Session, user_id: int) -> list[dict[str, Any]]:
+    leaves = db.scalars(
+        select(Leave).where(Leave.user_id == user_id).order_by(Leave.leave_date.desc(), Leave.id.desc())
+    ).all()
+    backup_ids = {leave.backup_user_id for leave in leaves if leave.backup_user_id}
+    backups = db.scalars(select(User).where(User.id.in_(backup_ids))).all() if backup_ids else []
+    backup_names = {person.id: person.full_name for person in backups}
+    grouped: dict[str, list[Leave]] = {}
+    for leave in leaves:
+        key = leave.request_group.strip() or f"legacy-{leave.id}"
+        grouped.setdefault(key, []).append(leave)
+    today = local_today()
+    requests = []
+    for request_key, entries in grouped.items():
+        entries.sort(key=lambda item: item.leave_date)
+        first = entries[0]
+        start_date = entries[0].leave_date
+        end_date = entries[-1].leave_date
+        total_days = sum(leave_day_count(item) for item in entries)
+        year_days = sum(leave_day_count(item) for item in entries if item.leave_date.year == today.year)
+        requests.append(
+            {
+                "request_key": request_key,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "start_date_label": start_date.strftime("%d %b %Y"),
+                "end_date_label": end_date.strftime("%d %b %Y"),
+                "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}",
+                "leave_type": first.leave_type.value,
+                "leave_type_label": leave_type_display(first.leave_type),
+                "leave_category": first.leave_category,
+                "leave_category_label": leave_category_display(first.leave_category),
+                "reason": first.reason,
+                "backup_user_id": first.backup_user_id,
+                "backup_name": backup_names.get(first.backup_user_id, "Not available"),
+                "leave_days": total_days,
+                "year_leave_days": year_days,
+                "can_modify": start_date > today,
+                "zoho_sync_status": first.zoho_sync_status,
+                "created_at_label": first.created_at.strftime("%d %b %Y"),
+            }
+        )
+    return sorted(requests, key=lambda item: (item["start_date"], item["request_key"]), reverse=True)
+
+
+def leave_request_entries(db: Session, user_id: int, request_key: str) -> list[Leave]:
+    if request_key.startswith("legacy-"):
+        try:
+            leave_id = int(request_key.removeprefix("legacy-"))
+        except ValueError:
+            return []
+        leave = db.scalar(select(Leave).where(Leave.id == leave_id, Leave.user_id == user_id))
+        return [leave] if leave else []
+    return db.scalars(
+        select(Leave)
+        .where(Leave.user_id == user_id, Leave.request_group == request_key)
+        .order_by(Leave.leave_date.asc())
+    ).all()
+
+
 @app.get("/api/v1/leaves/")
 def api_list_leaves(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     _, user = org_user
@@ -7145,7 +7219,6 @@ def notify_leave_submission(
     recipient_by_email = {recipient.email.strip().lower(): recipient for recipient in recipients if recipient.email.strip()}
     if not recipient_by_email:
         return 0
-
     date_label = start_date.strftime("%d %b %Y")
     if end_date != start_date:
         date_label = f"{date_label} to {end_date.strftime('%d %b %Y')}"
@@ -7181,6 +7254,54 @@ def notify_leave_submission(
         return 1
     except Exception as exc:
         logger.warning("Grouped leave notification failed for request %s: %s", date_label, exc)
+        return 0
+
+
+def notify_leave_change(
+    db: Session,
+    org: Organization,
+    employee: User,
+    action: str,
+    start_date: date,
+    end_date: date,
+    leave_days: float,
+    reason: str,
+) -> int:
+    recipients = db.scalars(
+        select(User).where(
+            User.org_id == org.id,
+            User.is_active.is_(True),
+            or_(User.id == employee.id, User.role.in_([Role.ADMIN, Role.MANAGER])),
+        )
+    ).all()
+    recipient_emails = list(dict.fromkeys(person.email.strip().lower() for person in recipients if person.email.strip()))
+    if not recipient_emails:
+        return 0
+    date_label = start_date.strftime("%d %b %Y")
+    if end_date != start_date:
+        date_label = f"{date_label} to {end_date.strftime('%d %b %Y')}"
+    action_label = "updated" if action == "updated" else "cancelled"
+    body = "\n".join(
+        [
+            f"{employee.full_name} {action_label} a leave request.",
+            "",
+            f"Leave period: {date_label}",
+            f"Leave total: {leave_days:g} working day(s)",
+            f"Reason / note: {reason}",
+            "",
+            f"Open profile: {app_base_url()}/{org.slug}/profile",
+        ]
+    )
+    try:
+        send_group_email(
+            recipient_emails[0],
+            recipient_emails[1:],
+            f"Leave {action_label}: {employee.full_name} · {date_label}",
+            body,
+        )
+        return 1
+    except Exception as exc:
+        logger.warning("Grouped leave %s notification failed for %s: %s", action_label, date_label, exc)
         return 0
 
 
@@ -7337,15 +7458,173 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
     }
 
 
+@app.post("/api/v1/leaves/zoho-balance")
+def api_zoho_leave_balance(org_user: tuple[Organization, User] = Depends(get_org_user)):
+    _, user = org_user
+    result = fetch_zoho_leave_balance(employee_email=user.email)
+    if result.status == "failed":
+        raise HTTPException(status_code=502, detail=result.error or "Unable to refresh Zoho leave balance")
+    if result.status == "not_configured":
+        raise HTTPException(status_code=503, detail=result.error)
+    configured_ids = {settings.zoho_earned_leave_type_id.strip()} - {""}
+    leave_types = [dict(item) for item in result.leave_types]
+    primary_types = [item for item in leave_types if item["id"] in configured_ids]
+    if not primary_types:
+        primary_types = [item for item in leave_types if item["name"].strip().lower() == "earned leave"]
+    availed = sum(float(item["availed"]) for item in primary_types)
+    remaining = sum(float(item["balance"]) for item in primary_types)
+    return {
+        "status": result.status,
+        "annual_pool": availed + remaining,
+        "availed": availed,
+        "remaining": remaining,
+        "leave_types": leave_types,
+        "refreshed_at": format_local_datetime(datetime.utcnow()),
+    }
+
+
+@app.put("/api/v1/leaves/requests/{request_key}")
+def api_update_leave_request(
+    request_key: str,
+    payload: dict,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    entries = leave_request_entries(db, user.id, request_key)
+    if not entries:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    if min(item.leave_date for item in entries) <= local_today():
+        raise HTTPException(status_code=400, detail="Only future leave requests can be edited")
+    try:
+        start_date = date.fromisoformat(str(payload.get("start_date") or ""))
+        end_date = date.fromisoformat(str(payload.get("end_date") or ""))
+        leave_type = LeaveType(payload.get("leave_type", "full"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Select valid leave dates and leave duration")
+    if start_date <= local_today():
+        raise HTTPException(status_code=400, detail="Edited leave must start on a future date")
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="End date cannot be before start date")
+    if (end_date - start_date).days > 366:
+        raise HTTPException(status_code=400, detail="Leave duration cannot exceed 366 days")
+    if start_date != end_date and leave_type != LeaveType.FULL:
+        raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
+    leave_category = str(payload.get("leave_category") or "").strip().lower()
+    if leave_category not in {"planned", "sick", "casual", "unpaid", "comp_off"}:
+        raise HTTPException(status_code=400, detail="Select a valid leave type")
+    reason = re.sub(r"\s+", " ", str(payload.get("reason") or "").strip())
+    if len(reason) < 80 or len(reason) > 255:
+        raise HTTPException(status_code=400, detail="Reason / note must be between 80 and 255 characters")
+    try:
+        backup_user_id = int(payload.get("backup_user_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Select a designated backup person")
+    backup = db.scalar(
+        select(User).where(
+            User.id == backup_user_id,
+            User.org_id == org.id,
+            User.is_active.is_(True),
+            User.id != user.id,
+        )
+    )
+    if not backup:
+        raise HTTPException(status_code=400, detail="Select a valid designated backup person")
+    working_dates, excluded_dates = leave_working_dates(db, org.id, start_date, end_date)
+    if not working_dates:
+        raise HTTPException(status_code=400, detail="The selected period contains no working days")
+    entry_ids = {item.id for item in entries}
+    conflict = db.scalar(
+        select(Leave).where(
+            Leave.user_id == user.id,
+            Leave.leave_date.in_(working_dates),
+            Leave.id.not_in(entry_ids),
+        )
+    )
+    if conflict:
+        raise HTTPException(status_code=409, detail=f"Leave already exists on {conflict.leave_date.strftime('%d %b %Y')}")
+    zoho_ids = {item.zoho_leave_id for item in entries if item.zoho_leave_id}
+    if len(zoho_ids) > 1:
+        raise HTTPException(status_code=409, detail="This leave request has inconsistent Zoho records; contact an administrator")
+    zoho_result = sync_zoho_leave(
+        employee_email=user.email,
+        leave_category=leave_category,
+        leave_type=leave_type.value,
+        working_dates=working_dates,
+        reason=reason,
+        existing_leave_id=next(iter(zoho_ids), ""),
+    )
+    if zoho_result.status == "failed":
+        raise HTTPException(status_code=502, detail=zoho_result.error or "Zoho could not update this leave")
+    request_group = entries[0].request_group.strip() or secrets.token_hex(16)
+    by_date = {item.leave_date: item for item in entries}
+    for leave_date in working_dates:
+        leave = by_date.pop(leave_date, None)
+        if not leave:
+            leave = Leave(user_id=user.id, leave_date=leave_date, request_group=request_group)
+            db.add(leave)
+        leave.leave_type = leave_type
+        leave.leave_category = leave_category
+        leave.reason = reason
+        leave.backup_user_id = backup.id
+        leave.request_group = request_group
+        leave.zoho_leave_id = zoho_result.leave_id or next(iter(zoho_ids), "")
+        leave.zoho_sync_status = zoho_result.status
+        leave.zoho_sync_error = zoho_result.error[:255]
+        leave.zoho_synced_at = datetime.utcnow() if zoho_result.status == "synced" else None
+    for obsolete in by_date.values():
+        db.delete(obsolete)
+    db.commit()
+    leave_days = 0.5 if leave_type != LeaveType.FULL else float(len(working_dates))
+    notify_leave_change(db, org, user, "updated", start_date, end_date, leave_days, reason)
+    return {
+        "ok": True,
+        "request_key": request_group,
+        "leave_days": leave_days,
+        "excluded_day_count": len(excluded_dates),
+        "zoho_sync_status": zoho_result.status,
+    }
+
+
+def cancel_leave_request(db: Session, org: Organization, user: User, entries: list[Leave]) -> dict[str, Any]:
+    if not entries:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    start_date = min(item.leave_date for item in entries)
+    end_date = max(item.leave_date for item in entries)
+    if start_date <= local_today():
+        raise HTTPException(status_code=400, detail="Only future leave requests can be cancelled")
+    zoho_ids = {item.zoho_leave_id for item in entries if item.zoho_leave_id}
+    for zoho_id in zoho_ids:
+        zoho_result = cancel_zoho_leave(leave_id=zoho_id, reason="Cancelled by employee from ProTrack")
+        if zoho_result.status == "failed":
+            raise HTTPException(status_code=502, detail=zoho_result.error or "Zoho could not cancel this leave")
+    leave_days = sum(leave_day_count(item) for item in entries)
+    reason = entries[0].reason
+    for entry in entries:
+        db.delete(entry)
+    db.commit()
+    notify_leave_change(db, org, user, "cancelled", start_date, end_date, leave_days, reason)
+    return {"ok": True, "cancelled_count": len(entries), "zoho_cancelled": bool(zoho_ids)}
+
+
+@app.delete("/api/v1/leaves/requests/{request_key}")
+def api_cancel_leave_request(
+    request_key: str,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    return cancel_leave_request(db, org, user, leave_request_entries(db, user.id, request_key))
+
+
 @app.delete("/api/v1/leaves/{leave_id}")
 def api_delete_leave(leave_id: int, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
-    _, user = org_user
+    org, user = org_user
     leave = db.get(Leave, leave_id)
     if not leave or leave.user_id != user.id:
         raise HTTPException(status_code=404, detail="Leave not found")
-    db.delete(leave)
-    db.commit()
-    return {"ok": True}
+    request_key = leave.request_group.strip() or f"legacy-{leave.id}"
+    return cancel_leave_request(db, org, user, leave_request_entries(db, user.id, request_key))
 
 
 @app.get("/{org_slug}/admin/dashboard", response_class=HTMLResponse)

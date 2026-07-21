@@ -43,6 +43,87 @@
   <b aria-hidden="true">→</b>
 </a>
 
+<section class="panel profile-leaves-panel">
+  <div class="profile-leaves-head">
+    <div>
+      <p class="eyebrow">Time off</p>
+      <h2>My Leaves</h2>
+      <p>All leave requests recorded through ProTrack. Future requests can be edited or cancelled.</p>
+    </div>
+    <div class="profile-leaves-actions">
+      <button type="button" class="button secondary small" data-zoho-balance-refresh>↻ Refresh from Zoho</button>
+      <a class="button small" href="/{{ org.slug }}/dashboard?leave_open=1">+ Add Leave</a>
+    </div>
+  </div>
+
+  <div class="profile-leave-stats">
+    <article><span>Applied in {{ leave_year }}</span><strong>{{ "%g"|format(leave_year_applied) }}</strong><small>ProTrack working days</small></article>
+    <article><span>Annual leave pool</span><strong data-zoho-annual-pool>—</strong><small>Earned leave from Zoho</small></article>
+    <article><span>Availed / booked</span><strong data-zoho-availed>—</strong><small>Zoho People</small></article>
+    <article class="is-balance"><span>Remaining</span><strong data-zoho-remaining>—</strong><small>Zoho People</small></article>
+  </div>
+  <div class="profile-zoho-status" data-zoho-balance-status>Refreshing Zoho leave balance…</div>
+  <div class="profile-zoho-types" data-zoho-leave-types hidden></div>
+
+  <div class="profile-leave-table-wrap">
+    <table class="profile-leave-table">
+      <thead><tr><th>Dates</th><th>Leave</th><th>Days</th><th>Backup</th><th>Zoho</th><th></th></tr></thead>
+      <tbody>
+        {% for leave in leave_requests %}
+        <tr>
+          <td><strong>{{ leave.date_label }}</strong><small>Applied {{ leave.created_at_label }}</small></td>
+          <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }} · {{ leave.reason }}</small></td>
+          <td><strong>{{ "%g"|format(leave.leave_days) }}</strong></td>
+          <td>{{ leave.backup_name }}</td>
+          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
+          <td>
+            {% if leave.can_modify %}
+            <div class="profile-leave-row-actions">
+              <button type="button" class="button ghost small" data-profile-leave-edit="{{ leave.request_key }}">Edit</button>
+              <button type="button" class="button danger small" data-profile-leave-cancel="{{ leave.request_key }}">Cancel</button>
+            </div>
+            {% else %}
+            <small class="profile-leave-locked">Past / active</small>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No leave has been applied through ProTrack yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="modal-backdrop" id="profile-leave-edit-modal" aria-hidden="true" data-profile-leave-modal>
+  <div class="modal-card profile-leave-edit-modal" role="dialog" aria-modal="true" aria-labelledby="profile-leave-edit-title">
+    <div class="modal-head">
+      <div><h2 id="profile-leave-edit-title">Edit Future Leave</h2><p>Weekends and organization holidays are excluded automatically.</p></div>
+      <button type="button" class="modal-close" aria-label="Close edit leave" data-profile-leave-close>×</button>
+    </div>
+    <form class="form-grid profile-leave-edit-form" data-profile-leave-edit-form>
+      <label>Start date<input type="date" name="start_date" min="{{ leave_min_date }}" required></label>
+      <label>End date<input type="date" name="end_date" min="{{ leave_min_date }}" required></label>
+      <label>Leave type
+        <select name="leave_category" required>
+          <option value="planned">Planned / Vacation</option><option value="sick">Sick / Medical</option><option value="casual">Casual / Personal</option><option value="unpaid">Unpaid Leave</option><option value="comp_off">Compensatory Off</option>
+        </select>
+      </label>
+      <label>Duration
+        <select name="leave_type" required><option value="full">Full day</option><option value="half_am">Half day (AM)</option><option value="half_pm">Half day (PM)</option></select>
+      </label>
+      <label class="full">Designated backup
+        <select name="backup_user_id" required>
+          <option value="">Select backup</option>{% for person in leave_backup_people %}<option value="{{ person.id }}">{{ person.full_name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="full">Reason / handover note<textarea name="reason" rows="3" minlength="80" maxlength="255" required></textarea><small data-profile-leave-reason-count></small></label>
+      <div class="profile-leave-edit-feedback full" data-profile-leave-edit-feedback hidden></div>
+      <div class="profile-leave-edit-actions full"><button type="button" class="button ghost" data-profile-leave-close>Cancel</button><button type="submit">Save Changes</button></div>
+    </form>
+  </div>
+</div>
+
 <script>
   (() => {
     const form = document.querySelector("[data-profile-photo-form]");
@@ -102,6 +183,127 @@
         feedback.textContent = "Uploading and preparing profile sizes...";
       }
     });
+  })();
+</script>
+<script>
+  (() => {
+    const leaveRequests = {{ leave_requests|tojson }};
+    const requestMap = new Map(leaveRequests.map((item) => [item.request_key, item]));
+    const refreshButton = document.querySelector("[data-zoho-balance-refresh]");
+    const balanceStatus = document.querySelector("[data-zoho-balance-status]");
+    const typesWrap = document.querySelector("[data-zoho-leave-types]");
+    const modal = document.querySelector("[data-profile-leave-modal]");
+    const editForm = document.querySelector("[data-profile-leave-edit-form]");
+    const feedback = document.querySelector("[data-profile-leave-edit-feedback]");
+    const reasonInput = editForm?.querySelector('[name="reason"]');
+    const reasonCount = document.querySelector("[data-profile-leave-reason-count]");
+    let activeRequestKey = "";
+
+    const numberLabel = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const refreshZohoBalance = async () => {
+      if (!refreshButton || !balanceStatus) return;
+      refreshButton.disabled = true;
+      refreshButton.textContent = "Refreshing…";
+      balanceStatus.classList.remove("is-error");
+      balanceStatus.textContent = "Refreshing Zoho leave balance…";
+      try {
+        const response = await fetch("/api/v1/leaves/zoho-balance", { method: "POST", credentials: "same-origin" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Unable to refresh Zoho balance.");
+        document.querySelector("[data-zoho-annual-pool]").textContent = numberLabel(payload.annual_pool);
+        document.querySelector("[data-zoho-availed]").textContent = numberLabel(payload.availed);
+        document.querySelector("[data-zoho-remaining]").textContent = numberLabel(payload.remaining);
+        balanceStatus.textContent = `Synced with Zoho People · ${payload.refreshed_at}`;
+        if (typesWrap) {
+          typesWrap.replaceChildren();
+          (payload.leave_types || []).forEach((item) => {
+            const chip = document.createElement("span");
+            chip.textContent = `${item.name}: ${numberLabel(item.balance)} remaining`;
+            typesWrap.appendChild(chip);
+          });
+          typesWrap.hidden = !(payload.leave_types || []).length;
+        }
+      } catch (error) {
+        balanceStatus.classList.add("is-error");
+        balanceStatus.textContent = error.message || "Unable to refresh Zoho balance.";
+      } finally {
+        refreshButton.disabled = false;
+        refreshButton.textContent = "↻ Refresh from Zoho";
+      }
+    };
+
+    const closeModal = () => {
+      if (!modal) return;
+      modal.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      activeRequestKey = "";
+    };
+    const syncReasonCount = () => {
+      if (!reasonInput || !reasonCount) return;
+      const remaining = Math.max(0, 80 - reasonInput.value.trim().length);
+      reasonCount.textContent = remaining ? `${remaining} more characters required` : `${reasonInput.value.length}/255 characters`;
+    };
+    document.querySelectorAll("[data-profile-leave-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = requestMap.get(button.dataset.profileLeaveEdit);
+        if (!item || !modal || !editForm) return;
+        activeRequestKey = item.request_key;
+        editForm.elements.start_date.value = item.start_date;
+        editForm.elements.end_date.value = item.end_date;
+        editForm.elements.leave_category.value = item.leave_category;
+        editForm.elements.leave_type.value = item.leave_type;
+        editForm.elements.backup_user_id.value = item.backup_user_id || "";
+        editForm.elements.reason.value = item.reason || "";
+        if (feedback) feedback.hidden = true;
+        syncReasonCount();
+        modal.classList.add("is-open");
+        modal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("modal-open");
+      });
+    });
+    document.querySelectorAll("[data-profile-leave-close]").forEach((button) => button.addEventListener("click", closeModal));
+    modal?.addEventListener("click", (event) => { if (event.target === modal) closeModal(); });
+    reasonInput?.addEventListener("input", syncReasonCount);
+    editForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!activeRequestKey) return;
+      const submit = editForm.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      submit.textContent = "Saving…";
+      if (feedback) feedback.hidden = true;
+      try {
+        const payload = Object.fromEntries(new FormData(editForm).entries());
+        const response = await fetch(`/api/v1/leaves/requests/${encodeURIComponent(activeRequestKey)}`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Unable to update leave.");
+        window.location.reload();
+      } catch (error) {
+        if (feedback) { feedback.hidden = false; feedback.classList.add("is-error"); feedback.textContent = error.message || "Unable to update leave."; }
+        submit.disabled = false;
+        submit.textContent = "Save Changes";
+      }
+    });
+    document.querySelectorAll("[data-profile-leave-cancel]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const item = requestMap.get(button.dataset.profileLeaveCancel);
+        if (!item || !window.confirm(`Cancel leave for ${item.date_label}? This will also cancel it in Zoho People.`)) return;
+        button.disabled = true;
+        button.textContent = "Cancelling…";
+        try {
+          const response = await fetch(`/api/v1/leaves/requests/${encodeURIComponent(item.request_key)}`, { method: "DELETE", credentials: "same-origin" });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "Unable to cancel leave.");
+          window.location.reload();
+        } catch (error) {
+          window.alert(error.message || "Unable to cancel leave.");
+          button.disabled = false;
+          button.textContent = "Cancel";
+        }
+      });
+    });
+    refreshButton?.addEventListener("click", refreshZohoBalance);
+    refreshZohoBalance();
   })();
 </script>
 {% endblock %}
