@@ -95,6 +95,8 @@ USER_CONTENT_ROOT = Path(settings.user_content_dir)
 USER_CONTENT_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/user-content", StaticFiles(directory=str(USER_CONTENT_ROOT)), name="user_content")
 templates = Jinja2Templates(directory="app/templates")
+STYLESHEET_VERSION = hashlib.sha256(Path("app/static/styles.css").read_bytes()).hexdigest()[:12]
+templates.env.globals["stylesheet_version"] = STYLESHEET_VERSION
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
 

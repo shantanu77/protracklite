@@ -6858,6 +6858,11 @@ th {
   width: min(100%, 720px);
 }
 
+#profile-leave-edit-modal .modal-card.profile-leave-edit-modal {
+  width: min(1180px, calc(100vw - 2rem));
+  max-width: none;
+}
+
 .whats-new-card {
   max-height: min(88vh, 780px);
   overflow: auto;
