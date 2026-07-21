@@ -44,8 +44,8 @@ For managers, My Team contains the manager and their direct reports. All Organiz
 | Status | Visual | Current ProTrack rule |
 |---|---|---|
 | Avl (Active / Available) | Solid green `#22C55E` | Active employee with no registered leave and no public holiday on the date. |
-| PL (Planned Leave) | Yellow `#FBBF24` with diagonal stripes | Leave date is later than the date on which the leave record was submitted. |
-| UL/Sick (Unplanned / Sick) | Solid red `#EF4444` | Leave is entered on or after the affected date. ProTrack currently has no separate medical-leave category, so timing is the implemented classification rule. |
+| PL (Planned Leave) | Yellow `#FBBF24` with diagonal stripes | Leave explicitly submitted as Planned / Vacation, or a non-sick leave registered before the affected date. |
+| UL/Sick (Unplanned / Sick) | Solid red `#EF4444` | Leave explicitly submitted as Sick / Medical, or a non-planned leave entered on or after the affected date. |
 | Wknd (Weekend) | Light gray `#EEF1F4` | Saturday and Sunday. Weekend bands span all rows and replace green availability bars. |
 | PH (Public Holiday) | Light blue `#DBEAFE` | Organization holiday registered by an admin. It overrides individual availability for that day. |
 
@@ -112,4 +112,4 @@ Run a non-posting preview with:
 python3 -m app.capacity_digest --dry-run --org-slug solulever
 ```
 
-The digest uses the same planned/unplanned timing rule as Capacity View and includes the designated backup person when one is recorded. Customer Visit is omitted because it is not currently a structured ProTrack record.
+The digest uses the same category-aware planned/unplanned rule as Capacity View and includes the designated backup person when one is recorded. Customer Visit is omitted because it is not currently a structured ProTrack record.

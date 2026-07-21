@@ -483,6 +483,7 @@ class Leave(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     leave_date: Mapped[date] = mapped_column(Date)
     leave_type: Mapped[LeaveType] = mapped_column(SqlEnum(LeaveType), default=LeaveType.FULL)
+    leave_category: Mapped[str] = mapped_column(String(30), default="general")
     reason: Mapped[str] = mapped_column(String(255), default="")
     backup_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     request_group: Mapped[str] = mapped_column(String(40), default="", index=True)

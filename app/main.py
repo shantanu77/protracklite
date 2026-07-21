@@ -860,6 +860,7 @@ def ensure_leaves_schema() -> None:
     ddl_by_column = {
         "backup_user_id": "ALTER TABLE leaves ADD COLUMN backup_user_id INTEGER NULL",
         "request_group": "ALTER TABLE leaves ADD COLUMN request_group VARCHAR(40) NOT NULL DEFAULT ''",
+        "leave_category": "ALTER TABLE leaves ADD COLUMN leave_category VARCHAR(30) NOT NULL DEFAULT 'general'",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -3634,6 +3635,7 @@ def dashboard(
     daylog_error: str | None = None,
     daylog_open: int | None = None,
     daylog_date: str | None = None,
+    leave_open: int | None = None,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -3687,6 +3689,7 @@ def dashboard(
             "daylog_error": daylog_error or "",
             "daylog_open": bool(daylog_open),
             "daylog_date": daylog_date or "",
+            "leave_open": bool(leave_open),
             "time_log_notes_min_length": TIME_LOG_NOTES_MIN_LENGTH,
             "whats_new_announcement": pending_whats_new_announcement(db, user, org.slug),
         },
@@ -6931,6 +6934,7 @@ def api_list_leaves(org_user: tuple[Organization, User] = Depends(get_org_user),
             "id": item.id,
             "leave_date": item.leave_date.isoformat(),
             "leave_type": item.leave_type.value,
+            "leave_category": item.leave_category,
             "reason": item.reason,
             "backup_user_id": item.backup_user_id,
             "request_group": item.request_group,
@@ -7031,6 +7035,20 @@ def leave_type_display(leave_type: LeaveType) -> str:
     }[leave_type]
 
 
+LEAVE_CATEGORY_LABELS = {
+    "planned": "Planned / Vacation",
+    "sick": "Sick / Medical",
+    "casual": "Casual / Personal",
+    "unpaid": "Unpaid Leave",
+    "comp_off": "Compensatory Off",
+    "general": "General Leave",
+}
+
+
+def leave_category_display(leave_category: str) -> str:
+    return LEAVE_CATEGORY_LABELS.get(leave_category, LEAVE_CATEGORY_LABELS["general"])
+
+
 def notify_leave_submission(
     db: Session,
     org: Organization,
@@ -7039,6 +7057,7 @@ def notify_leave_submission(
     start_date: date,
     end_date: date,
     leave_type: LeaveType,
+    leave_category: str,
     leave_days: Decimal,
     excluded_dates: list[dict[str, str]],
     reason: str,
@@ -7069,7 +7088,8 @@ def notify_leave_submission(
             f"{employee.full_name} submitted leave.",
             "",
             f"Leave period: {date_label}",
-            f"Leave type: {leave_type_display(leave_type)}",
+            f"Leave type: {leave_category_display(leave_category)}",
+            f"Leave duration: {leave_type_display(leave_type)}",
             f"Leave total: {leave_days.normalize()} working day(s)",
             f"Excluded weekends / holidays: {len(excluded_dates)}",
             f"Designated backup: {backup.full_name}",
@@ -7131,6 +7151,9 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         raise HTTPException(status_code=400, detail="End date cannot be before start date")
     if (end_date - start_date).days > 366:
         raise HTTPException(status_code=400, detail="Leave duration cannot exceed 366 days")
+    leave_category = str(payload.get("leave_category") or "").strip().lower()
+    if leave_category not in {"planned", "sick", "casual", "unpaid", "comp_off"}:
+        raise HTTPException(status_code=400, detail="Select a valid leave type")
     if start_date != end_date and leave_type != LeaveType.FULL:
         raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
     working_dates, excluded_dates = leave_working_dates(db, org.id, start_date, end_date)
@@ -7167,6 +7190,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
         if leave:
             leave.leave_type = leave_type
+            leave.leave_category = leave_category
             leave.reason = reason
             leave.backup_user_id = backup.id
             leave.request_group = request_group
@@ -7175,6 +7199,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
                 user_id=user.id,
                 leave_date=leave_date,
                 leave_type=leave_type,
+                leave_category=leave_category,
                 reason=reason,
                 backup_user_id=backup.id,
                 request_group=request_group,
@@ -7191,6 +7216,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         start_date,
         end_date,
         leave_type,
+        leave_category,
         leave_days,
         excluded_dates,
         reason,
@@ -7201,6 +7227,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "leave_type": leave_type.value,
+        "leave_category": leave_category,
         "leave_days": float(leave_days),
         "excluded_day_count": len(excluded_dates),
         "excluded_dates": excluded_dates,

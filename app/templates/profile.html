@@ -34,6 +34,15 @@
   </form>
 </section>
 
+<a class="profile-leave-shortcut" href="/{{ org.slug }}/dashboard?leave_open=1">
+  <span class="profile-leave-shortcut-icon" aria-hidden="true">☀</span>
+  <span>
+    <strong>Add Leave</strong>
+    <small>Plan leave, choose its type and duration, assign a backup, and review affected tasks.</small>
+  </span>
+  <b aria-hidden="true">→</b>
+</a>
+
 <script>
   (() => {
     const form = document.querySelector("[data-profile-photo-form]");

@@ -46,6 +46,10 @@ def short_person_name(full_name: str) -> str:
 
 
 def leave_is_planned(leave: Leave) -> bool:
+    if leave.leave_category == "sick":
+        return False
+    if leave.leave_category == "planned":
+        return True
     submitted_date = local_datetime(leave.created_at).date() if leave.created_at else leave.leave_date
     return leave.leave_date > submitted_date
 

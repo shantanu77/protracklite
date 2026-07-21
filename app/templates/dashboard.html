@@ -234,7 +234,7 @@
     </div>
     <div class="page-head-actions dashboard-week-actions">
       <button type="button" class="button secondary small-button" data-modal-open="dashboard-ai-task-modal" title="Shortcut: Ctrl+Shift+K or Cmd+Shift+K">✦ Add Using AI</button>
-      <button type="button" class="button secondary small-button" data-modal-open="dashboard-leave-modal">Add Leave</button>
+      <button type="button" class="button small-button dashboard-add-leave-button" data-modal-open="dashboard-leave-modal"><span aria-hidden="true">☀</span> Add Leave</button>
     </div>
   </div>
   {% if daylog_saved %}<p class="dashboard-leave-feedback">Effort saved.</p>{% endif %}
@@ -710,8 +710,18 @@
       <button type="button" class="modal-close" data-modal-close aria-label="Close leave modal">×</button>
     </div>
     <form class="form-grid dashboard-leave-form" data-dashboard-leave-form>
+      <fieldset class="dashboard-leave-category full">
+        <legend>Leave Type</legend>
+        <div class="dashboard-leave-category-options">
+          <label class="is-planned"><input type="radio" name="leave_category" value="planned" required checked><span><b>🏖</b>Planned</span></label>
+          <label class="is-sick"><input type="radio" name="leave_category" value="sick" required><span><b>✚</b>Sick</span></label>
+          <label class="is-casual"><input type="radio" name="leave_category" value="casual" required><span><b>☕</b>Casual</span></label>
+          <label class="is-unpaid"><input type="radio" name="leave_category" value="unpaid" required><span><b>○</b>Unpaid</span></label>
+          <label class="is-comp-off"><input type="radio" name="leave_category" value="comp_off" required><span><b>↻</b>Comp Off</span></label>
+        </div>
+      </fieldset>
       <label>
-        Leave Type
+        Leave Duration
         <select name="leave_type" required>
           <option value="full">Full Day</option>
           <option value="half_am" data-half-day-option>Half Day AM</option>
@@ -860,6 +870,7 @@
     const startDateInput = form?.querySelector('[name="start_date"]');
     const endDateInput = form?.querySelector('[name="end_date"]');
     const typeInput = form?.querySelector('[name="leave_type"]');
+    const categoryInputs = Array.from(form?.querySelectorAll('[name="leave_category"]') || []);
     const backupInput = form?.querySelector('[name="backup_user_id"]');
     const reasonInput = form?.querySelector('[name="reason"]');
     const noteHelper = form?.querySelector("[data-dashboard-leave-note-helper]");
@@ -867,7 +878,7 @@
     const taskList = form?.querySelector("[data-dashboard-leave-task-list]");
     const taskCount = form?.querySelector("[data-dashboard-leave-task-count]");
     const halfDayOptions = Array.from(form?.querySelectorAll("[data-half-day-option]") || []);
-    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !deleteButton) {
+    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !categoryInputs.length || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !deleteButton) {
       return;
     }
 
@@ -981,6 +992,8 @@
         return;
       }
       typeInput.value = leave.leave_type || "full";
+      const category = leave.leave_category || "planned";
+      categoryInputs.forEach((input) => { input.checked = input.value === category; });
       backupInput.value = leave.backup_user_id ? String(leave.backup_user_id) : "";
       reasonInput.value = leave.reason || "";
       syncReasonHelper();
@@ -1083,7 +1096,7 @@
           renderMessage("");
           syncModalState();
           loadAffectedTasks();
-          typeInput.focus();
+          (categoryInputs.find((input) => input.checked) || categoryInputs[0]).focus();
         }, 0);
       });
     });
@@ -1091,6 +1104,9 @@
     syncReasonHelper();
     syncLeaveTypeOptions();
     loadLeaves().then(syncLeaveDays).catch(() => {});
+    {% if leave_open %}
+    window.setTimeout(() => document.querySelector('[data-modal-open="dashboard-leave-modal"]')?.click(), 0);
+    {% endif %}
   })();
 
   (() => {
