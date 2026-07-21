@@ -877,8 +877,9 @@
     const durationSummary = form?.querySelector("[data-dashboard-leave-duration-summary]");
     const taskList = form?.querySelector("[data-dashboard-leave-task-list]");
     const taskCount = form?.querySelector("[data-dashboard-leave-task-count]");
+    const submitButton = form?.querySelector('[type="submit"]');
     const halfDayOptions = Array.from(form?.querySelectorAll("[data-half-day-option]") || []);
-    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !categoryInputs.length || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !deleteButton) {
+    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !categoryInputs.length || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !submitButton || !deleteButton) {
       return;
     }
 
@@ -1034,8 +1035,12 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (submitButton.disabled) return;
       renderMessage("");
       const payload = Object.fromEntries(new FormData(form).entries());
+      const originalSubmitText = submitButton.textContent;
+      submitButton.disabled = true;
+      submitButton.textContent = "Saving…";
       try {
         const response = await fetch("/api/v1/leaves/", {
           method: "POST",
@@ -1048,9 +1053,12 @@
         }
         const saved = await response.json();
         syncLeaveDays(await loadLeaves());
-        renderMessage(`${saved.leave_days} working day${saved.leave_days === 1 ? "" : "s"} of leave saved; ${saved.excluded_day_count} weekend / holiday day${saved.excluded_day_count === 1 ? "" : "s"} excluded. ${saved.notified_count} notification email${saved.notified_count === 1 ? "" : "s"} sent.`);
+        renderMessage(`${saved.leave_days} working day${saved.leave_days === 1 ? "" : "s"} of leave saved; ${saved.excluded_day_count} weekend / holiday day${saved.excluded_day_count === 1 ? "" : "s"} excluded. ${saved.notified_count ? "One grouped notification email sent." : "Notification email could not be sent."}`);
       } catch (error) {
         renderMessage(error.message || "Unable to save leave.", true);
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = originalSubmitText;
       }
     });
 

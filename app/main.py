@@ -1110,6 +1110,30 @@ def send_email(recipient: str, subject: str, body: str) -> None:
         server.send_message(message)
 
 
+def send_group_email(primary_recipient: str, copy_recipients: list[str], subject: str, body: str) -> None:
+    primary = primary_recipient.strip().lower()
+    copies = list(
+        dict.fromkeys(
+            email.strip().lower()
+            for email in copy_recipients
+            if email.strip() and email.strip().lower() != primary
+        )
+    )
+    all_recipients = [primary, *copies]
+    message = EmailMessage()
+    message["From"] = settings.smtp_from
+    message["To"] = primary
+    if copies:
+        message["Cc"] = ", ".join(copies)
+    message["Subject"] = subject
+    message.set_content(body)
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+        if settings.smtp_username:
+            server.starttls()
+            server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(message, to_addrs=all_recipients)
+
+
 def build_forgot_password_captcha(org_slug: str) -> dict[str, str | int]:
     left = secrets.randbelow(8) + 2
     right = secrets.randbelow(8) + 1
@@ -7101,14 +7125,15 @@ def notify_leave_submission(
             f"Open dashboard: {dashboard_url}",
         ]
     )
-    sent_count = 0
-    for recipient in recipient_by_email.values():
-        try:
-            send_email(recipient.email, subject, body)
-            sent_count += 1
-        except Exception as exc:
-            logger.warning("Leave notification failed for %s: %s", recipient.email, exc)
-    return sent_count
+    employee_email = employee.email.strip().lower()
+    primary_recipient = employee_email if employee_email in recipient_by_email else next(iter(recipient_by_email))
+    copy_recipients = [email for email in recipient_by_email if email != primary_recipient]
+    try:
+        send_group_email(primary_recipient, copy_recipients, subject, body)
+        return 1
+    except Exception as exc:
+        logger.warning("Grouped leave notification failed for request %s: %s", date_label, exc)
+        return 0
 
 
 def bounded_page(value: int, total_pages: int) -> int:
