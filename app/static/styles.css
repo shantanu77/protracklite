@@ -1374,7 +1374,8 @@ textarea {
 }
 
 .compact-list-detail {
-  gap: 0.85rem;
+  gap: 0.55rem;
+  padding: 0.8rem;
 }
 
 .list-target-stat {
@@ -1405,6 +1406,107 @@ textarea {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+}
+
+.compact-list-detail .list-detail-top {
+  gap: 0.65rem;
+}
+
+.compact-list-detail .list-inline-title {
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+}
+
+.compact-list-detail .list-inline-description {
+  margin-top: 0.12rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.compact-list-detail .list-detail-top-actions .button {
+  min-height: 2rem;
+  padding: 0.38rem 0.62rem;
+  font-size: 0.7rem;
+}
+
+.list-sharing-roster {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  overflow-x: auto;
+  border: 1px solid rgba(29, 52, 66, 0.08);
+  border-radius: 10px;
+  background: rgba(29, 52, 66, 0.025);
+  scrollbar-width: thin;
+}
+
+.list-sharing-label {
+  flex: 0 0 auto;
+  padding-right: 0.15rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.list-person-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+  padding: 0.2rem 0.42rem 0.2rem 0.24rem;
+  border: 1px solid rgba(29, 52, 66, 0.09);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.66rem;
+}
+
+.list-person-chip .avatar,
+.list-person-chip img {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.list-person-chip small,
+.list-private-note {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.compact-list-detail .list-target-stats {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.25fr) repeat(3, minmax(100px, 0.7fr));
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.compact-list-detail .list-target-stats .stat {
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  border-radius: 10px;
+}
+
+.compact-list-detail .list-target-stats .stat span {
+  margin-bottom: 0.12rem;
+  font-size: 0.62rem;
+}
+
+.compact-list-detail .list-target-stats .stat strong,
+.compact-list-detail .list-target-stat .list-inline-target {
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.compact-list-detail .list-target-stats .stat small {
+  margin-top: 0.1rem;
+  font-size: 0.6rem;
+}
+
+.compact-list-detail > .list-progress-bar.large {
+  height: 0.32rem;
 }
 
 .list-detail-copy {
@@ -1497,16 +1599,18 @@ textarea {
 }
 
 .compact-list-items .list-item-card {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto;
   align-items: center;
-  gap: 0.12rem 0.45rem;
-  padding: 0.42rem 0.55rem;
+  gap: 0.35rem;
+  padding: 0.28rem 0.42rem;
+  min-height: 2rem;
+  border-radius: 8px;
   transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .compact-list-items .list-item-toggle-form {
-  grid-row: 1 / span 2;
+  grid-row: 1;
 }
 
 .compact-list-items .list-item-main {
@@ -1515,13 +1619,13 @@ textarea {
 }
 
 .compact-list-items .list-item-meta {
-  grid-column: 2;
-  grid-row: 2;
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .compact-list-items .list-item-flags {
-  grid-column: 3;
-  grid-row: 1 / span 2;
+  grid-column: 4;
+  grid-row: 1;
 }
 
 .compact-list-items .list-item-card:hover {
@@ -1620,6 +1724,10 @@ textarea {
   min-width: 0;
 }
 
+.compact-list-detail .list-workspace {
+  gap: 0.55rem;
+}
+
 .list-checklist-pane,
 .list-discussion-panel {
   min-width: 0;
@@ -1628,6 +1736,13 @@ textarea {
   border: 1px solid rgba(217, 224, 228, 0.92);
   border-radius: 18px;
   background: rgba(250, 252, 251, 0.88);
+}
+
+.compact-list-detail .list-checklist-pane,
+.compact-list-detail .list-discussion-panel {
+  gap: 0.45rem;
+  padding: 0.6rem;
+  border-radius: 12px;
 }
 
 .list-checklist-pane {
@@ -1657,6 +1772,99 @@ textarea {
   min-height: 4.5rem;
   max-height: 9rem;
 }
+
+.compact-list-detail .list-comment-form {
+  gap: 0.35rem;
+  padding-top: 0.45rem;
+}
+
+.compact-list-detail .list-comment-form textarea {
+  min-height: 3rem;
+  max-height: 6rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.compact-list-detail .list-comment-form > button {
+  min-height: 2rem;
+  padding: 0.38rem 0.65rem;
+  font-size: 0.7rem;
+}
+
+.list-comment-label > small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+.list-comment-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.list-mention-menu {
+  position: absolute;
+  z-index: 15;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.3rem);
+  max-height: 13rem;
+  padding: 0.28rem;
+  overflow-y: auto;
+  border: 1px solid rgba(29, 52, 66, 0.14);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(17, 24, 39, 0.16);
+}
+
+.list-mention-menu[hidden],
+[data-activity-entry][hidden] {
+  display: none !important;
+}
+
+.list-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.4rem;
+  padding: 0.32rem 0.42rem;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.list-mention-option:hover,
+.list-mention-option.is-active {
+  background: rgba(15, 118, 110, 0.09);
+  color: var(--text);
+}
+
+.list-mention-option > span:first-child {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: 0 0 1.6rem;
+  border-radius: 50%;
+  background: #dbeae4;
+  color: #115e59;
+  font-size: 0.54rem;
+  font-weight: 900;
+}
+
+.list-mention-option > span:last-child,
+.list-mention-option strong,
+.list-mention-option small {
+  display: block;
+}
+
+.list-mention-option strong { font-size: 0.7rem; }
+.list-mention-option small { color: var(--muted); font-size: 0.6rem; }
 
 .list-pane-head {
   display: flex;
@@ -1853,9 +2061,9 @@ textarea {
 .list-chat-entry.tone-5 .list-activity-avatar { background: #ecfccb; color: #3f6212; }
 
 .compact-list-items .list-flag-button {
-  width: 1.55rem;
-  height: 1.55rem;
-  font-size: 0.82rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  font-size: 0.68rem;
 }
 
 .list-activity-new {
@@ -1876,7 +2084,7 @@ textarea {
 @container (min-width: 980px) {
   .list-workspace {
     grid-template-columns: minmax(520px, 1.2fr) minmax(420px, 0.95fr);
-    height: clamp(560px, 68vh, 760px);
+    height: clamp(500px, 62vh, 680px);
   }
 
   .list-item-scroll,
@@ -1886,6 +2094,22 @@ textarea {
 }
 
 @media (max-width: 639px) {
+  .compact-list-detail .list-target-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compact-list-items .list-item-meta {
+    display: none;
+  }
+
+  .compact-list-items .list-item-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .compact-list-items .list-item-flags {
+    grid-column: 3;
+  }
+
   .list-pane-tools {
     grid-template-columns: 1fr;
   }

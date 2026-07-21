@@ -160,6 +160,18 @@
     {% endif %}
   </div>
 
+  <div class="list-sharing-roster" data-list-sharing-roster>
+    <span class="list-sharing-label">Access</span>
+    {% if list_owner %}
+    <span class="list-person-chip" title="List owner">{{ user_avatar(list_owner, 22) }} <strong>{{ list_owner.full_name }}</strong><small>Owner</small></span>
+    {% endif %}
+    {% for person in shared_people %}
+    <span class="list-person-chip" title="Shared member">{{ user_avatar(person, 22) }} <strong>{{ person.full_name }}</strong></span>
+    {% else %}
+      {% if is_owner %}<span class="list-private-note">Private — not shared yet</span>{% endif %}
+    {% endfor %}
+  </div>
+
   <div class="stats compact-stats list-target-stats">
     <div class="stat list-target-stat is-{{ selected_progress.target_state }}">
       <span>Target date</span>
@@ -295,7 +307,13 @@
         <p class="empty" data-activity-filter-empty hidden>No communication matches this filter.</p>
       </div>
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/comments" class="form-grid list-comment-form">
-        <label class="full">Add a comment<textarea name="body" rows="3" placeholder="Share an update..." required></textarea></label>
+        <label class="full list-comment-label">Add a comment
+          <span class="list-comment-input-wrap">
+            <textarea name="body" rows="2" placeholder="Share an update or type @ to mention someone..." required autocomplete="off" data-list-comment-input></textarea>
+            <span class="list-mention-menu" role="listbox" aria-label="Mention a shared member" data-list-mention-menu hidden></span>
+          </span>
+          <small>Only people you @mention receive an immediate email.</small>
+        </label>
         <button type="submit">Post Comment</button>
       </form>
     </section>
@@ -592,8 +610,13 @@
     const activityFilterEmpty = document.querySelector("[data-activity-filter-empty]");
     const activityCount = document.querySelector("[data-activity-count]");
     const loadOlderCommentsButton = document.querySelector("[data-load-older-comments]");
+    const mentionPeople = {{ mention_people|tojson }};
+    const commentInput = document.querySelector("[data-list-comment-input]");
+    const mentionMenu = document.querySelector("[data-list-mention-menu]");
     const currentListUserId = {{ user.id }};
     let activeActivityFilter = "all";
+    let activeMentionIndex = 0;
+    let mentionMatch = null;
 
     const applyListItemFilters = () => {
       const query = String(listItemSearch?.value || "").trim().toLowerCase();
@@ -617,8 +640,10 @@
       entries.forEach((entry) => {
         const matchesKind = activeActivityFilter === "all" || entry.dataset.activityKind === activeActivityFilter;
         const matchesQuery = !query || String(entry.dataset.activitySearch || "").includes(query);
-        entry.hidden = !(matchesKind && matchesQuery);
-        if (!entry.hidden) visible += 1;
+        const isVisible = matchesKind && matchesQuery;
+        entry.hidden = !isVisible;
+        entry.style.display = isVisible ? "" : "none";
+        if (isVisible) visible += 1;
       });
       if (activityFilterEmpty) activityFilterEmpty.hidden = entries.length === 0 || visible !== 0;
     };
@@ -695,6 +720,88 @@
         activityFilterButtons.forEach((item) => item.classList.toggle("is-active", item === button));
         applyActivityFilters();
       });
+    });
+
+    const closeMentionMenu = () => {
+      if (!mentionMenu) return;
+      mentionMenu.hidden = true;
+      mentionMenu.replaceChildren();
+      mentionMatch = null;
+      activeMentionIndex = 0;
+    };
+
+    const chooseMention = (person) => {
+      if (!commentInput || !mentionMatch) return;
+      const before = commentInput.value.slice(0, mentionMatch.start);
+      const after = commentInput.value.slice(mentionMatch.end);
+      const insertion = `@${person.handle} `;
+      commentInput.value = `${before}${insertion}${after}`;
+      const caret = before.length + insertion.length;
+      commentInput.focus();
+      commentInput.setSelectionRange(caret, caret);
+      closeMentionMenu();
+    };
+
+    const renderMentionMenu = () => {
+      if (!commentInput || !mentionMenu) return;
+      const caret = commentInput.selectionStart;
+      const beforeCaret = commentInput.value.slice(0, caret);
+      const match = beforeCaret.match(/(?:^|\s)@([a-z0-9._-]*)$/i);
+      if (!match) {
+        closeMentionMenu();
+        return;
+      }
+      const query = match[1].toLowerCase();
+      const matches = mentionPeople.filter((person) => person.handle.includes(query) || person.name.toLowerCase().includes(query)).slice(0, 8);
+      if (!matches.length) {
+        closeMentionMenu();
+        return;
+      }
+      mentionMatch = { start: caret - match[0].trimStart().length, end: caret, matches };
+      activeMentionIndex = Math.min(activeMentionIndex, matches.length - 1);
+      mentionMenu.replaceChildren();
+      matches.forEach((person, index) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = `list-mention-option${index === activeMentionIndex ? " is-active" : ""}`;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", index === activeMentionIndex ? "true" : "false");
+        const initials = person.name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+        const avatar = document.createElement("span");
+        avatar.textContent = initials || "?";
+        const copy = document.createElement("span");
+        const name = document.createElement("strong");
+        name.textContent = person.name;
+        const handle = document.createElement("small");
+        handle.textContent = `@${person.handle}`;
+        copy.append(name, handle);
+        option.append(avatar, copy);
+        option.addEventListener("mousedown", (event) => event.preventDefault());
+        option.addEventListener("click", () => chooseMention(person));
+        mentionMenu.appendChild(option);
+      });
+      mentionMenu.hidden = false;
+    };
+
+    commentInput?.addEventListener("input", renderMentionMenu);
+    commentInput?.addEventListener("click", renderMentionMenu);
+    commentInput?.addEventListener("keydown", (event) => {
+      if (!mentionMenu || mentionMenu.hidden || !mentionMatch) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        activeMentionIndex = (activeMentionIndex + direction + mentionMatch.matches.length) % mentionMatch.matches.length;
+        renderMentionMenu();
+      } else if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        chooseMention(mentionMatch.matches[activeMentionIndex]);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeMentionMenu();
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (!mentionMenu?.contains(event.target) && event.target !== commentInput) closeMentionMenu();
     });
 
     loadOlderCommentsButton?.addEventListener("click", async () => {

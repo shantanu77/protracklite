@@ -3076,30 +3076,62 @@ def work_list_participant_ids(work_list: WorkList) -> set[int]:
     return participant_ids
 
 
-def notify_manual_list_comment(
+def work_list_mention_handle(name: str) -> str:
+    parts = re.findall(r"[a-z0-9]+", (name or "").lower())
+    return parts[0] if parts else "member"
+
+
+def work_list_mention_directory(people: list[User]) -> list[dict[str, Any]]:
+    base_counts: dict[str, int] = {}
+    for person in people:
+        base = work_list_mention_handle(person.full_name)
+        base_counts[base] = base_counts.get(base, 0) + 1
+    directory = []
+    used_handles: set[str] = set()
+    for person in sorted(people, key=lambda item: (item.full_name.lower(), item.id)):
+        name_parts = re.findall(r"[a-z0-9]+", (person.full_name or "").lower())
+        base = name_parts[0] if name_parts else "member"
+        handle = base
+        if base_counts.get(base, 0) > 1 and len(name_parts) > 1:
+            handle = f"{base}.{name_parts[-1]}"
+        if handle in used_handles:
+            handle = f"{handle}.{person.id}"
+        used_handles.add(handle)
+        directory.append({"id": person.id, "name": person.full_name, "handle": handle})
+    return directory
+
+
+def notify_list_comment_mentions(
     db: Session,
     org: Organization,
     actor: User,
     work_list: WorkList,
     comment: str,
 ) -> None:
-    recipient_ids = work_list_participant_ids(work_list)
-    recipient_ids.discard(actor.id)
-    if not recipient_ids:
+    participant_ids = work_list_participant_ids(work_list)
+    participant_ids.discard(actor.id)
+    if not participant_ids:
         return
-    recipients = db.scalars(
+    participants = db.scalars(
         select(User).where(
             User.org_id == org.id,
-            User.id.in_(recipient_ids),
+            User.id.in_(participant_ids),
             User.is_active.is_(True),
         )
     ).all()
+    directory = work_list_mention_directory(participants)
+    mentioned_handles = {
+        match.group(1).lower()
+        for match in re.finditer(r"(?<![\w@])@([a-z0-9][a-z0-9._-]*)", comment, flags=re.IGNORECASE)
+    }
+    recipient_ids = {entry["id"] for entry in directory if entry["handle"] in mentioned_handles}
+    recipients = [person for person in participants if person.id in recipient_ids]
     if not recipients:
         return
-    subject = f"New comment on shared list: {work_list.title}"
+    subject = f"You were mentioned on a shared list: {work_list.title}"
     list_url = work_list_page_url(org.slug, work_list)
     body_parts = [
-        f"{actor.full_name} posted a comment on the shared list \"{work_list.title}\".",
+        f"{actor.full_name} mentioned you on the shared list \"{work_list.title}\".",
         "",
         comment,
         "",
@@ -3233,7 +3265,7 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
             "actor_initials": actor_initials,
             "actor_id": comment.user_id,
             "actor_tone": comment.user_id % 6,
-            "kind": "activity" if " completed task - " in comment.body else "comment",
+            "kind": "activity" if re.search(r"\b(?:completed|reopened) task\s+-", comment.body, flags=re.IGNORECASE) else "comment",
         })
     return {
         "comments": comments,
@@ -4375,6 +4407,11 @@ def lists_page(
     )
     org_users = org_people(db, org.id)
     people_map = {person.id: person for person in org_users}
+    participant_ids = work_list_participant_ids(selected) if selected else set()
+    shared_people = [person for person in org_users if selected and person.id in {member.user_id for member in selected.members}]
+    mention_people = work_list_mention_directory(
+        [person for person in org_users if person.id in participant_ids and person.id != user.id]
+    )
     comment_page = work_list_comment_page(db, selected.id) if selected else {"comments": [], "has_more": False, "next_before_id": None}
     comment_count = db.scalar(select(func.count(WorkListComment.id)).where(WorkListComment.work_list_id == selected.id)) if selected else 0
     return templates.TemplateResponse(
@@ -4390,6 +4427,9 @@ def lists_page(
             "manage_mode": selected is None,
             "org_users": [person for person in org_users if person.id != user.id],
             "people_map": people_map,
+            "shared_people": shared_people,
+            "list_owner": people_map.get(selected.owner_user_id) if selected else None,
+            "mention_people": mention_people,
             "comments": comment_page["comments"],
             "has_older_comments": comment_page["has_more"],
             "older_comments_before_id": comment_page["next_before_id"],
@@ -4752,7 +4792,7 @@ async def add_list_comment_page(
         raise HTTPException(status_code=400, detail="Comment cannot be empty")
     db.add(WorkListComment(work_list_id=work_list.id, user_id=user.id, body=normalized_body))
     db.commit()
-    notify_manual_list_comment(db, org, user, work_list, normalized_body)
+    notify_list_comment_mentions(db, org, user, work_list, normalized_body)
     return RedirectResponse(url=f"/{org_slug}/lists?list_id={list_id}", status_code=303)
 
 
