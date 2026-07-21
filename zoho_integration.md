@@ -33,12 +33,12 @@ Zoho currently returns these four employee-eligible leave types:
 
 | Zoho leave type | Zoho ID | Unit | Proposed ProTrack mapping |
 |---|---:|---|---|
-| Earned Leave | `24413000000183927` | Days | Planned |
+| Earned Leave | `24413000000183927` | Days | Planned, Sick, Casual, Comp Off |
 | Leave Without Pay | `24413000000159083` | Days | Unpaid |
 | Maternity Leave | `24413000000159075` | Days | Not currently represented in ProTrack |
 | Work From Home | `24413000002552035` | Days | Not currently represented in ProTrack |
 
-Zoho does not currently return eligible leave types corresponding to ProTrack **Sick**, **Casual**, or **Comp Off**. HR must create/assign those leave types in Zoho People or approve an alternate mapping before automatic leave creation is enabled. ProTrack must not silently map these categories to Earned Leave.
+Per the approved mapping decision, ProTrack **Sick**, **Casual**, and **Comp Off** requests are intentionally submitted to Zoho as **Earned Leave**. ProTrack **Unpaid** requests use **Leave Without Pay**.
 
 ## Previous API permission issue
 
@@ -60,11 +60,11 @@ Settings
 
 The production integration now uses Abhishek's Super Administrator client instead, and this blocker is resolved.
 
-## Planned synchronization
+## Synchronization behavior
 
-After HR resolves the missing leave-type mappings and the two employee-email mismatches:
+Automatic synchronization uses the approved leave-type mapping above. Two employee-email mismatches still need reconciliation; requests for an unmatched email remain saved in ProTrack with a failed Zoho sync status rather than being lost.
 
-1. Fetch Zoho leave types for active employees and map their IDs to ProTrack categories: Planned, Sick, Casual, Unpaid, and Comp Off.
+1. Map ProTrack Planned, Sick, Casual, and Comp Off to Zoho Earned Leave; map Unpaid to Leave Without Pay.
 2. Create one Zoho leave request for each ProTrack leave request, not one request per working-day database row.
 3. Map full days to a leave count of `1.0`, Half Day AM to `0.5` with session `1`, and Half Day PM to `0.5` with session `2`.
 4. Store the returned Zoho leave ID and synchronization status against the ProTrack request group.

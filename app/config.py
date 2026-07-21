@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_backlog_model: str = "gpt-5.4-mini"
     teams_availability_webhook_url: str = ""
+    zoho_client_id: str = ""
+    zoho_client_secret: str = ""
+    zoho_refresh_token: str = ""
+    zoho_accounts_url: str = "https://accounts.zoho.in"
+    zoho_people_url: str = "https://people.zoho.in"
+    zoho_earned_leave_type_id: str = ""
+    zoho_unpaid_leave_type_id: str = ""
     dev_release_upload_dir: str = "/var/lib/protracklite/uploads/dev-releases"
     user_content_dir: str = "/var/lib/protracklite/user-content"
 

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.capacity import build_capacity_payload
+from app.zoho_people import sync_zoho_leave
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
 from app.models import (
@@ -861,6 +862,10 @@ def ensure_leaves_schema() -> None:
         "backup_user_id": "ALTER TABLE leaves ADD COLUMN backup_user_id INTEGER NULL",
         "request_group": "ALTER TABLE leaves ADD COLUMN request_group VARCHAR(40) NOT NULL DEFAULT ''",
         "leave_category": "ALTER TABLE leaves ADD COLUMN leave_category VARCHAR(30) NOT NULL DEFAULT 'general'",
+        "zoho_leave_id": "ALTER TABLE leaves ADD COLUMN zoho_leave_id VARCHAR(40) NOT NULL DEFAULT ''",
+        "zoho_sync_status": "ALTER TABLE leaves ADD COLUMN zoho_sync_status VARCHAR(20) NOT NULL DEFAULT 'pending'",
+        "zoho_sync_error": "ALTER TABLE leaves ADD COLUMN zoho_sync_error VARCHAR(255) NOT NULL DEFAULT ''",
+        "zoho_synced_at": "ALTER TABLE leaves ADD COLUMN zoho_synced_at DATETIME NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -6962,6 +6967,9 @@ def api_list_leaves(org_user: tuple[Organization, User] = Depends(get_org_user),
             "reason": item.reason,
             "backup_user_id": item.backup_user_id,
             "request_group": item.request_group,
+            "zoho_leave_id": item.zoho_leave_id,
+            "zoho_sync_status": item.zoho_sync_status,
+            "zoho_sync_error": item.zoho_sync_error,
         }
         for item in leaves
     ]
@@ -7211,14 +7219,21 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
 
     request_group = secrets.token_hex(16)
     saved_leaves: list[Leave] = []
+    existing_zoho_ids: set[str] = set()
     for leave_date in working_dates:
         leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
         if leave:
+            if leave.zoho_leave_id:
+                existing_zoho_ids.add(leave.zoho_leave_id)
             leave.leave_type = leave_type
             leave.leave_category = leave_category
             leave.reason = reason
             leave.backup_user_id = backup.id
             leave.request_group = request_group
+            leave.zoho_leave_id = ""
+            leave.zoho_sync_status = "pending"
+            leave.zoho_sync_error = ""
+            leave.zoho_synced_at = None
         else:
             leave = Leave(
                 user_id=user.id,
@@ -7228,9 +7243,25 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
                 reason=reason,
                 backup_user_id=backup.id,
                 request_group=request_group,
+                zoho_sync_status="pending",
             )
             db.add(leave)
         saved_leaves.append(leave)
+    db.commit()
+    existing_zoho_id = next(iter(existing_zoho_ids)) if len(existing_zoho_ids) == 1 else ""
+    zoho_result = sync_zoho_leave(
+        employee_email=user.email,
+        leave_category=leave_category,
+        leave_type=leave_type.value,
+        working_dates=working_dates,
+        reason=reason,
+        existing_leave_id=existing_zoho_id,
+    )
+    for leave in saved_leaves:
+        leave.zoho_leave_id = zoho_result.leave_id
+        leave.zoho_sync_status = zoho_result.status
+        leave.zoho_sync_error = zoho_result.error[:255]
+        leave.zoho_synced_at = datetime.utcnow() if zoho_result.status == "synced" else None
     db.commit()
     affected_tasks = affected_leave_tasks(db, org.id, user.id, start_date, end_date)
     notified_count = notify_leave_submission(
@@ -7261,6 +7292,8 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         "backup_name": backup.full_name,
         "affected_tasks": [serialize_affected_leave_task(task) for task in affected_tasks],
         "notified_count": notified_count,
+        "zoho_sync_status": zoho_result.status,
+        "zoho_sync_error": zoho_result.error,
     }
 
 

@@ -1053,7 +1053,10 @@
         }
         const saved = await response.json();
         syncLeaveDays(await loadLeaves());
-        renderMessage(`${saved.leave_days} working day${saved.leave_days === 1 ? "" : "s"} of leave saved; ${saved.excluded_day_count} weekend / holiday day${saved.excluded_day_count === 1 ? "" : "s"} excluded. ${saved.notified_count ? "One grouped notification email sent." : "Notification email could not be sent."}`);
+        const zohoMessage = saved.zoho_sync_status === "synced"
+          ? "Zoho People updated."
+          : `Zoho sync ${saved.zoho_sync_status || "failed"}${saved.zoho_sync_error ? `: ${saved.zoho_sync_error}` : "."}`;
+        renderMessage(`${saved.leave_days} working day${saved.leave_days === 1 ? "" : "s"} of leave saved; ${saved.excluded_day_count} weekend / holiday day${saved.excluded_day_count === 1 ? "" : "s"} excluded. ${saved.notified_count ? "One grouped notification email sent." : "Notification email could not be sent."} ${zohoMessage}`, saved.zoho_sync_status === "failed");
       } catch (error) {
         renderMessage(error.message || "Unable to save leave.", true);
       } finally {

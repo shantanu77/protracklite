@@ -487,6 +487,10 @@ class Leave(Base):
     reason: Mapped[str] = mapped_column(String(255), default="")
     backup_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     request_group: Mapped[str] = mapped_column(String(40), default="", index=True)
+    zoho_leave_id: Mapped[str] = mapped_column(String(40), default="", index=True)
+    zoho_sync_status: Mapped[str] = mapped_column(String(20), default="pending")
+    zoho_sync_error: Mapped[str] = mapped_column(String(255), default="")
+    zoho_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
