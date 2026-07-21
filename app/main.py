@@ -7346,7 +7346,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
     if (end_date - start_date).days > 366:
         raise HTTPException(status_code=400, detail="Leave duration cannot exceed 366 days")
     leave_category = str(payload.get("leave_category") or "").strip().lower()
-    if leave_category not in {"planned", "sick", "casual", "unpaid", "comp_off"}:
+    if leave_category not in {"planned", "sick", "casual", "unpaid"}:
         raise HTTPException(status_code=400, detail="Select a valid leave type")
     if start_date != end_date and leave_type != LeaveType.FULL:
         raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
@@ -7378,45 +7378,37 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
     if not backup:
         raise HTTPException(status_code=400, detail="Select a valid designated backup person")
 
+    existing_leave = db.scalar(
+        select(Leave).where(Leave.user_id == user.id, Leave.leave_date.in_(working_dates))
+    )
+    if existing_leave:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Leave already exists on {existing_leave.leave_date.strftime('%d %b %Y')}. Edit it from Profile.",
+        )
+
     request_group = secrets.token_hex(16)
     saved_leaves: list[Leave] = []
-    existing_zoho_ids: set[str] = set()
     for leave_date in working_dates:
-        leave = db.scalar(select(Leave).where(Leave.user_id == user.id, Leave.leave_date == leave_date))
-        if leave:
-            if leave.zoho_leave_id:
-                existing_zoho_ids.add(leave.zoho_leave_id)
-            leave.leave_type = leave_type
-            leave.leave_category = leave_category
-            leave.reason = reason
-            leave.backup_user_id = backup.id
-            leave.request_group = request_group
-            leave.zoho_leave_id = ""
-            leave.zoho_sync_status = "pending"
-            leave.zoho_sync_error = ""
-            leave.zoho_synced_at = None
-        else:
-            leave = Leave(
-                user_id=user.id,
-                leave_date=leave_date,
-                leave_type=leave_type,
-                leave_category=leave_category,
-                reason=reason,
-                backup_user_id=backup.id,
-                request_group=request_group,
-                zoho_sync_status="pending",
-            )
-            db.add(leave)
+        leave = Leave(
+            user_id=user.id,
+            leave_date=leave_date,
+            leave_type=leave_type,
+            leave_category=leave_category,
+            reason=reason,
+            backup_user_id=backup.id,
+            request_group=request_group,
+            zoho_sync_status="pending",
+        )
+        db.add(leave)
         saved_leaves.append(leave)
     db.commit()
-    existing_zoho_id = next(iter(existing_zoho_ids)) if len(existing_zoho_ids) == 1 else ""
     zoho_result = sync_zoho_leave(
         employee_email=user.email,
         leave_category=leave_category,
         leave_type=leave_type.value,
         working_dates=working_dates,
         reason=reason,
-        existing_leave_id=existing_zoho_id,
     )
     for leave in saved_leaves:
         leave.zoho_leave_id = zoho_result.leave_id
@@ -7511,7 +7503,7 @@ def api_update_leave_request(
     if start_date != end_date and leave_type != LeaveType.FULL:
         raise HTTPException(status_code=400, detail="Half-day leave is available only for a single day")
     leave_category = str(payload.get("leave_category") or "").strip().lower()
-    if leave_category not in {"planned", "sick", "casual", "unpaid", "comp_off"}:
+    if leave_category not in {"planned", "sick", "casual", "unpaid"}:
         raise HTTPException(status_code=400, detail="Select a valid leave type")
     reason = re.sub(r"\s+", " ", str(payload.get("reason") or "").strip())
     if len(reason) < 80 or len(reason) > 255:

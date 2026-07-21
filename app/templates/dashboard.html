@@ -704,8 +704,8 @@
   <div class="modal-card wide dashboard-leave-modal-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-leave-title">
     <div class="modal-head">
       <div>
-        <h2 id="dashboard-leave-title">Add Leave</h2>
-        <p>Save leave for any previous, current, or future date.</p>
+        <h2 id="dashboard-leave-title">Apply Leave</h2>
+        <p>Apply leave for any previous, current, or future date.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close leave modal">×</button>
     </div>
@@ -717,7 +717,6 @@
           <label class="is-sick"><input type="radio" name="leave_category" value="sick" required><span><b>✚</b>Sick</span></label>
           <label class="is-casual"><input type="radio" name="leave_category" value="casual" required><span><b>☕</b>Casual</span></label>
           <label class="is-unpaid"><input type="radio" name="leave_category" value="unpaid" required><span><b>○</b>Unpaid</span></label>
-          <label class="is-comp-off"><input type="radio" name="leave_category" value="comp_off" required><span><b>↻</b>Comp Off</span></label>
         </div>
       </fieldset>
       <label>
@@ -767,8 +766,7 @@
         </div>
       </section>
       <div class="dashboard-leave-modal-actions full">
-        <button type="submit">Save Leave</button>
-        <button type="button" class="button secondary" data-dashboard-leave-delete hidden>Remove Leave</button>
+        <button type="submit">Apply Leave</button>
       </div>
       <p class="dashboard-leave-feedback full" data-dashboard-leave-feedback hidden></p>
     </form>
@@ -866,7 +864,6 @@
     const weekWrap = document.querySelector("[data-dashboard-leave-week]");
     const leaveModal = document.getElementById("dashboard-leave-modal");
     const feedbackNodes = Array.from(document.querySelectorAll("[data-dashboard-leave-feedback]"));
-    const deleteButton = leaveModal?.querySelector("[data-dashboard-leave-delete]");
     const startDateInput = form?.querySelector('[name="start_date"]');
     const endDateInput = form?.querySelector('[name="end_date"]');
     const typeInput = form?.querySelector('[name="leave_type"]');
@@ -879,7 +876,7 @@
     const taskCount = form?.querySelector("[data-dashboard-leave-task-count]");
     const submitButton = form?.querySelector('[type="submit"]');
     const halfDayOptions = Array.from(form?.querySelectorAll("[data-half-day-option]") || []);
-    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !categoryInputs.length || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !submitButton || !deleteButton) {
+    if (!form || !weekWrap || !leaveModal || !feedbackNodes.length || !startDateInput || !endDateInput || !typeInput || !categoryInputs.length || !backupInput || !reasonInput || !noteHelper || !durationSummary || !taskList || !taskCount || !submitButton) {
       return;
     }
 
@@ -985,18 +982,6 @@
 
     function syncModalState() {
       syncLeaveTypeOptions();
-      const leave = isSingleDay() ? leaveMap.get(startDateInput.value) : null;
-      deleteButton.hidden = !leave;
-      deleteButton.dataset.leaveId = leave ? String(leave.id) : "";
-      if (!leave) {
-        syncReasonHelper();
-        return;
-      }
-      typeInput.value = leave.leave_type || "full";
-      const category = leave.leave_category || "planned";
-      categoryInputs.forEach((input) => { input.checked = input.value === category; });
-      backupInput.value = leave.backup_user_id ? String(leave.backup_user_id) : "";
-      reasonInput.value = leave.reason || "";
       syncReasonHelper();
     }
 
@@ -1040,7 +1025,7 @@
       const payload = Object.fromEntries(new FormData(form).entries());
       const originalSubmitText = submitButton.textContent;
       submitButton.disabled = true;
-      submitButton.textContent = "Saving…";
+      submitButton.textContent = "Applying…";
       try {
         const response = await fetch("/api/v1/leaves/", {
           method: "POST",
@@ -1062,24 +1047,6 @@
       } finally {
         submitButton.disabled = false;
         submitButton.textContent = originalSubmitText;
-      }
-    });
-
-    deleteButton.addEventListener("click", async () => {
-      if (!deleteButton.dataset.leaveId) {
-        return;
-      }
-      renderMessage("");
-      try {
-        const response = await fetch(`/api/v1/leaves/${deleteButton.dataset.leaveId}`, { method: "DELETE" });
-        if (!response.ok) {
-          throw new Error("Unable to remove leave day.");
-        }
-        syncLeaveDays(await loadLeaves());
-        renderMessage("Leave day removed.");
-        leaveModal.querySelector("[data-modal-close]")?.click();
-      } catch (error) {
-        renderMessage(error.message || "Unable to remove leave day.", true);
       }
     });
 

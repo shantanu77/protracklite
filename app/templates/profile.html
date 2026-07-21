@@ -34,15 +34,6 @@
   </form>
 </section>
 
-<a class="profile-leave-shortcut" href="/{{ org.slug }}/dashboard?leave_open=1">
-  <span class="profile-leave-shortcut-icon" aria-hidden="true">☀</span>
-  <span>
-    <strong>Add Leave</strong>
-    <small>Plan leave, choose its type and duration, assign a backup, and review affected tasks.</small>
-  </span>
-  <b aria-hidden="true">→</b>
-</a>
-
 <section class="panel profile-leaves-panel">
   <div class="profile-leaves-head">
     <div>
@@ -52,7 +43,7 @@
     </div>
     <div class="profile-leaves-actions">
       <button type="button" class="button secondary small" data-zoho-balance-refresh>↻ Refresh from Zoho</button>
-      <a class="button small" href="/{{ org.slug }}/dashboard?leave_open=1">+ Add Leave</a>
+      <button type="button" class="button small" data-profile-leave-add>+ Apply Leave</button>
     </div>
   </div>
 
@@ -98,7 +89,7 @@
 <div class="modal-backdrop" id="profile-leave-edit-modal" aria-hidden="true" data-profile-leave-modal>
   <div class="modal-card profile-leave-edit-modal" role="dialog" aria-modal="true" aria-labelledby="profile-leave-edit-title">
     <div class="modal-head">
-      <div><h2 id="profile-leave-edit-title">Edit Future Leave</h2><p>Weekends and organization holidays are excluded automatically.</p></div>
+      <div><h2 id="profile-leave-edit-title" data-profile-leave-modal-title>Edit Future Leave</h2><p>Weekends and organization holidays are excluded automatically.</p></div>
       <button type="button" class="modal-close" aria-label="Close edit leave" data-profile-leave-close>×</button>
     </div>
     <form class="form-grid profile-leave-edit-form" data-profile-leave-edit-form>
@@ -106,7 +97,7 @@
       <label>End date<input type="date" name="end_date" min="{{ leave_min_date }}" required></label>
       <label>Leave type
         <select name="leave_category" required>
-          <option value="planned">Planned / Vacation</option><option value="sick">Sick / Medical</option><option value="casual">Casual / Personal</option><option value="unpaid">Unpaid Leave</option><option value="comp_off">Compensatory Off</option>
+          <option value="planned">Planned / Vacation</option><option value="sick">Sick / Medical</option><option value="casual">Casual / Personal</option><option value="unpaid">Unpaid Leave</option>
         </select>
       </label>
       <label>Duration
@@ -117,9 +108,15 @@
           <option value="">Select backup</option>{% for person in leave_backup_people %}<option value="{{ person.id }}">{{ person.full_name }}</option>{% endfor %}
         </select>
       </label>
+      <div class="dashboard-leave-duration full" data-profile-leave-duration><strong>1 working day of leave</strong><span>Weekends and holidays are excluded.</span></div>
       <label class="full">Reason / handover note<textarea name="reason" rows="3" minlength="80" maxlength="255" required></textarea><small data-profile-leave-reason-count></small></label>
+      <section class="dashboard-leave-tasks profile-leave-tasks full" aria-live="polite">
+        <div class="dashboard-leave-tasks-head"><strong>Tasks during this period</strong><span data-profile-leave-task-count>0 tasks</span></div>
+        <div class="dashboard-leave-task-grid dashboard-leave-task-grid-head" aria-hidden="true"><span>Task</span><span>Deadline</span><span>Effort</span></div>
+        <div class="dashboard-leave-task-list" data-profile-leave-task-list><p class="empty">Select dates to check affected tasks.</p></div>
+      </section>
       <div class="profile-leave-edit-feedback full" data-profile-leave-edit-feedback hidden></div>
-      <div class="profile-leave-edit-actions full"><button type="button" class="button ghost" data-profile-leave-close>Cancel</button><button type="submit">Save Changes</button></div>
+      <div class="profile-leave-edit-actions full"><button type="button" class="button ghost" data-profile-leave-close>Close</button><button type="submit" data-profile-leave-submit>Save Changes</button></div>
     </form>
   </div>
 </div>
@@ -197,7 +194,14 @@
     const feedback = document.querySelector("[data-profile-leave-edit-feedback]");
     const reasonInput = editForm?.querySelector('[name="reason"]');
     const reasonCount = document.querySelector("[data-profile-leave-reason-count]");
+    const modalTitle = document.querySelector("[data-profile-leave-modal-title]");
+    const modalSubmit = document.querySelector("[data-profile-leave-submit]");
+    const durationSummary = document.querySelector("[data-profile-leave-duration]");
+    const taskList = document.querySelector("[data-profile-leave-task-list]");
+    const taskCount = document.querySelector("[data-profile-leave-task-count]");
+    const minimumLeaveDate = {{ leave_min_date|tojson }};
     let activeRequestKey = "";
+    let taskRequestController = null;
 
     const numberLabel = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
     const refreshZohoBalance = async () => {
@@ -244,44 +248,103 @@
       const remaining = Math.max(0, 80 - reasonInput.value.trim().length);
       reasonCount.textContent = remaining ? `${remaining} more characters required` : `${reasonInput.value.length}/255 characters`;
     };
+    const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    const syncDurationOptions = () => {
+      if (!editForm) return;
+      const start = editForm.elements.start_date.value;
+      const end = editForm.elements.end_date.value;
+      editForm.elements.end_date.min = start || minimumLeaveDate;
+      const singleDay = Boolean(start) && start === end;
+      Array.from(editForm.elements.leave_type.options).forEach((option) => {
+        if (option.value === "full") return;
+        option.hidden = !singleDay;
+        option.disabled = !singleDay;
+      });
+      if (!singleDay) editForm.elements.leave_type.value = "full";
+    };
+    const loadAffectedTasks = async () => {
+      if (!editForm || !durationSummary || !taskList || !taskCount) return;
+      const start = editForm.elements.start_date.value;
+      const end = editForm.elements.end_date.value;
+      if (!start || !end || end < start) {
+        durationSummary.innerHTML = "<strong>0 working days of leave</strong><span>Select valid dates.</span>";
+        taskCount.textContent = "0 tasks";
+        taskList.innerHTML = '<p class="empty">Select valid dates to check affected tasks.</p>';
+        return;
+      }
+      taskRequestController?.abort();
+      taskRequestController = new AbortController();
+      taskList.innerHTML = '<p class="empty">Checking assigned tasks…</p>';
+      const params = new URLSearchParams({ start_date: start, end_date: end, leave_type: editForm.elements.leave_type.value });
+      try {
+        const response = await fetch(`/api/v1/leaves/affected-tasks?${params}`, { signal: taskRequestController.signal, credentials: "same-origin" });
+        if (!response.ok) throw new Error("Unable to check affected tasks.");
+        const summary = await response.json();
+        const leaveDays = Number(summary.leave_days || 0);
+        const excluded = Number(summary.excluded_day_count || 0);
+        const tasks = Array.isArray(summary.tasks) ? summary.tasks : [];
+        durationSummary.innerHTML = `<strong>${leaveDays} working day${leaveDays === 1 ? "" : "s"} of leave</strong><span>${excluded} weekend / holiday day${excluded === 1 ? "" : "s"} excluded.</span>`;
+        taskCount.textContent = `${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
+        taskList.innerHTML = tasks.length ? tasks.map((task) => `<article class="dashboard-leave-task-grid dashboard-leave-task"><span class="dashboard-leave-task-name"><b>${escapeHtml(task.task_id)}</b> ${escapeHtml(task.name)}</span><span>${escapeHtml(task.deadline)}</span><span>${Number(task.logged_hours || 0)}h</span></article>`).join("") : '<p class="empty">No scheduled open tasks overlap this period.</p>';
+      } catch (error) {
+        if (error.name !== "AbortError") taskList.innerHTML = '<p class="empty">Unable to check affected tasks.</p>';
+      }
+    };
+    const openLeaveModal = (item = null) => {
+      if (!modal || !editForm) return;
+      activeRequestKey = item?.request_key || "";
+      editForm.elements.start_date.value = item?.start_date || minimumLeaveDate;
+      editForm.elements.end_date.value = item?.end_date || minimumLeaveDate;
+      const allowedCategories = ["planned", "sick", "casual", "unpaid"];
+      editForm.elements.leave_category.value = allowedCategories.includes(item?.leave_category) ? item.leave_category : "planned";
+      editForm.elements.leave_type.value = item?.leave_type || "full";
+      editForm.elements.backup_user_id.value = item?.backup_user_id || "";
+      editForm.elements.reason.value = item?.reason || "";
+      if (modalTitle) modalTitle.textContent = item ? "Edit Future Leave" : "Apply Leave";
+      if (modalSubmit) modalSubmit.textContent = item ? "Save Changes" : "Apply Leave";
+      if (feedback) { feedback.hidden = true; feedback.classList.remove("is-error"); }
+      syncDurationOptions();
+      syncReasonCount();
+      loadAffectedTasks();
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+    };
+    document.querySelector("[data-profile-leave-add]")?.addEventListener("click", () => openLeaveModal());
     document.querySelectorAll("[data-profile-leave-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         const item = requestMap.get(button.dataset.profileLeaveEdit);
-        if (!item || !modal || !editForm) return;
-        activeRequestKey = item.request_key;
-        editForm.elements.start_date.value = item.start_date;
-        editForm.elements.end_date.value = item.end_date;
-        editForm.elements.leave_category.value = item.leave_category;
-        editForm.elements.leave_type.value = item.leave_type;
-        editForm.elements.backup_user_id.value = item.backup_user_id || "";
-        editForm.elements.reason.value = item.reason || "";
-        if (feedback) feedback.hidden = true;
-        syncReasonCount();
-        modal.classList.add("is-open");
-        modal.setAttribute("aria-hidden", "false");
-        document.body.classList.add("modal-open");
+        if (item) openLeaveModal(item);
       });
     });
     document.querySelectorAll("[data-profile-leave-close]").forEach((button) => button.addEventListener("click", closeModal));
     modal?.addEventListener("click", (event) => { if (event.target === modal) closeModal(); });
     reasonInput?.addEventListener("input", syncReasonCount);
+    editForm?.elements.start_date.addEventListener("change", () => {
+      if (!editForm.elements.end_date.value || editForm.elements.end_date.value < editForm.elements.start_date.value) editForm.elements.end_date.value = editForm.elements.start_date.value;
+      syncDurationOptions();
+      loadAffectedTasks();
+    });
+    editForm?.elements.end_date.addEventListener("change", () => { syncDurationOptions(); loadAffectedTasks(); });
+    editForm?.elements.leave_type.addEventListener("change", loadAffectedTasks);
     editForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!activeRequestKey) return;
       const submit = editForm.querySelector('button[type="submit"]');
+      const isEdit = Boolean(activeRequestKey);
       submit.disabled = true;
-      submit.textContent = "Saving…";
+      submit.textContent = isEdit ? "Saving…" : "Applying…";
       if (feedback) feedback.hidden = true;
       try {
         const payload = Object.fromEntries(new FormData(editForm).entries());
-        const response = await fetch(`/api/v1/leaves/requests/${encodeURIComponent(activeRequestKey)}`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const url = isEdit ? `/api/v1/leaves/requests/${encodeURIComponent(activeRequestKey)}` : "/api/v1/leaves/";
+        const response = await fetch(url, { method: isEdit ? "PUT" : "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.detail || "Unable to update leave.");
+        if (!response.ok) throw new Error(result.detail || (isEdit ? "Unable to update leave." : "Unable to apply leave."));
         window.location.reload();
       } catch (error) {
-        if (feedback) { feedback.hidden = false; feedback.classList.add("is-error"); feedback.textContent = error.message || "Unable to update leave."; }
+        if (feedback) { feedback.hidden = false; feedback.classList.add("is-error"); feedback.textContent = error.message || (isEdit ? "Unable to update leave." : "Unable to apply leave."); }
         submit.disabled = false;
-        submit.textContent = "Save Changes";
+        submit.textContent = isEdit ? "Save Changes" : "Apply Leave";
       }
     });
     document.querySelectorAll("[data-profile-leave-cancel]").forEach((button) => {
