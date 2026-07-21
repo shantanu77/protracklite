@@ -71,6 +71,8 @@ Automatic synchronization uses the approved leave-type mapping above. Two employ
 5. Update the Zoho request when leave changes and cancel it when the grouped ProTrack leave is removed.
 6. Retry transient failures without creating duplicate Zoho records.
 
+The India endpoint validates the employee email parameter as `employee_email_id` (despite some published Zoho examples using `employee_mail_id`). A production probe with a deliberately nonexistent employee is used to validate request structure without creating a real leave.
+
 Official references:
 
 - [Zoho Self Client authorization flow](https://www.zoho.com/developer/oauth/self-client/authorization-code-flow.html)

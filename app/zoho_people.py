@@ -76,7 +76,7 @@ def sync_zoho_leave(
             endpoint,
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
             data={
-                "employee_mail_id": employee_email.strip().lower(),
+                "employee_email_id": employee_email.strip().lower(),
                 "leave_type_id": leave_type_id,
                 "from_date": _date_label(min(working_dates)),
                 "to_date": _date_label(max(working_dates)),
