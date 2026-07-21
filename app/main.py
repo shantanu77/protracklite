@@ -236,6 +236,8 @@ TIME_LOG_NOTES_MIN_LENGTH = 80
 WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v2"
 WEEKLY_AI_SUMMARY_MAX_CHARS = 700
 WEEKLY_AI_SUMMARY_TARGET_MODEL = "weekly-ai-summary"
+FLOWER_AVATAR_EMOJIS = ("🌸", "🌼", "🌻", "🌺", "🌷", "🪻", "🌹", "🪷", "💐", "🏵️")
+PROFILE_AVATAR_EMOJIS = FLOWER_AVATAR_EMOJIS + ("😊", "😎", "🤓", "🦊", "🐼", "🦁", "🚀", "⭐", "🌈", "💡", "🎯", "💻")
 templates.env.globals["task_color_choices"] = TASK_COLOR_CHOICES
 templates.env.globals["default_task_color"] = DEFAULT_TASK_COLOR
 
@@ -249,6 +251,19 @@ def user_initials(person: User | None) -> str:
     return f"{parts[0][:1]}{parts[-1][:1]}".upper()
 
 
+def default_flower_avatar(person: User | None) -> str:
+    if not person:
+        return FLOWER_AVATAR_EMOJIS[0]
+    identity = f"{person.org_id}:{person.id or person.email.strip().lower()}"
+    index = int(hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8], 16) % len(FLOWER_AVATAR_EMOJIS)
+    return FLOWER_AVATAR_EMOJIS[index]
+
+
+def user_avatar_emoji(person: User | None) -> str:
+    selected = (getattr(person, "avatar_emoji", "") or "").strip() if person else ""
+    return selected if selected in PROFILE_AVATAR_EMOJIS else default_flower_avatar(person)
+
+
 def render_user_avatar(person: User | None, size: int = 24, class_name: str = "") -> Markup:
     size_value = 128 if int(size or 24) > 24 else 24
     url = (getattr(person, f"avatar_{size_value}_url", "") or "").strip() if person else ""
@@ -260,11 +275,13 @@ def render_user_avatar(person: User | None, size: int = 24, class_name: str = ""
         classes += f" {html.escape(class_name)}"
     if url:
         return Markup(f'<img class="{classes}" src="{html.escape(url)}" alt="{name}" width="{size_value}" height="{size_value}">')
-    return Markup(f'<span class="{classes}" aria-label="{name}">{html.escape(user_initials(person))}</span>')
+    emoji = html.escape(user_avatar_emoji(person))
+    return Markup(f'<span class="{classes} emoji-avatar" aria-label="{name}">{emoji}</span>')
 
 
 templates.env.globals["user_avatar"] = render_user_avatar
 templates.env.globals["user_initials"] = user_initials
+templates.env.globals["user_avatar_emoji"] = user_avatar_emoji
 templates.env.filters["local_datetime"] = format_local_datetime
 templates.env.globals["local_datetime"] = format_local_datetime
 
@@ -810,6 +827,7 @@ def ensure_user_profile_schema() -> None:
     ddl_by_column = {
         "avatar_128_url": "ALTER TABLE users ADD COLUMN avatar_128_url VARCHAR(255) NOT NULL DEFAULT ''",
         "avatar_24_url": "ALTER TABLE users ADD COLUMN avatar_24_url VARCHAR(255) NOT NULL DEFAULT ''",
+        "avatar_emoji": "ALTER TABLE users ADD COLUMN avatar_emoji VARCHAR(16) NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -3590,6 +3608,8 @@ def profile_page(
                 item["year_leave_days"] for item in leave_requests if item["year_leave_days"]
             ),
             "leave_backup_people": [person for person in org_people(db, org.id) if person.id != user.id],
+            "profile_avatar_emojis": PROFILE_AVATAR_EMOJIS,
+            "selected_avatar_emoji": user_avatar_emoji(user),
         },
     )
 
@@ -3603,6 +3623,24 @@ async def update_profile_photo_page(
 ):
     org, user = org_user
     await save_profile_photo(org.slug, user, profile_photo)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/profile", status_code=303)
+
+
+@app.post("/{org_slug}/profile/emoji")
+def update_profile_emoji_page(
+    org_slug: str,
+    avatar_emoji: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    _, user = org_user
+    selected = avatar_emoji.strip()
+    if selected not in PROFILE_AVATAR_EMOJIS:
+        raise HTTPException(status_code=400, detail="Choose a valid profile emoji")
+    user.avatar_emoji = selected
+    user.avatar_128_url = ""
+    user.avatar_24_url = ""
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/profile", status_code=303)
 

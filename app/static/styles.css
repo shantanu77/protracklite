@@ -197,6 +197,20 @@ textarea {
   font-size: 2.2rem;
 }
 
+.user-avatar.emoji-avatar {
+  background: linear-gradient(145deg, #fff7ed, #fdf2f8);
+  color: inherit;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.user-avatar.large.emoji-avatar {
+  font-size: 4.4rem;
+  box-shadow: inset 0 0 0 1px rgba(190, 24, 93, 0.08);
+}
+
 .avatar-name {
   display: inline-flex;
   align-items: center;
@@ -236,6 +250,65 @@ textarea {
   gap: 0.9rem;
   max-width: 680px;
 }
+
+.profile-avatar-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.profile-avatar-divider::before,
+.profile-avatar-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: rgba(29, 52, 66, 0.08);
+}
+
+.profile-emoji-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.profile-emoji-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.profile-emoji-head strong,
+.profile-emoji-head small { display: block; }
+.profile-emoji-head small { margin-top: 0.12rem; color: var(--muted); font-size: 0.72rem; }
+
+.profile-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  gap: 0.38rem;
+}
+
+.profile-emoji-grid label { position: relative; cursor: pointer; }
+.profile-emoji-grid input { position: absolute; opacity: 0; pointer-events: none; }
+.profile-emoji-grid span {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  border: 1px solid rgba(29, 52, 66, 0.09);
+  border-radius: 10px;
+  background: #fff;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 1.35rem;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.profile-emoji-grid label:hover span { transform: translateY(-1px); background: #fff7ed; }
+.profile-emoji-grid input:checked + span { border-color: #db2777; background: #fdf2f8; box-shadow: 0 0 0 2px rgba(219, 39, 119, 0.15); }
+.profile-emoji-grid input:focus-visible + span { outline: 3px solid rgba(37, 99, 235, 0.22); outline-offset: 2px; }
 
 .profile-avatar-preview {
   width: 128px;
@@ -407,6 +480,7 @@ textarea {
 .profile-leave-tasks .dashboard-leave-task-list { max-height: 72px; }
 
 @media (max-width: 760px) {
+  .profile-emoji-head { align-items: stretch; flex-direction: column; }
   .profile-leaves-head { display: grid; }
   .profile-leaves-actions { flex-wrap: wrap; }
   .profile-leave-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

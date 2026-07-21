@@ -32,6 +32,21 @@
       <button type="submit" disabled data-profile-upload-submit data-default-text="Upload Photo">Upload Photo</button>
     </div>
   </form>
+  <div class="profile-avatar-divider"><span>or use an emoji</span></div>
+  <form method="post" action="/{{ org.slug }}/profile/emoji" class="profile-emoji-form" data-profile-emoji-form>
+    <div class="profile-emoji-head">
+      <div><strong>Choose your emoji avatar</strong><small>Every employee starts with a stable, randomly assigned flower.</small></div>
+      <button type="submit" class="button small">Use Selected Emoji</button>
+    </div>
+    <div class="profile-emoji-grid" role="radiogroup" aria-label="Choose profile emoji">
+      {% for emoji in profile_avatar_emojis %}
+      <label title="Use {{ emoji }} as profile avatar">
+        <input type="radio" name="avatar_emoji" value="{{ emoji }}" {% if emoji == selected_avatar_emoji %}checked{% endif %} required>
+        <span aria-hidden="true">{{ emoji }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </form>
 </section>
 
 <section class="panel profile-leaves-panel">
@@ -179,6 +194,25 @@
         feedback.classList.remove("is-error");
         feedback.textContent = "Uploading and preparing profile sizes...";
       }
+    });
+  })();
+</script>
+<script>
+  (() => {
+    const form = document.querySelector("[data-profile-emoji-form]");
+    const preview = document.querySelector("[data-profile-preview]");
+    if (!form || !preview) return;
+    form.querySelectorAll('input[name="avatar_emoji"]').forEach((input) => {
+      input.addEventListener("change", () => {
+        if (!input.checked) return;
+        const emoji = input.value;
+        preview.replaceChildren();
+        const avatar = document.createElement("span");
+        avatar.className = "user-avatar large profile-avatar emoji-avatar";
+        avatar.setAttribute("aria-label", "Selected emoji avatar preview");
+        avatar.textContent = emoji;
+        preview.appendChild(avatar);
+      });
     });
   })();
 </script>
