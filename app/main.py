@@ -1136,7 +1136,13 @@ def send_email(recipient: str, subject: str, body: str) -> None:
         server.send_message(message)
 
 
-def send_group_email(primary_recipient: str, copy_recipients: list[str], subject: str, body: str) -> None:
+def send_group_email(
+    primary_recipient: str,
+    copy_recipients: list[str],
+    subject: str,
+    body: str,
+    html_body: str | None = None,
+) -> None:
     primary = primary_recipient.strip().lower()
     copies = list(
         dict.fromkeys(
@@ -1148,11 +1154,12 @@ def send_group_email(primary_recipient: str, copy_recipients: list[str], subject
     all_recipients = [primary, *copies]
     message = EmailMessage()
     message["From"] = settings.smtp_from
-    message["To"] = primary
-    if copies:
-        message["Cc"] = ", ".join(copies)
+    message["To"] = "undisclosed-recipients:;"
+    message["Bcc"] = ", ".join(all_recipients)
     message["Subject"] = subject
     message.set_content(body)
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
         if settings.smtp_username:
             server.starttls()
@@ -7266,11 +7273,27 @@ def notify_leave_submission(
     date_label = start_date.strftime("%d %b %Y")
     if end_date != start_date:
         date_label = f"{date_label} to {end_date.strftime('%d %b %Y')}"
-    dashboard_url = f"{app_base_url()}/{org.slug}/dashboard"
+    capacity_url = f"{app_base_url()}/{org.slug}/manager/capacity"
+    leave_days_label = f"{leave_days:g}"
     task_lines = [
         f"- {task.task_id}: {task.name}"
         for task in tasks
     ] or ["- No scheduled open tasks overlap this leave period."]
+    task_rows = "".join(
+        f"""
+        <tr>
+          <td style="padding:12px 14px;border-top:1px solid #e5e7eb;font-size:13px;font-weight:700;color:#0f766e;vertical-align:top;white-space:nowrap;">{html.escape(task.task_id)}</td>
+          <td style="padding:12px 14px;border-top:1px solid #e5e7eb;font-size:14px;color:#1f2937;vertical-align:top;">{html.escape(task.name)}</td>
+        </tr>
+        """
+        for task in tasks
+    )
+    if not task_rows:
+        task_rows = """
+        <tr>
+          <td colspan="2" style="padding:14px;border-top:1px solid #e5e7eb;font-size:14px;color:#6b7280;">No scheduled open tasks overlap this leave period.</td>
+        </tr>
+        """
     subject = f"Leave submitted: {employee.full_name} · {date_label}"
     body = "\n".join(
         [
@@ -7279,7 +7302,7 @@ def notify_leave_submission(
             f"Leave period: {date_label}",
             f"Leave type: {leave_category_display(leave_category)}",
             f"Leave duration: {leave_type_display(leave_type)}",
-            f"Leave total: {leave_days.normalize()} working day(s)",
+            f"Leave total: {leave_days_label} working day(s)",
             f"Excluded weekends / holidays: {len(excluded_dates)}",
             f"Designated backup: {backup.full_name}",
             f"Reason / note: {reason}",
@@ -7287,14 +7310,60 @@ def notify_leave_submission(
             "Tasks assigned during this period:",
             *task_lines,
             "",
-            f"Open dashboard: {dashboard_url}",
+            f"Open manager capacity view: {capacity_url}",
         ]
     )
+    html_body = f"""
+    <!doctype html>
+    <html>
+      <body style="margin:0;background:#f3f6f5;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+        <div style="display:none;max-height:0;overflow:hidden;opacity:0;">{html.escape(employee.full_name)} submitted leave for {html.escape(date_label)}.</div>
+        <div style="max-width:680px;margin:0 auto;padding:28px 16px;">
+          <div style="background:#123d39;border-radius:18px 18px 0 0;padding:28px;color:#ffffff;">
+            <div style="font-size:12px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#9ed8c8;">Leave notification</div>
+            <h1 style="font-size:26px;line-height:1.25;margin:8px 0 6px;">Leave submitted</h1>
+            <p style="margin:0;color:#d9eee8;font-size:15px;">{html.escape(employee.full_name)} &middot; {html.escape(date_label)}</p>
+          </div>
+          <div style="background:#ffffff;border:1px solid #d9e0e4;border-top:0;border-radius:0 0 18px 18px;padding:26px;">
+            <p style="margin:0 0 18px;font-size:15px;line-height:1.6;">
+              <strong>{html.escape(employee.full_name)}</strong> has submitted a leave request.
+            </p>
+            <table role="presentation" style="width:100%;border-collapse:collapse;background:#f8faf9;border-radius:12px;overflow:hidden;">
+              <tr><td style="padding:11px 14px;color:#64748b;font-size:13px;width:42%;">Leave period</td><td style="padding:11px 14px;font-size:14px;font-weight:700;">{html.escape(date_label)}</td></tr>
+              <tr><td style="padding:11px 14px;color:#64748b;font-size:13px;border-top:1px solid #e5e7eb;">Leave type</td><td style="padding:11px 14px;font-size:14px;font-weight:700;border-top:1px solid #e5e7eb;">{html.escape(leave_category_display(leave_category))}</td></tr>
+              <tr><td style="padding:11px 14px;color:#64748b;font-size:13px;border-top:1px solid #e5e7eb;">Duration</td><td style="padding:11px 14px;font-size:14px;font-weight:700;border-top:1px solid #e5e7eb;">{html.escape(leave_type_display(leave_type))} &middot; {leave_days_label} working day(s)</td></tr>
+              <tr><td style="padding:11px 14px;color:#64748b;font-size:13px;border-top:1px solid #e5e7eb;">Excluded days</td><td style="padding:11px 14px;font-size:14px;font-weight:700;border-top:1px solid #e5e7eb;">{len(excluded_dates)} weekend / holiday day(s)</td></tr>
+              <tr><td style="padding:11px 14px;color:#64748b;font-size:13px;border-top:1px solid #e5e7eb;">Designated backup</td><td style="padding:11px 14px;font-size:14px;font-weight:700;border-top:1px solid #e5e7eb;">{html.escape(backup.full_name)}</td></tr>
+            </table>
+
+            <div style="margin:20px 0;">
+              <div style="font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#64748b;margin-bottom:7px;">Reason / handover note</div>
+              <div style="background:#fff8e8;border-left:4px solid #f59e0b;border-radius:8px;padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;">{html.escape(reason)}</div>
+            </div>
+
+            <div style="font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#64748b;margin:22px 0 8px;">Tasks during this period</div>
+            <table role="presentation" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+              <tr style="background:#f1f5f4;">
+                <th align="left" style="padding:10px 14px;font-size:12px;color:#64748b;">Task</th>
+                <th align="left" style="padding:10px 14px;font-size:12px;color:#64748b;">Name</th>
+              </tr>
+              {task_rows}
+            </table>
+
+            <div style="margin-top:24px;">
+              <a href="{html.escape(capacity_url, quote=True)}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 18px;border-radius:9px;">Open manager capacity view</a>
+            </div>
+            <p style="margin:24px 0 0;color:#71808a;font-size:12px;">ProtrackLite &middot; {html.escape(org.name)}</p>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
     employee_email = employee.email.strip().lower()
     primary_recipient = employee_email if employee_email in recipient_by_email else next(iter(recipient_by_email))
     copy_recipients = [email for email in recipient_by_email if email != primary_recipient]
     try:
-        send_group_email(primary_recipient, copy_recipients, subject, body)
+        send_group_email(primary_recipient, copy_recipients, subject, body, html_body)
         return 1
     except Exception as exc:
         logger.warning("Grouped leave notification failed for request %s: %s", date_label, exc)
