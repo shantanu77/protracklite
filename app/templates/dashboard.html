@@ -705,7 +705,7 @@
     <div class="modal-head">
       <div>
         <h2 id="dashboard-leave-title">Apply Leave</h2>
-        <p>Apply leave for any previous, current, or future date.</p>
+        <p>Apply leave for today, up to 7 days earlier, or a future date.</p>
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close leave modal">×</button>
     </div>
@@ -729,11 +729,11 @@
       </label>
       <label>
         Start Date
-        <input type="date" name="start_date" value="{{ today.isoformat() }}" required>
+        <input type="date" name="start_date" value="{{ today.isoformat() }}" min="{{ leave_min_date }}" required>
       </label>
       <label>
         End Date
-        <input type="date" name="end_date" value="{{ today.isoformat() }}" required>
+        <input type="date" name="end_date" value="{{ today.isoformat() }}" min="{{ leave_min_date }}" required>
       </label>
       <div class="dashboard-leave-duration full" data-dashboard-leave-duration-summary>
         <strong>1 working day of leave</strong>

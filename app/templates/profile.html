@@ -104,7 +104,7 @@
 <div class="modal-backdrop" id="profile-leave-edit-modal" aria-hidden="true" data-profile-leave-modal>
   <div class="modal-card profile-leave-edit-modal" role="dialog" aria-modal="true" aria-labelledby="profile-leave-edit-title">
     <div class="modal-head">
-      <div><h2 id="profile-leave-edit-title" data-profile-leave-modal-title>Edit Future Leave</h2><p>Weekends and organization holidays are excluded automatically.</p></div>
+      <div><h2 id="profile-leave-edit-title" data-profile-leave-modal-title>Edit Future Leave</h2><p>New leave can start today or up to 7 days earlier. Weekends and organization holidays are excluded automatically.</p></div>
       <button type="button" class="modal-close" aria-label="Close edit leave" data-profile-leave-close>×</button>
     </div>
     <form class="form-grid profile-leave-edit-form" data-profile-leave-edit-form>
@@ -234,6 +234,7 @@
     const taskList = document.querySelector("[data-profile-leave-task-list]");
     const taskCount = document.querySelector("[data-profile-leave-task-count]");
     const minimumLeaveDate = {{ leave_min_date|tojson }};
+    const defaultLeaveDate = {{ leave_default_date|tojson }};
     let activeRequestKey = "";
     let taskRequestController = null;
 
@@ -327,8 +328,8 @@
     const openLeaveModal = (item = null) => {
       if (!modal || !editForm) return;
       activeRequestKey = item?.request_key || "";
-      editForm.elements.start_date.value = item?.start_date || minimumLeaveDate;
-      editForm.elements.end_date.value = item?.end_date || minimumLeaveDate;
+      editForm.elements.start_date.value = item?.start_date || defaultLeaveDate;
+      editForm.elements.end_date.value = item?.end_date || defaultLeaveDate;
       const allowedCategories = ["planned", "sick", "casual", "unpaid"];
       editForm.elements.leave_category.value = allowedCategories.includes(item?.leave_category) ? item.leave_category : "planned";
       editForm.elements.leave_type.value = item?.leave_type || "full";

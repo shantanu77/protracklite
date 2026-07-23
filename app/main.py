@@ -121,6 +121,7 @@ ACTIVITY_CATEGORY_CHOICES = [
 ]
 ACTIVITY_CATEGORY_LABELS = dict(ACTIVITY_CATEGORY_CHOICES)
 DEFAULT_TASK_COLOR = "#22c55e"
+LEAVE_BACKDATE_DAYS = 7
 LIST_ITEM_PRIORITIES = ("low", "high", "medium", "stalled")
 LIST_ITEM_PRIORITY_LABELS = {
     "low": "Low",
@@ -3596,7 +3597,8 @@ def profile_page(
 ):
     org, user = org_user
     leave_requests = profile_leave_requests(db, user.id)
-    current_year = local_today().year
+    today = local_today()
+    current_year = today.year
     return templates.TemplateResponse(
         "profile.html",
         {
@@ -3605,7 +3607,8 @@ def profile_page(
             "user": user,
             "leave_requests": leave_requests,
             "leave_year": current_year,
-            "leave_min_date": (local_today() + timedelta(days=1)).isoformat(),
+            "leave_default_date": today.isoformat(),
+            "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
             "leave_year_applied": sum(
                 item["year_leave_days"] for item in leave_requests if item["year_leave_days"]
             ),
@@ -3787,6 +3790,7 @@ def dashboard(
             "user": user,
             "groups": groups,
             "today": today,
+            "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
             "week_start": week_start,
             "week_end": week_end,
             "week_leave_days": week_days,
@@ -7381,6 +7385,12 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         leave_type = LeaveType(payload.get("leave_type", "full"))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Select valid leave dates and leave type")
+    earliest_leave_date = local_today() - timedelta(days=LEAVE_BACKDATE_DAYS)
+    if start_date < earliest_leave_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Leave can only be backdated by up to {LEAVE_BACKDATE_DAYS} days",
+        )
     if end_date < start_date:
         raise HTTPException(status_code=400, detail="End date cannot be before start date")
     if (end_date - start_date).days > 366:
