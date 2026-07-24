@@ -268,8 +268,8 @@ def seed_defaults(db: Session) -> None:
     db.add(OrgSettings(org_id=org.id, weekend_days=[5, 6], work_hours_per_day="8.00"))
     admin = User(
         org_id=org.id,
-        email="admin@solulever.com",
-        full_name="Org Admin",
+        email="shantanu.singh@solulever.com",
+        full_name="Shantanu Singh",
         password_hash=hash_password("ChangeMe123"),
         role=Role.ADMIN,
         force_password_change=True,
