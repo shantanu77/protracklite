@@ -75,6 +75,23 @@ class WorkListCompletionTests(unittest.IsolatedAsyncioTestCase):
         comments = work_list_comment_page(self.db, self.work_list.id)["comments"]
         self.assertEqual(comments[0]["actor_avatar_url"], "/user-content/avatar-24.jpg")
         self.assertEqual(comments[0]["actor_name"], "Divya Mishra")
+        self.assertEqual(comments[0]["item_ids"], [self.item.id])
+        self.assertEqual(comments[0]["item_references"], f"#{self.item.id}")
+
+    def test_historical_completion_activity_is_associated_by_item_title(self):
+        self.db.add(
+            WorkListComment(
+                work_list_id=self.work_list.id,
+                user_id=self.user.id,
+                body=f"Divya Mishra completed task - {self.item.title}",
+            )
+        )
+        self.db.commit()
+
+        comment = work_list_comment_page(self.db, self.work_list.id)["comments"][0]
+        self.assertEqual(comment["kind"], "activity")
+        self.assertEqual(comment["item_ids"], [self.item.id])
+        self.assertEqual(comment["item_references"], f"#{self.item.id}")
 
 
 if __name__ == "__main__":

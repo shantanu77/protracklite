@@ -3281,11 +3281,29 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
     user_ids = {comment.user_id for comment in page_rows}
     people = db.scalars(select(User).where(User.id.in_(user_ids))).all() if user_ids else []
     people_map = {person.id: person for person in people}
+    list_items = db.scalars(select(WorkListItem).where(WorkListItem.work_list_id == work_list_id)).all()
+    item_ids = {item.id for item in list_items}
+    item_ids_by_title = {item.title.strip().casefold(): item.id for item in list_items}
     comments = []
     for comment in reversed(page_rows):
         actor = people_map.get(comment.user_id)
         actor_name = actor.full_name if actor else "Former member"
         actor_initials = "".join(part[0] for part in actor_name.split() if part)[:2].upper() or "?"
+        referenced_item_ids = {
+            int(raw_id)
+            for raw_id in re.findall(r"(?<!\w)#(\d+)\b", comment.body)
+            if int(raw_id) in item_ids
+        }
+        completion_match = re.search(
+            r"\b(?:completed|reopened) task(?:\s+#\d+)?\s+-\s*(.+?)\s*$",
+            comment.body,
+            flags=re.IGNORECASE,
+        )
+        if completion_match:
+            matched_item_id = item_ids_by_title.get(completion_match.group(1).strip().casefold())
+            if matched_item_id:
+                referenced_item_ids.add(matched_item_id)
+        item_references = " ".join(f"#{item_id}" for item_id in sorted(referenced_item_ids))
         comments.append({
             "id": comment.id,
             "body": comment.body,
@@ -3296,7 +3314,9 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
             "actor_avatar_emoji": user_avatar_emoji(actor),
             "actor_id": comment.user_id,
             "actor_tone": comment.user_id % 6,
-            "kind": "activity" if re.search(r"\b(?:completed|reopened) task\s+-", comment.body, flags=re.IGNORECASE) else "comment",
+            "item_ids": sorted(referenced_item_ids),
+            "item_references": item_references,
+            "kind": "activity" if completion_match else "comment",
         })
     return {
         "comments": comments,
@@ -4487,6 +4507,7 @@ def lists_page(
             "lists": summaries,
             "selected_list": selected,
             "selected_items": selected_items,
+            "list_item_references": [{"id": item.id, "title": item.title} for item in selected_items],
             "open_ai": bool(open_ai),
             "manage_mode": selected is None,
             "org_users": [person for person in org_users if person.id != user.id],
@@ -4772,7 +4793,7 @@ async def toggle_list_item_page(
         item.completed_by = None
     activity = None
     if next_completed and not was_completed:
-        activity_body = f"{user.full_name} completed task - {item.title}"
+        activity_body = f"{user.full_name} completed task #{item.id} - {item.title}"
         activity = WorkListComment(work_list_id=work_list.id, user_id=user.id, body=activity_body)
         db.add(activity)
     db.commit()
@@ -4795,6 +4816,8 @@ async def toggle_list_item_page(
             "actor_tone": user.id % 6,
             "actor_avatar_url": (user.avatar_24_url or "").strip(),
             "actor_avatar_emoji": user_avatar_emoji(user),
+            "item_ids": [item.id],
+            "item_references": f"#{item.id}",
             "created_at_label": format_local_datetime(activity.created_at),
         } if activity else None,
     }

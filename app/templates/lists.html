@@ -221,11 +221,12 @@
       <div class="list-item-scroll">
       <div class="list-item-stack compact-list-items">
     {% for item in selected_items %}
-    <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}" data-list-item-row data-list-item-state="{{ 'completed' if item.is_completed else 'open' }}" data-list-item-search="{{ item.title|lower|e }}">
+    <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}" data-list-item-row data-list-item-id="{{ item.id }}" data-list-item-state="{{ 'completed' if item.is_completed else 'open' }}" data-list-item-search="{{ ('#' ~ item.id ~ ' ' ~ item.title)|lower|e }}">
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/toggle" class="list-item-toggle-form" data-list-item-toggle-form>
         <input type="checkbox" {% if item.is_completed %}checked{% endif %} data-list-item-toggle>
       </form>
       <div class="list-item-main">
+        <button type="button" class="list-item-reference" data-list-item-reference="#{{ item.id }}" aria-label="Show communication for item {{ item.id }}" title="Show communication for this item">#{{ item.id }}</button>
         <button type="button" class="list-item-inline-button" data-list-item-edit data-item-title="{{ item.title|e }}">{{ item.title }}</button>
         <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/update" class="list-item-inline-edit" data-list-item-edit-form hidden>
           <input name="item_title" value="{{ item.title }}" maxlength="300" required>
@@ -291,7 +292,7 @@
         <button type="button" class="button ghost small list-load-older" data-load-older-comments data-url="/api/v1/lists/{{ selected_list.id }}/comments">Load older communication</button>
         {% endif %}
         {% for comment in comments %}
-        <article class="timeline-item list-chat-entry tone-{{ comment.actor_tone }} is-{{ comment.kind }}{% if comment.actor_id == user.id %} is-own{% endif %}" data-activity-entry data-activity-kind="{{ comment.kind }}" data-activity-search="{{ (comment.actor_name ~ ' ' ~ comment.body)|lower|e }}">
+        <article class="timeline-item list-chat-entry tone-{{ comment.actor_tone }} is-{{ comment.kind }}{% if comment.actor_id == user.id %} is-own{% endif %}" data-activity-entry data-activity-kind="{{ comment.kind }}" data-activity-search="{{ (comment.actor_name ~ ' ' ~ comment.body ~ ' ' ~ comment.item_references)|lower|e }}">
           <span class="timeline-dot" aria-hidden="true"></span>
           <div class="timeline-card">
             <div class="timeline-head">
@@ -316,10 +317,10 @@
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/comments" class="form-grid list-comment-form">
         <label class="full list-comment-label">Add a comment
           <span class="list-comment-input-wrap">
-            <textarea name="body" rows="2" placeholder="Share an update or type @ to mention someone..." required autocomplete="off" data-list-comment-input></textarea>
-            <span class="list-mention-menu" role="listbox" aria-label="Mention a shared member" data-list-mention-menu hidden></span>
+            <textarea name="body" rows="2" placeholder="Share an update; type @ for people or # for list items..." required autocomplete="off" data-list-comment-input></textarea>
+            <span class="list-mention-menu" role="listbox" aria-label="Reference a person or list item" data-list-mention-menu hidden></span>
           </span>
-          <small>Only people you @mention receive an immediate email.</small>
+          <small>Use # to link an item. Only people you @mention receive an immediate email.</small>
         </label>
         <button type="submit">Post Comment</button>
       </form>
@@ -618,6 +619,7 @@
     const activityCount = document.querySelector("[data-activity-count]");
     const loadOlderCommentsButton = document.querySelector("[data-load-older-comments]");
     const mentionPeople = {{ mention_people|tojson }};
+    const listItemReferences = {{ list_item_references|tojson }};
     const commentInput = document.querySelector("[data-list-comment-input]");
     const mentionMenu = document.querySelector("[data-list-mention-menu]");
     const currentListUserId = {{ user.id }};
@@ -662,7 +664,7 @@
       article.className = `timeline-item list-chat-entry tone-${actorTone} is-${activity.kind || "activity"}${isOwn ? " is-own" : ""}${isNew ? " list-activity-new" : ""}`;
       article.dataset.activityEntry = "true";
       article.dataset.activityKind = String(activity.kind || "activity");
-      article.dataset.activitySearch = `${activity.actor_name || ""} ${activity.body || ""}`.toLowerCase();
+      article.dataset.activitySearch = `${activity.actor_name || ""} ${activity.body || ""} ${activity.item_references || ""}`.toLowerCase();
       const dot = document.createElement("span");
       dot.className = "timeline-dot";
       dot.setAttribute("aria-hidden", "true");
@@ -736,6 +738,17 @@
         applyActivityFilters();
       });
     });
+    document.querySelectorAll("[data-list-item-reference]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!activitySearch) return;
+        activitySearch.value = String(button.dataset.listItemReference || "");
+        activeActivityFilter = "all";
+        activityFilterButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.activityFilter === "all"));
+        applyActivityFilters();
+        document.querySelector(".list-discussion-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        activitySearch.focus();
+      });
+    });
 
     const closeMentionMenu = () => {
       if (!mentionMenu) return;
@@ -745,11 +758,11 @@
       activeMentionIndex = 0;
     };
 
-    const chooseMention = (person) => {
+    const chooseReference = (entry) => {
       if (!commentInput || !mentionMatch) return;
       const before = commentInput.value.slice(0, mentionMatch.start);
       const after = commentInput.value.slice(mentionMatch.end);
-      const insertion = `@${person.handle} `;
+      const insertion = mentionMatch.kind === "item" ? `#${entry.id} ` : `@${entry.handle} `;
       commentInput.value = `${before}${insertion}${after}`;
       const caret = before.length + insertion.length;
       commentInput.focus();
@@ -761,38 +774,44 @@
       if (!commentInput || !mentionMenu) return;
       const caret = commentInput.selectionStart;
       const beforeCaret = commentInput.value.slice(0, caret);
-      const match = beforeCaret.match(/(?:^|\s)@([a-z0-9._-]*)$/i);
+      const match = beforeCaret.match(/(?:^|\s)([@#])([a-z0-9._-]*)$/i);
       if (!match) {
         closeMentionMenu();
         return;
       }
-      const query = match[1].toLowerCase();
-      const matches = mentionPeople.filter((person) => person.handle.includes(query) || person.name.toLowerCase().includes(query)).slice(0, 8);
+      const kind = match[1] === "#" ? "item" : "person";
+      const query = match[2].toLowerCase();
+      const matches = (
+        kind === "item"
+          ? listItemReferences.filter((item) => String(item.id).includes(query) || item.title.toLowerCase().includes(query))
+          : mentionPeople.filter((person) => person.handle.includes(query) || person.name.toLowerCase().includes(query))
+      ).slice(0, 8);
       if (!matches.length) {
         closeMentionMenu();
         return;
       }
-      mentionMatch = { start: caret - match[0].trimStart().length, end: caret, matches };
+      mentionMatch = { start: caret - match[0].trimStart().length, end: caret, matches, kind };
       activeMentionIndex = Math.min(activeMentionIndex, matches.length - 1);
       mentionMenu.replaceChildren();
-      matches.forEach((person, index) => {
+      matches.forEach((entry, index) => {
         const option = document.createElement("button");
         option.type = "button";
         option.className = `list-mention-option${index === activeMentionIndex ? " is-active" : ""}`;
         option.setAttribute("role", "option");
         option.setAttribute("aria-selected", index === activeMentionIndex ? "true" : "false");
-        const initials = person.name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
         const avatar = document.createElement("span");
-        avatar.textContent = initials || "?";
+        avatar.textContent = kind === "item"
+          ? "#"
+          : entry.name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "?";
         const copy = document.createElement("span");
         const name = document.createElement("strong");
-        name.textContent = person.name;
+        name.textContent = kind === "item" ? entry.title : entry.name;
         const handle = document.createElement("small");
-        handle.textContent = `@${person.handle}`;
+        handle.textContent = kind === "item" ? `#${entry.id}` : `@${entry.handle}`;
         copy.append(name, handle);
         option.append(avatar, copy);
         option.addEventListener("mousedown", (event) => event.preventDefault());
-        option.addEventListener("click", () => chooseMention(person));
+        option.addEventListener("click", () => chooseReference(entry));
         mentionMenu.appendChild(option);
       });
       mentionMenu.hidden = false;
@@ -809,7 +828,7 @@
         renderMentionMenu();
       } else if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
-        chooseMention(mentionMatch.matches[activeMentionIndex]);
+        chooseReference(mentionMatch.matches[activeMentionIndex]);
       } else if (event.key === "Escape") {
         event.preventDefault();
         closeMentionMenu();
@@ -878,7 +897,7 @@
       button.textContent = resolvedTitle;
       button.dataset.itemTitle = resolvedTitle;
       const itemRow = button.closest("[data-list-item-row]");
-      if (itemRow) itemRow.dataset.listItemSearch = resolvedTitle.toLowerCase();
+      if (itemRow) itemRow.dataset.listItemSearch = `#${itemRow.dataset.listItemId || ""} ${resolvedTitle}`.toLowerCase();
       input.value = resolvedTitle;
       form.hidden = true;
       button.hidden = false;
