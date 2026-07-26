@@ -3283,7 +3283,8 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
     people_map = {person.id: person for person in people}
     comments = []
     for comment in reversed(page_rows):
-        actor_name = people_map.get(comment.user_id).full_name if people_map.get(comment.user_id) else "Former member"
+        actor = people_map.get(comment.user_id)
+        actor_name = actor.full_name if actor else "Former member"
         actor_initials = "".join(part[0] for part in actor_name.split() if part)[:2].upper() or "?"
         comments.append({
             "id": comment.id,
@@ -3291,6 +3292,8 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
             "created_at_label": format_local_datetime(comment.created_at),
             "actor_name": actor_name,
             "actor_initials": actor_initials,
+            "actor_avatar_url": (actor.avatar_24_url or "").strip() if actor else "",
+            "actor_avatar_emoji": user_avatar_emoji(actor),
             "actor_id": comment.user_id,
             "actor_tone": comment.user_id % 6,
             "kind": "activity" if re.search(r"\b(?:completed|reopened) task\s+-", comment.body, flags=re.IGNORECASE) else "comment",
@@ -4743,6 +4746,7 @@ async def toggle_list_item_page(
     org_slug: str,
     list_id: int,
     item_id: int,
+    is_completed: bool | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4750,14 +4754,24 @@ async def toggle_list_item_page(
     work_list = work_list_detail(db, org.id, user.id, list_id)
     if not work_list:
         raise HTTPException(status_code=404, detail="List not found")
-    item = db.scalar(select(WorkListItem).where(WorkListItem.id == item_id, WorkListItem.work_list_id == work_list.id))
+    item = db.scalar(
+        select(WorkListItem)
+        .where(WorkListItem.id == item_id, WorkListItem.work_list_id == work_list.id)
+        .with_for_update()
+    )
     if not item:
         raise HTTPException(status_code=404, detail="List item not found")
-    item.is_completed = not item.is_completed
-    item.completed_at = datetime.utcnow() if item.is_completed else None
-    item.completed_by = user.id if item.is_completed else None
+    was_completed = bool(item.is_completed)
+    next_completed = not was_completed if is_completed is None else bool(is_completed)
+    item.is_completed = next_completed
+    if next_completed and not was_completed:
+        item.completed_at = datetime.utcnow()
+        item.completed_by = user.id
+    elif not next_completed:
+        item.completed_at = None
+        item.completed_by = None
     activity = None
-    if item.is_completed:
+    if next_completed and not was_completed:
         activity_body = f"{user.full_name} completed task - {item.title}"
         activity = WorkListComment(work_list_id=work_list.id, user_id=user.id, body=activity_body)
         db.add(activity)
@@ -4779,6 +4793,8 @@ async def toggle_list_item_page(
             "actor_name": user.full_name,
             "actor_id": user.id,
             "actor_tone": user.id % 6,
+            "actor_avatar_url": (user.avatar_24_url or "").strip(),
+            "actor_avatar_emoji": user_avatar_emoji(user),
             "created_at_label": format_local_datetime(activity.created_at),
         } if activity else None,
     }

@@ -295,7 +295,14 @@
           <span class="timeline-dot" aria-hidden="true"></span>
           <div class="timeline-card">
             <div class="timeline-head">
-              <strong class="list-activity-author"><span class="list-activity-avatar" aria-hidden="true">{{ comment.actor_initials }}</span>{{ comment.actor_name }}</strong>
+              <strong class="list-activity-author">
+                {% if comment.actor_avatar_url %}
+                <img class="user-avatar list-activity-avatar" src="{{ comment.actor_avatar_url }}" alt="{{ comment.actor_name }}" width="24" height="24">
+                {% else %}
+                <span class="user-avatar emoji-avatar list-activity-avatar" aria-label="{{ comment.actor_name }}">{{ comment.actor_avatar_emoji }}</span>
+                {% endif %}
+                {{ comment.actor_name }}
+              </strong>
               <span>{{ comment.created_at_label }}</span>
             </div>
             <p>{{ comment.body }}</p>
@@ -665,10 +672,18 @@
       head.className = "timeline-head";
       const actor = document.createElement("strong");
       actor.className = "list-activity-author";
-      const avatar = document.createElement("span");
-      avatar.className = "list-activity-avatar";
-      avatar.setAttribute("aria-hidden", "true");
-      avatar.textContent = String(activity.actor_initials || "") || String(activity.actor_name || "?").split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+      const avatarUrl = String(activity.actor_avatar_url || "").trim();
+      const avatar = document.createElement(avatarUrl ? "img" : "span");
+      avatar.className = `user-avatar list-activity-avatar${avatarUrl ? "" : " emoji-avatar"}`;
+      if (avatarUrl) {
+        avatar.src = avatarUrl;
+        avatar.alt = String(activity.actor_name || "Team member");
+        avatar.width = 24;
+        avatar.height = 24;
+      } else {
+        avatar.setAttribute("aria-label", String(activity.actor_name || "Team member"));
+        avatar.textContent = String(activity.actor_avatar_emoji || "🌸");
+      }
       actor.textContent = String(activity.actor_name || "Team member");
       actor.prepend(avatar);
       const time = document.createElement("span");
@@ -906,11 +921,17 @@
         return;
       }
       checkbox.addEventListener("change", async () => {
+        const requestedState = checkbox.checked;
+        checkbox.disabled = true;
+        const formData = new FormData();
+        formData.set("is_completed", requestedState ? "true" : "false");
         const response = await fetch(form.action, {
           method: "POST",
+          body: formData,
           credentials: "same-origin",
         });
         if (!response.ok) {
+          checkbox.disabled = false;
           window.location.reload();
           return;
         }
@@ -933,6 +954,7 @@
         updateProgress(payload.progress);
         appendActivity(payload.activity);
         applyListItemFilters();
+        checkbox.disabled = false;
       });
     });
 
