@@ -1,0 +1,5 @@
+# The production database host uses UTC. 20:30 UTC is 02:00 IST the next day.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+30 20 * * * root /usr/local/sbin/backup-protracklite.sh 2>&1 | /usr/bin/logger -t protracklite-db-backup
