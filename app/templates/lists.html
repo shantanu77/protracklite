@@ -22,19 +22,6 @@
 </div>
 {% endmacro %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <p class="eyebrow">Workspace</p>
-    <h1>Lists</h1>
-    <p>Track checklist-style plans, reminders, and outcome lists without turning them into full tasks.</p>
-  </div>
-  {% if manage_mode %}
-  <div class="page-head-actions">
-    <button type="button" class="button secondary" data-modal-open="list-ai-modal">✦ Add List Using AI</button>
-  </div>
-  {% endif %}
-</section>
-
 {% if manage_mode %}
 <section class="lists-layout manage-lists-layout">
   <div class="stack">
@@ -44,6 +31,7 @@
           <h2>Manage Lists</h2>
           <p>Start from scratch or choose a template, then tailor every item to your needs.</p>
         </div>
+        <button type="button" class="button secondary" data-modal-open="list-ai-modal">✦ Add List Using AI</button>
       </div>
       <label class="full">Start From
         <select name="template_key" data-list-template-select>
