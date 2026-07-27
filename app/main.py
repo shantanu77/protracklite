@@ -3662,6 +3662,8 @@ def profile_page(
 ):
     org, user = org_user
     leave_requests = profile_leave_requests(db, user.id)
+    team_people = reporting_tree_people(db, org.id, user)
+    team_leave_requests = team_profile_leave_requests(db, org.id, team_people)
     today = local_today()
     current_year = today.year
     return templates.TemplateResponse(
@@ -3671,6 +3673,8 @@ def profile_page(
             "org": org,
             "user": user,
             "leave_requests": leave_requests,
+            "team_people": team_people,
+            "team_leave_requests": team_leave_requests,
             "leave_year": current_year,
             "leave_default_date": today.isoformat(),
             "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
@@ -7193,6 +7197,107 @@ def profile_leave_requests(db: Session, user_id: int) -> list[dict[str, Any]]:
             }
         )
     return sorted(requests, key=lambda item: (item["start_date"], item["request_key"]), reverse=True)
+
+
+def reporting_tree_people(db: Session, org_id: int, user: User) -> list[dict[str, Any]]:
+    """Return the active people whose leave the user can see, including indirect reports."""
+    if user.role not in {Role.ADMIN, Role.MANAGER}:
+        return []
+
+    people = db.scalars(
+        select(User)
+        .where(User.org_id == org_id, User.is_active.is_(True), User.id != user.id)
+        .order_by(User.full_name.asc())
+    ).all()
+    if user.role == Role.ADMIN:
+        return [{"user": person, "depth": 1, "relationship_label": "Organization member"} for person in people]
+
+    reports_by_manager: dict[int, list[User]] = {}
+    for person in people:
+        if person.manager_id is not None:
+            reports_by_manager.setdefault(person.manager_id, []).append(person)
+
+    result: list[dict[str, Any]] = []
+    seen = {user.id}
+    pending = [(person, 1) for person in reports_by_manager.get(user.id, [])]
+    while pending:
+        person, depth = pending.pop(0)
+        if person.id in seen:
+            continue
+        seen.add(person.id)
+        result.append(
+            {
+                "user": person,
+                "depth": depth,
+                "relationship_label": "Direct report" if depth == 1 else "Indirect report",
+            }
+        )
+        pending.extend((report, depth + 1) for report in reports_by_manager.get(person.id, []))
+    return result
+
+
+def team_profile_leave_requests(
+    db: Session,
+    org_id: int,
+    team_people: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build a read-only team leave list entirely from locally synchronized leave rows."""
+    people_by_id = {item["user"].id: item for item in team_people}
+    if not people_by_id:
+        return []
+
+    leaves = db.scalars(
+        select(Leave)
+        .where(Leave.user_id.in_(people_by_id))
+        .order_by(Leave.leave_date.desc(), Leave.id.desc())
+    ).all()
+    backup_ids = {leave.backup_user_id for leave in leaves if leave.backup_user_id}
+    backups = (
+        db.scalars(
+            select(User).where(
+                User.org_id == org_id,
+                User.id.in_(backup_ids),
+            )
+        ).all()
+        if backup_ids
+        else []
+    )
+    backup_names = {person.id: person.full_name for person in backups}
+    grouped: dict[tuple[int, str], list[Leave]] = {}
+    for leave in leaves:
+        request_key = leave.request_group.strip() or f"legacy-{leave.id}"
+        grouped.setdefault((leave.user_id, request_key), []).append(leave)
+
+    requests: list[dict[str, Any]] = []
+    for (person_id, request_key), entries in grouped.items():
+        entries.sort(key=lambda item: item.leave_date)
+        first = entries[0]
+        person_scope = people_by_id[person_id]
+        person = person_scope["user"]
+        start_date = entries[0].leave_date
+        end_date = entries[-1].leave_date
+        requests.append(
+            {
+                "request_key": request_key,
+                "person_id": person.id,
+                "person_name": person.full_name,
+                "report_depth": person_scope["depth"],
+                "relationship_label": person_scope["relationship_label"],
+                "start_date": start_date.isoformat(),
+                "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}",
+                "leave_type_label": leave_type_display(first.leave_type),
+                "leave_category_label": leave_category_display(first.leave_category),
+                "reason": first.reason,
+                "backup_name": backup_names.get(first.backup_user_id, "Not available"),
+                "leave_days": sum(leave_day_count(item) for item in entries),
+                "zoho_sync_status": first.zoho_sync_status,
+            }
+        )
+    return sorted(
+        requests,
+        key=lambda item: (item["start_date"], item["person_name"].lower(), item["request_key"]),
+        reverse=True,
+    )
 
 
 def leave_request_entries(db: Session, user_id: int, request_key: str) -> list[Leave]:

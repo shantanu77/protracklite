@@ -401,6 +401,18 @@ textarea {
 .profile-leaves-head p:not(.eyebrow) { margin-top: 0.2rem; color: var(--muted); font-size: 0.8rem; }
 .profile-leaves-actions { flex: 0 0 auto; }
 
+.profile-local-data-note {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: #0f766e;
+  font-size: 0.62rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .profile-leave-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -448,6 +460,7 @@ textarea {
 }
 
 .profile-leave-table { min-width: 820px; }
+.profile-team-leave-table { min-width: 900px; }
 .profile-leave-table th { position: sticky; top: 0; z-index: 1; }
 .profile-leave-table th,
 .profile-leave-table td { padding: 0.52rem 0.58rem; font-size: 0.72rem; vertical-align: middle; }

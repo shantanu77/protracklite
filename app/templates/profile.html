@@ -101,6 +101,39 @@
   </div>
 </section>
 
+{% if team_people %}
+<section class="panel profile-leaves-panel profile-team-leaves-panel">
+  <div class="profile-leaves-head">
+    <div>
+      <p class="eyebrow">Reporting tree</p>
+      <h2>My Team Leaves</h2>
+      <p>Leave stored in ProTrack for {{ team_people|length }} team member{{ "" if team_people|length == 1 else "s" }}, including indirect reports.</p>
+    </div>
+    <span class="profile-local-data-note">Local synced data</span>
+  </div>
+
+  <div class="profile-leave-table-wrap">
+    <table class="profile-leave-table profile-team-leave-table">
+      <thead><tr><th>Team member</th><th>Dates</th><th>Leave</th><th>Days</th><th>Backup</th><th>Zoho sync</th></tr></thead>
+      <tbody>
+        {% for leave in team_leave_requests %}
+        <tr>
+          <td><strong>{{ leave.person_name }}</strong><small>{{ leave.relationship_label }}</small></td>
+          <td><strong>{{ leave.date_label }}</strong></td>
+          <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }}{% if leave.reason %} · {{ leave.reason }}{% endif %}</small></td>
+          <td><strong>{{ "%g"|format(leave.leave_days) }}</strong></td>
+          <td>{{ leave.backup_name }}</td>
+          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No locally synced leave is available for your reporting team yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <div class="modal-backdrop" id="profile-leave-edit-modal" aria-hidden="true" data-profile-leave-modal>
   <div class="modal-card profile-leave-edit-modal" role="dialog" aria-modal="true" aria-labelledby="profile-leave-edit-title">
     <div class="modal-head">
