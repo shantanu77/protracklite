@@ -1,14 +1,17 @@
 import os
 import unittest
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("USER_CONTENT_DIR", "/tmp/protracklite-test-user-content")
+os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+os.environ["USER_CONTENT_DIR"] = "/tmp/protracklite-test-user-content"
 
 from sqlalchemy import func, select
 
 from app.database import Base, SessionLocal, engine
 from app.main import toggle_list_item_page, work_list_comment_page
 from app.models import Organization, User, WorkList, WorkListComment, WorkListItem
+
+if engine.dialect.name != "sqlite":
+    raise RuntimeError("Tests must never run against a non-SQLite database.")
 
 
 class WorkListCompletionTests(unittest.IsolatedAsyncioTestCase):

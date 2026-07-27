@@ -2,8 +2,8 @@ import asyncio
 import os
 import unittest
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("USER_CONTENT_DIR", "/tmp/protracklite-test-user-content")
+os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+os.environ["USER_CONTENT_DIR"] = "/tmp/protracklite-test-user-content"
 
 from fastapi import HTTPException
 from starlette.requests import Request

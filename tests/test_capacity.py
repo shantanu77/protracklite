@@ -2,12 +2,15 @@ import os
 import unittest
 from datetime import date
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("USER_CONTENT_DIR", "/tmp/protracklite-test-user-content")
+os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+os.environ["USER_CONTENT_DIR"] = "/tmp/protracklite-test-user-content"
 
 from app.capacity import build_capacity_payload
 from app.database import Base, SessionLocal, engine
 from app.models import Leave, Organization, User
+
+if engine.dialect.name != "sqlite":
+    raise RuntimeError("Tests must never run against a non-SQLite database.")
 
 
 class CapacityAlertTests(unittest.TestCase):
