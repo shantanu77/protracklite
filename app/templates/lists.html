@@ -627,14 +627,56 @@
     let activeMentionIndex = 0;
     let mentionMatch = null;
 
+    const renderSearchHighlights = (element, text, terms) => {
+      if (!element) return;
+      const source = String(text || "");
+      element.replaceChildren();
+      if (!terms.length) {
+        element.appendChild(document.createTextNode(source));
+        return;
+      }
+      const normalizedSource = source.toLowerCase();
+      const orderedTerms = [...terms].sort((left, right) => right.length - left.length);
+      let cursor = 0;
+      while (cursor < source.length) {
+        let nextIndex = -1;
+        let nextTerm = "";
+        orderedTerms.forEach((term) => {
+          const index = normalizedSource.indexOf(term, cursor);
+          if (index >= 0 && (nextIndex < 0 || index < nextIndex || (index === nextIndex && term.length > nextTerm.length))) {
+            nextIndex = index;
+            nextTerm = term;
+          }
+        });
+        if (nextIndex < 0) {
+          element.appendChild(document.createTextNode(source.slice(cursor)));
+          break;
+        }
+        if (nextIndex > cursor) {
+          element.appendChild(document.createTextNode(source.slice(cursor, nextIndex)));
+        }
+        const highlight = document.createElement("mark");
+        highlight.className = "list-search-highlight";
+        highlight.textContent = source.slice(nextIndex, nextIndex + nextTerm.length);
+        element.appendChild(highlight);
+        cursor = nextIndex + nextTerm.length;
+      }
+    };
+
     const applyListItemFilters = () => {
       const query = String(listItemSearch?.value || "").trim().toLowerCase();
+      const terms = [...new Set(query.split(/\s+/).filter(Boolean))];
       const state = String(listItemFilter?.value || "all");
       let visible = 0;
       const rows = Array.from(document.querySelectorAll("[data-list-item-row]"));
       rows.forEach((row) => {
-        const matchesQuery = !query || String(row.dataset.listItemSearch || "").includes(query);
+        const searchableText = String(row.dataset.listItemSearch || "");
+        const matchesQuery = terms.every((term) => searchableText.includes(term));
         const matchesState = state === "all" || row.dataset.listItemState === state;
+        const titleButton = row.querySelector("[data-list-item-edit]");
+        const referenceButton = row.querySelector("[data-list-item-reference]");
+        renderSearchHighlights(titleButton, titleButton?.dataset.itemTitle || "", terms);
+        renderSearchHighlights(referenceButton, referenceButton?.dataset.listItemReference || "", terms);
         row.hidden = !(matchesQuery && matchesState);
         if (!row.hidden) visible += 1;
       });

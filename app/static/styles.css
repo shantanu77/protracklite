@@ -2037,6 +2037,17 @@ textarea {
   display: none !important;
 }
 
+[data-list-item-row][hidden] {
+  display: none !important;
+}
+
+.list-search-highlight {
+  padding: 0 0.08rem;
+  border-radius: 3px;
+  background: #fde68a;
+  color: inherit;
+}
+
 .list-mention-option {
   display: flex;
   align-items: center;
