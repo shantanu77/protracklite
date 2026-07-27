@@ -4687,10 +4687,13 @@ mark {
 }
 
 .capacity-holiday-band {
-  top: 0;
-  bottom: 0;
+  top: 5px;
+  bottom: 5px;
   z-index: 1;
-  background: #dbeafe;
+  margin-left: 7px;
+  width: calc(var(--segment-span) * var(--capacity-day-width) - 14px);
+  border-radius: 7px;
+  background: rgba(219, 234, 254, 0.72);
   box-shadow: inset 1px 0 #bfdbfe, inset -1px 0 #bfdbfe;
 }
 

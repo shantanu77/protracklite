@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Holiday, Leave, LeaveType, Organization, User
-from app.time_utils import local_datetime
+from app.time_utils import local_datetime, local_today
 
 
 CAPACITY_VIEWS = {"month", "sprint", "week"}
@@ -102,9 +102,11 @@ def build_capacity_payload(
     view: str = "month",
     anchor: date | None = None,
     scope: str = "team",
+    today: date | None = None,
 ) -> dict[str, Any]:
     normalized_view = view if view in CAPACITY_VIEWS else "month"
     reference_date = anchor or date.today()
+    alert_start_date = today or local_today()
     period_start, period_end, previous_anchor, next_anchor = capacity_period(normalized_view, reference_date)
     days = [period_start + timedelta(days=offset) for offset in range((period_end - period_start).days + 1)]
     member_ids = [member.id for member in members]
@@ -178,17 +180,26 @@ def build_capacity_payload(
     ]
     weekend_bands = [segment for segment in _contiguous_segments(weekend_statuses) if segment["status"] == "weekend"]
 
-    max_unavailable = max((len(people) for people in unavailable_by_day.values()), default=0)
-    conflict_dates = [day for day, people in unavailable_by_day.items() if len(people) == max_unavailable] if max_unavailable else []
+    upcoming_unavailable_by_day = {
+        day: people
+        for day, people in unavailable_by_day.items()
+        if day >= alert_start_date
+    }
+    max_unavailable = max((len(people) for people in upcoming_unavailable_by_day.values()), default=0)
+    conflict_dates = [
+        day
+        for day, people in upcoming_unavailable_by_day.items()
+        if len(people) == max_unavailable
+    ] if max_unavailable else []
     if max_unavailable >= 2:
         shown_dates = ", ".join(day.strftime("%d %b") for day in conflict_dates[:3])
         conflict_text = f"CONFLICT ALERT: {max_unavailable} team members unavailable on {shown_dates}."
         conflict_tone = "warning"
     elif max_unavailable == 1:
-        conflict_text = "No overlapping leave conflicts in this period. One person is unavailable on the busiest leave day."
+        conflict_text = "No upcoming overlapping leave conflicts in this period. One person is unavailable on the busiest future leave day."
         conflict_tone = "clear"
     else:
-        conflict_text = "No leave conflicts detected for this period."
+        conflict_text = "No upcoming leave conflicts detected for this period."
         conflict_tone = "clear"
 
     if period_start.year == period_end.year and period_start.month == period_end.month:

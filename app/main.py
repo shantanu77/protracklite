@@ -7846,6 +7846,7 @@ def manager_capacity_page(
         view=view,
         anchor=anchor_date,
         scope=normalized_scope,
+        today=local_today(),
     )
     return templates.TemplateResponse(
         "capacity.html",
