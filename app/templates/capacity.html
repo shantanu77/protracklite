@@ -41,7 +41,7 @@
   </div>
 
   {% if report.rows %}
-  <div class="capacity-gantt" style="--capacity-days: {{ report.day_count }};">
+  <div class="capacity-gantt" style="--capacity-track-min-width: {{ report.min_track_width }}px;">
     <div class="capacity-member-pane">
       <div class="capacity-member-header">Team Member</div>
       {% for row in report.rows %}
@@ -55,7 +55,7 @@
       <div class="capacity-track">
         <div class="capacity-calendar-header">
           <div class="capacity-month-row">{{ report.period_label }}</div>
-          <div class="capacity-day-row">
+          <div class="capacity-day-row" style="grid-template-columns: {{ report.day_grid_template }};">
             {% for day in report.days %}
             <div class="capacity-day-head{% if day.weekday() in [5, 6] %} is-weekend{% endif %}{% if day == today %} is-today{% endif %}" data-capacity-date="{{ day.isoformat() }}">
               <span>{{ day.strftime('%a')[:1] }}</span><strong>{{ day.day }}</strong>
@@ -64,17 +64,20 @@
           </div>
         </div>
         <div class="capacity-timeline-body">
+          {% for column in report.day_columns %}
+          <div class="capacity-day-column{% if column.is_weekend %} is-weekend{% endif %}" style="--segment-left: {{ column.left_percent }}%; --segment-width: {{ column.width_percent }}%;"></div>
+          {% endfor %}
           {% for band in report.weekend_bands %}
-          <div class="capacity-weekend-band" style="--segment-start: {{ band.start }}; --segment-span: {{ band.span }};" title="{{ band.title }}"></div>
+          <div class="capacity-weekend-band" style="--segment-left: {{ band.left_percent }}%; --segment-width: {{ band.width_percent }}%;" title="{{ band.title }}"></div>
           {% endfor %}
           {% for band in report.holiday_bands %}
-          <div class="capacity-holiday-band" style="--segment-start: {{ band.start }}; --segment-span: {{ band.span }};" title="{{ band.title }}"></div>
+          <div class="capacity-holiday-band" style="--segment-left: {{ band.left_percent }}%; --segment-width: {{ band.width_percent }}%;" title="{{ band.title }}"></div>
           {% endfor %}
           {% for row in report.rows %}
           <div class="capacity-timeline-row">
             {% for segment in row.segments %}
             {% if segment.status not in ['holiday', 'weekend'] %}
-            <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-start: {{ segment.start }}; --segment-span: {{ segment.span }};" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ segment.title }}</span></div>
+            <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-left: {{ segment.left_percent }}%; --segment-width: {{ segment.width_percent }}%;" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ segment.title }}</span></div>
             {% endif %}
             {% endfor %}
           </div>

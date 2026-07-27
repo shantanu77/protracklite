@@ -4500,7 +4500,6 @@ mark {
 }
 
 .capacity-gantt {
-  --capacity-day-width: 42px;
   --capacity-header-height: 72px;
   --capacity-row-height: 60px;
   display: grid;
@@ -4580,8 +4579,8 @@ mark {
 }
 
 .capacity-track {
-  width: calc(var(--capacity-days) * var(--capacity-day-width));
-  min-width: 100%;
+  width: 100%;
+  min-width: var(--capacity-track-min-width);
 }
 
 .capacity-calendar-header {
@@ -4603,7 +4602,6 @@ mark {
 
 .capacity-day-row {
   display: grid;
-  grid-template-columns: repeat(var(--capacity-days), var(--capacity-day-width));
   height: 41px;
 }
 
@@ -4632,7 +4630,17 @@ mark {
 
 .capacity-timeline-body {
   position: relative;
-  background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--capacity-day-width) - 1px), rgba(217, 224, 228, 0.72) calc(var(--capacity-day-width) - 1px), rgba(217, 224, 228, 0.72) var(--capacity-day-width));
+}
+
+.capacity-day-column {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: var(--segment-left);
+  width: var(--segment-width);
+  border-right: 1px solid rgba(217, 224, 228, 0.72);
+  pointer-events: none;
 }
 
 .capacity-timeline-row {
@@ -4650,8 +4658,8 @@ mark {
 .capacity-holiday-band,
 .capacity-weekend-band {
   position: absolute;
-  left: calc(var(--segment-start) * var(--capacity-day-width));
-  width: calc(var(--segment-span) * var(--capacity-day-width));
+  left: var(--segment-left);
+  width: var(--segment-width);
 }
 
 .capacity-status-bar {
@@ -4687,13 +4695,10 @@ mark {
 }
 
 .capacity-holiday-band {
-  top: 5px;
-  bottom: 5px;
+  top: 0;
+  bottom: 0;
   z-index: 1;
-  margin-left: 7px;
-  width: calc(var(--segment-span) * var(--capacity-day-width) - 14px);
-  border-radius: 7px;
-  background: rgba(219, 234, 254, 0.72);
+  background: #dbeafe;
   box-shadow: inset 1px 0 #bfdbfe, inset -1px 0 #bfdbfe;
 }
 
@@ -4746,7 +4751,6 @@ mark {
   }
 
   .capacity-gantt {
-    --capacity-day-width: 38px;
     grid-template-columns: 180px minmax(0, 1fr);
   }
 }

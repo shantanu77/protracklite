@@ -13,6 +13,9 @@ from app.time_utils import local_datetime, local_today
 
 
 CAPACITY_VIEWS = {"month", "sprint", "week"}
+CAPACITY_WEEKDAY_WEIGHT = 1.0
+CAPACITY_WEEKEND_WEIGHT = 0.55
+CAPACITY_WEEKDAY_MIN_WIDTH = 48
 STATUS_LABELS = {
     "available": "Avl",
     "planned": "PL",
@@ -94,6 +97,48 @@ def _contiguous_segments(statuses: list[dict[str, Any]]) -> list[dict[str, Any]]
     return segments
 
 
+def capacity_timeline_layout(days: list[date]) -> dict[str, Any]:
+    weights = [
+        CAPACITY_WEEKEND_WEIGHT if day.weekday() in {5, 6} else CAPACITY_WEEKDAY_WEIGHT
+        for day in days
+    ]
+    cumulative_weights = [0.0]
+    for weight in weights:
+        cumulative_weights.append(cumulative_weights[-1] + weight)
+    total_weight = cumulative_weights[-1] or 1.0
+    day_columns = [
+        {
+            "date": day,
+            "is_weekend": day.weekday() in {5, 6},
+            "left_percent": round(cumulative_weights[index] / total_weight * 100, 6),
+            "width_percent": round(weight / total_weight * 100, 6),
+        }
+        for index, (day, weight) in enumerate(zip(days, weights))
+    ]
+    return {
+        "weights": weights,
+        "cumulative_weights": cumulative_weights,
+        "total_weight": total_weight,
+        "day_columns": day_columns,
+        "day_grid_template": " ".join(f"{weight:g}fr" for weight in weights),
+        "min_track_width": round(total_weight * CAPACITY_WEEKDAY_MIN_WIDTH),
+    }
+
+
+def apply_timeline_layout(segments: list[dict[str, Any]], layout: dict[str, Any]) -> list[dict[str, Any]]:
+    cumulative_weights = layout["cumulative_weights"]
+    total_weight = layout["total_weight"]
+    for segment in segments:
+        start_index = segment["start"]
+        end_index = start_index + segment["span"]
+        segment["left_percent"] = round(cumulative_weights[start_index] / total_weight * 100, 6)
+        segment["width_percent"] = round(
+            (cumulative_weights[end_index] - cumulative_weights[start_index]) / total_weight * 100,
+            6,
+        )
+    return segments
+
+
 def build_capacity_payload(
     db: Session,
     org: Organization,
@@ -109,6 +154,7 @@ def build_capacity_payload(
     alert_start_date = today or local_today()
     period_start, period_end, previous_anchor, next_anchor = capacity_period(normalized_view, reference_date)
     days = [period_start + timedelta(days=offset) for offset in range((period_end - period_start).days + 1)]
+    timeline_layout = capacity_timeline_layout(days)
     member_ids = [member.id for member in members]
 
     leaves = []
@@ -161,7 +207,7 @@ def build_capacity_payload(
                 "user": member,
                 "display_name": short_person_name(member.full_name),
                 "role_label": member.department.name if member.department else member.role.value.replace("_", " ").title(),
-                "segments": _contiguous_segments(statuses),
+                "segments": apply_timeline_layout(_contiguous_segments(statuses), timeline_layout),
             }
         )
 
@@ -169,7 +215,10 @@ def build_capacity_payload(
         {"date": day, "status": "holiday" if day in holiday_map else "available", "detail": holiday_map[day].name if day in holiday_map else ""}
         for day in days
     ]
-    holiday_bands = [segment for segment in _contiguous_segments(holiday_statuses) if segment["status"] == "holiday"]
+    holiday_bands = apply_timeline_layout(
+        [segment for segment in _contiguous_segments(holiday_statuses) if segment["status"] == "holiday"],
+        timeline_layout,
+    )
     weekend_statuses = [
         {
             "date": day,
@@ -178,7 +227,10 @@ def build_capacity_payload(
         }
         for day in days
     ]
-    weekend_bands = [segment for segment in _contiguous_segments(weekend_statuses) if segment["status"] == "weekend"]
+    weekend_bands = apply_timeline_layout(
+        [segment for segment in _contiguous_segments(weekend_statuses) if segment["status"] == "weekend"],
+        timeline_layout,
+    )
 
     upcoming_unavailable_by_day = {
         day: people
@@ -219,6 +271,9 @@ def build_capacity_payload(
         "next_anchor": next_anchor,
         "period_label": period_label,
         "days": days,
+        "day_columns": timeline_layout["day_columns"],
+        "day_grid_template": timeline_layout["day_grid_template"],
+        "min_track_width": timeline_layout["min_track_width"],
         "day_count": len(days),
         "rows": rows,
         "holiday_bands": holiday_bands,

@@ -72,6 +72,25 @@ class CapacityAlertTests(unittest.TestCase):
         self.assertEqual(report["conflict_tone"], "warning")
         self.assertIn("2 team members unavailable on 29 Jul", report["conflict_text"])
 
+    def test_weekend_columns_are_narrower_than_weekdays(self):
+        report = build_capacity_payload(
+            self.db,
+            self.org,
+            self.people,
+            view="week",
+            anchor=date(2026, 7, 27),
+            today=date(2026, 7, 27),
+        )
+
+        weekday = next(column for column in report["day_columns"] if not column["is_weekend"])
+        weekend = next(column for column in report["day_columns"] if column["is_weekend"])
+        self.assertLess(weekend["width_percent"], weekday["width_percent"])
+        self.assertAlmostEqual(
+            sum(column["width_percent"] for column in report["day_columns"]),
+            100,
+            places=4,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
