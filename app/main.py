@@ -3271,13 +3271,14 @@ def work_list_detail(db: Session, org_id: int, user_id: int, list_id: int | None
     )
 
 
-def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None = None, limit: int = 60) -> dict[str, Any]:
+def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None = None, limit: int | None = 60) -> dict[str, Any]:
     stmt = select(WorkListComment).where(WorkListComment.work_list_id == work_list_id)
     if before_id:
         stmt = stmt.where(WorkListComment.id < before_id)
-    rows = db.scalars(stmt.order_by(WorkListComment.id.desc()).limit(limit + 1)).all()
-    has_more = len(rows) > limit
-    page_rows = rows[:limit]
+    ordered_stmt = stmt.order_by(WorkListComment.id.desc())
+    rows = db.scalars(ordered_stmt.limit(limit + 1) if limit is not None else ordered_stmt).all()
+    has_more = limit is not None and len(rows) > limit
+    page_rows = rows[:limit] if limit is not None else rows
     user_ids = {comment.user_id for comment in page_rows}
     people = db.scalars(select(User).where(User.id.in_(user_ids))).all() if user_ids else []
     people_map = {person.id: person for person in people}
@@ -4491,13 +4492,29 @@ def lists_page(
     )
     org_users = org_people(db, org.id)
     people_map = {person.id: person for person in org_users}
+    missing_completer_ids = {
+        item.completed_by
+        for item in selected_items
+        if item.completed_by and item.completed_by not in people_map
+    }
+    if missing_completer_ids:
+        historical_completers = db.scalars(
+            select(User).where(User.org_id == org.id, User.id.in_(missing_completer_ids))
+        ).all()
+        people_map.update({person.id: person for person in historical_completers})
     participant_ids = work_list_participant_ids(selected) if selected else set()
     shared_people = [person for person in org_users if selected and person.id in {member.user_id for member in selected.members}]
     mention_people = work_list_mention_directory(
         [person for person in org_users if person.id in participant_ids and person.id != user.id]
     )
-    comment_page = work_list_comment_page(db, selected.id) if selected else {"comments": [], "has_more": False, "next_before_id": None}
-    comment_count = db.scalar(select(func.count(WorkListComment.id)).where(WorkListComment.work_list_id == selected.id)) if selected else 0
+    all_comments = work_list_comment_page(db, selected.id, limit=None)["comments"] if selected else []
+    comments = all_comments[-60:]
+    has_older_comments = len(all_comments) > len(comments)
+    item_discussions: dict[int, list[dict[str, Any]]] = {item.id: [] for item in selected_items}
+    for comment in all_comments:
+        for item_id in comment["item_ids"]:
+            if item_id in item_discussions:
+                item_discussions[item_id].append(comment)
     return templates.TemplateResponse(
         "lists.html",
         {
@@ -4515,10 +4532,11 @@ def lists_page(
             "shared_people": shared_people,
             "list_owner": people_map.get(selected.owner_user_id) if selected else None,
             "mention_people": mention_people,
-            "comments": comment_page["comments"],
-            "has_older_comments": comment_page["has_more"],
-            "older_comments_before_id": comment_page["next_before_id"],
-            "comment_count": int(comment_count or 0),
+            "comments": comments,
+            "has_older_comments": has_older_comments,
+            "older_comments_before_id": comments[0]["id"] if comments and has_older_comments else None,
+            "comment_count": len(all_comments),
+            "item_discussions": item_discussions,
             "selected_progress": work_list_progress(selected) if selected else None,
             "is_owner": bool(selected) and can_manage_work_list(selected, user.id),
             "member_ids": {member.user_id for member in selected.members} if selected else set(),

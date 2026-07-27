@@ -93,6 +93,23 @@ class WorkListCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(comment["item_ids"], [self.item.id])
         self.assertEqual(comment["item_references"], f"#{self.item.id}")
 
+    def test_full_comment_history_can_be_loaded_for_item_details(self):
+        self.db.add_all(
+            WorkListComment(
+                work_list_id=self.work_list.id,
+                user_id=self.user.id,
+                body=f"Update {index} for #{self.item.id}",
+            )
+            for index in range(65)
+        )
+        self.db.commit()
+
+        page = work_list_comment_page(self.db, self.work_list.id, limit=None)
+
+        self.assertEqual(len(page["comments"]), 65)
+        self.assertFalse(page["has_more"])
+        self.assertTrue(all(comment["item_ids"] == [self.item.id] for comment in page["comments"]))
+
 
 if __name__ == "__main__":
     unittest.main()

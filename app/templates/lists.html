@@ -209,7 +209,7 @@
       </form>
       <div class="list-item-main">
         <button type="button" class="list-item-reference" data-list-item-reference="#{{ item.id }}" aria-label="Show communication for item {{ item.id }}" title="Show communication for this item">#{{ item.id }}</button>
-        <button type="button" class="list-item-inline-button" data-list-item-edit data-item-title="{{ item.title|e }}">{{ item.title }}</button>
+        <button type="button" class="list-item-inline-button" data-list-item-expand data-item-title="{{ item.title|e }}" aria-expanded="false" aria-controls="list-item-details-{{ item.id }}">{{ item.title }}</button>
         <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items/{{ item.id }}/update" class="list-item-inline-edit" data-list-item-edit-form hidden>
           <input name="item_title" value="{{ item.title }}" maxlength="300" required>
         </form>
@@ -243,6 +243,38 @@
           aria-label="Cycle priority"
           title="Priority: {{ item_priority|title }}"
         >{% if item_priority == "high" %}⬆{% elif item_priority == "medium" %}➜{% elif item_priority == "stalled" %}✕{% else %}⬇{% endif %}</button>
+      </div>
+      <div class="list-item-details" id="list-item-details-{{ item.id }}" data-list-item-details hidden>
+        <div class="list-item-detail-facts">
+          <span><small>Start date</small><strong>{{ item.created_at|local_datetime }}</strong></span>
+          <span><small>End date</small><strong data-list-item-end-date>{{ item.completed_at|local_datetime if item.completed_at else "Not completed" }}</strong></span>
+          <span><small>Closed by</small><strong data-list-item-closed-by>{{ people_map.get(item.completed_by).full_name if item.completed_by and people_map.get(item.completed_by) else "—" }}</strong></span>
+        </div>
+        <div class="list-item-detail-actions">
+          <button type="button" class="button ghost small" data-list-item-edit-action>Edit item</button>
+          <button type="button" class="button ghost small" data-list-item-discuss="#{{ item.id }}">Add discussion</button>
+        </div>
+        <div class="list-item-linked-discussion">
+          <div class="list-item-linked-discussion-head">
+            <strong>Activity &amp; discussion</strong>
+            <small>{{ item_discussions.get(item.id, [])|length }} linked</small>
+          </div>
+          {% for discussion in item_discussions.get(item.id, []) %}
+          <article class="list-item-discussion-entry">
+            {% if discussion.actor_avatar_url %}
+            <img class="user-avatar list-item-discussion-avatar" src="{{ discussion.actor_avatar_url }}" alt="{{ discussion.actor_name }}" width="24" height="24">
+            {% else %}
+            <span class="user-avatar emoji-avatar list-item-discussion-avatar" aria-label="{{ discussion.actor_name }}">{{ discussion.actor_avatar_emoji }}</span>
+            {% endif %}
+            <div>
+              <span><strong>{{ discussion.actor_name }}</strong><small>{{ discussion.created_at_label }}</small></span>
+              <p>{{ discussion.body }}</p>
+            </div>
+          </article>
+          {% else %}
+          <p class="list-item-no-discussion">No discussion linked to #{{ item.id }} yet. Use #{{ item.id }} in a comment to link it.</p>
+          {% endfor %}
+        </div>
       </div>
     </article>
     {% else %}
@@ -579,7 +611,8 @@
 {% else %}
 <script>
   (() => {
-    const editButtons = document.querySelectorAll("[data-list-item-edit]");
+    const expandButtons = document.querySelectorAll("[data-list-item-expand]");
+    const editButtons = document.querySelectorAll("[data-list-item-edit-action]");
     const metaDisplays = document.querySelectorAll("[data-list-meta-display]");
     const starButtons = document.querySelectorAll("[data-list-item-star]");
     const priorityButtons = document.querySelectorAll("[data-list-item-priority]");
@@ -655,7 +688,7 @@
         const searchableText = String(row.dataset.listItemSearch || "");
         const matchesQuery = terms.every((term) => searchableText.includes(term));
         const matchesState = state === "all" || row.dataset.listItemState === state;
-        const titleButton = row.querySelector("[data-list-item-edit]");
+        const titleButton = row.querySelector("[data-list-item-expand]");
         const referenceButton = row.querySelector("[data-list-item-reference]");
         renderSearchHighlights(titleButton, titleButton?.dataset.itemTitle || "", terms);
         renderSearchHighlights(referenceButton, referenceButton?.dataset.listItemReference || "", terms);
@@ -771,6 +804,19 @@
         applyActivityFilters();
         document.querySelector(".list-discussion-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
         activitySearch.focus();
+      });
+    });
+    document.querySelectorAll("[data-list-item-discuss]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!commentInput) return;
+        const reference = String(button.dataset.listItemDiscuss || "");
+        const currentValue = commentInput.value.trim();
+        if (reference && !currentValue.toLowerCase().includes(reference.toLowerCase())) {
+          commentInput.value = currentValue ? `${reference} ${currentValue}` : `${reference} `;
+        }
+        document.querySelector(".list-comment-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        commentInput.focus();
+        commentInput.setSelectionRange(commentInput.value.length, commentInput.value.length);
       });
     });
 
@@ -892,6 +938,18 @@
     applyListItemFilters();
     applyActivityFilters();
     if (activityTimeline) activityTimeline.scrollTop = activityTimeline.scrollHeight;
+    expandButtons.forEach((button) => {
+      const row = button.closest("[data-list-item-row]");
+      const details = row?.querySelector("[data-list-item-details]");
+      if (!row || !details) return;
+      button.addEventListener("click", () => {
+        const willOpen = details.hidden;
+        details.hidden = !willOpen;
+        button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        row.classList.toggle("is-expanded", willOpen);
+      });
+    });
+
     const submitInlineEdit = async (form, button, input) => {
       const nextTitle = input.value.trim();
       const previousTitle = button.dataset.itemTitle || button.textContent.trim();
@@ -929,14 +987,15 @@
     };
 
     editButtons.forEach((button) => {
-      const container = button.closest(".list-item-main");
-      const form = container?.querySelector("[data-list-item-edit-form]");
+      const row = button.closest("[data-list-item-row]");
+      const titleButton = row?.querySelector("[data-list-item-expand]");
+      const form = row?.querySelector("[data-list-item-edit-form]");
       const input = form?.querySelector("input[name='item_title']");
-      if (!container || !form || !input) {
+      if (!row || !titleButton || !form || !input) {
         return;
       }
       button.addEventListener("click", () => {
-        button.hidden = true;
+        titleButton.hidden = true;
         form.hidden = false;
         input.focus();
         input.select();
@@ -944,15 +1003,15 @@
       input.addEventListener("keydown", async (event) => {
         if (event.key === "Enter") {
           event.preventDefault();
-          await submitInlineEdit(form, button, input);
+          await submitInlineEdit(form, titleButton, input);
         } else if (event.key === "Escape") {
-          input.value = button.dataset.itemTitle || button.textContent.trim();
+          input.value = titleButton.dataset.itemTitle || titleButton.textContent.trim();
           form.hidden = true;
-          button.hidden = false;
+          titleButton.hidden = false;
         }
       });
       input.addEventListener("blur", async () => {
-        await submitInlineEdit(form, button, input);
+        await submitInlineEdit(form, titleButton, input);
       });
     });
 
@@ -985,6 +1044,8 @@
         checkbox.checked = isCompleted;
         const dateLabel = isCompleted ? String(payload.completed_at_label || "") : String(payload.created_at_label || "");
         const completedByName = isCompleted ? String(payload.completed_by_name || "") : "";
+        const detailEndDate = row.querySelector("[data-list-item-end-date]");
+        const detailClosedBy = row.querySelector("[data-list-item-closed-by]");
         meta.innerHTML = "";
         meta.appendChild(document.createTextNode(dateLabel));
         if (completedByName) {
@@ -994,6 +1055,8 @@
           meta.appendChild(document.createTextNode(" "));
           meta.appendChild(span);
         }
+        if (detailEndDate) detailEndDate.textContent = isCompleted ? dateLabel : "Not completed";
+        if (detailClosedBy) detailClosedBy.textContent = completedByName || "—";
         updateProgress(payload.progress);
         appendActivity(payload.activity);
         applyListItemFilters();
