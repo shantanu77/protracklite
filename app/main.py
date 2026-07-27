@@ -1313,11 +1313,45 @@ def is_browser_page_request(request: Request) -> bool:
     return "text/html" in accept or "*/*" in accept
 
 
+def browser_request_org_slug(request: Request) -> str:
+    path_parts = [part for part in request.url.path.split("/") if part]
+    if not path_parts:
+        return ""
+    candidate = path_parts[0]
+    if candidate in {"api", "static", "user-content"}:
+        return ""
+    return candidate if re.fullmatch(r"[a-zA-Z0-9_-]+", candidate) else ""
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN} and exc.detail in AUTH_REDIRECT_ERRORS:
         if is_browser_page_request(request):
-            response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+            requested_org_slug = browser_request_org_slug(request)
+            refresh_subject = decode_token(request.cookies.get("refresh_token", ""), "refresh")
+            can_refresh = (
+                request.method == "GET"
+                and exc.detail in {"Authentication required", "Invalid token", "Malformed token"}
+                and refresh_subject
+                and ":" in refresh_subject
+            )
+            if can_refresh:
+                _, refresh_org_slug = refresh_subject.split(":", 1)
+                if not requested_org_slug or requested_org_slug == refresh_org_slug:
+                    target_url = request.url.path
+                    if request.url.query:
+                        target_url = f"{target_url}?{request.url.query}"
+                    response = RedirectResponse(url=target_url, status_code=status.HTTP_303_SEE_OTHER)
+                    response.set_cookie(
+                        "access_token",
+                        create_access_token(refresh_subject),
+                        httponly=True,
+                        samesite="lax",
+                        max_age=settings.access_token_ttl_minutes * 60,
+                    )
+                    return response
+            login_url = f"/{requested_org_slug}/login" if requested_org_slug else "/"
+            response = RedirectResponse(url=login_url, status_code=status.HTTP_303_SEE_OTHER)
             clear_auth_cookies(response)
             return response
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)

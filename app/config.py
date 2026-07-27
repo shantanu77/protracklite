@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-this-in-production"
     jwt_algorithm: str = "HS256"
     access_token_ttl_minutes: int = 10080
-    refresh_token_ttl_days: int = 7
+    refresh_token_ttl_days: int = 30
     database_url: str = ""
     smtp_host: str = "localhost"
     smtp_port: int = 25
