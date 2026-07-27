@@ -150,14 +150,15 @@
         </div>
       </form>
     </div>
-    {% if is_owner %}
     <div class="list-detail-top-actions">
+      <button type="button" class="button secondary" data-modal-open="list-bulk-add-modal">Bulk Add</button>
+      {% if is_owner %}
       <button type="button" class="button secondary" data-modal-open="list-share-modal">Manage Sharing</button>
       <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/archive" onsubmit="return confirm('Archive this list?');">
         <button type="submit" class="button danger">Archive List</button>
       </form>
+      {% endif %}
     </div>
-    {% endif %}
   </div>
 
   <div class="list-sharing-roster" data-list-sharing-roster>
@@ -209,13 +210,6 @@
           <option value="open">Open</option>
           <option value="completed">Completed</option>
         </select>
-      </div>
-
-      <div class="list-add-item-actions">
-        <form method="post" action="/{{ org.slug }}/lists/{{ selected_list.id }}/items" class="panel list-add-item-form">
-          <input name="item_title" class="list-quick-add-input" placeholder="Add a new item and press Enter" autocomplete="off" required>
-        </form>
-        <button type="button" class="button secondary" data-modal-open="list-bulk-add-modal">Bulk Add</button>
       </div>
 
       <div class="list-item-scroll">

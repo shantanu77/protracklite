@@ -1542,22 +1542,6 @@ textarea {
   gap: 1rem;
 }
 
-.list-add-item-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 0.75rem;
-}
-
-.list-add-item-actions > .button {
-  align-self: center;
-}
-
-.list-add-item-actions .list-add-item-form {
-  flex: 1 1 320px;
-  margin: 0;
-}
-
 .compact-list-detail {
   gap: 0.55rem;
   padding: 0.8rem;
@@ -1698,10 +1682,6 @@ textarea {
   color: var(--muted);
 }
 
-.list-add-item-form {
-  gap: 0.8rem;
-}
-
 .list-inline-display {
   display: block;
   width: 100%;
@@ -1751,36 +1731,6 @@ textarea {
 
 .list-inline-form textarea {
   min-height: 5.8rem;
-}
-
-.list-add-item-form {
-  position: sticky;
-  bottom: 0.75rem;
-  z-index: 2;
-  padding: 0.55rem 0.65rem;
-}
-
-.list-checklist-pane .list-add-item-form {
-  position: static;
-  bottom: auto;
-}
-
-.list-checklist-pane .list-add-item-actions {
-  flex-wrap: nowrap;
-  gap: 0.5rem;
-}
-
-.list-checklist-pane .list-add-item-actions > .button {
-  min-height: 2.55rem;
-  padding: 0.55rem 0.7rem;
-  white-space: nowrap;
-}
-
-.list-quick-add-input {
-  min-height: 2.55rem;
-  border: 0;
-  box-shadow: none;
-  background: rgba(255, 255, 255, 0.88);
 }
 
 .compact-list-items .list-item-card {
