@@ -64,9 +64,46 @@
         {% endif %}
         {% if alert.task %}
         <div class="today-alert-context">
-          <span class="chip">{{ alert.task.task_id }}</span>
-          <strong>{{ alert.task.name }}</strong>
-          {% if alert.task.project_code %}<small>{{ alert.task.project_code }}</small>{% endif %}
+          <div class="today-alert-task-heading">
+            <span class="chip">{{ alert.task.task_id }}</span>
+            <strong>{{ alert.task.name }}</strong>
+          </div>
+          <p class="today-alert-task-description">
+            {{ alert.task.description or "No task description has been added. Open the task to add enough context for the next action." }}
+          </p>
+          <dl class="today-alert-task-meta">
+            <div>
+              <dt>Project</dt>
+              <dd>
+                {{ alert.task.project_name }}
+                {% if alert.task.project_code %}<small>({{ alert.task.project_code }})</small>{% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>Activity</dt>
+              <dd>{{ alert.task.activity_type_name }}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>{{ alert.task.status_label|title }}</dd>
+            </div>
+            <div>
+              <dt>Deadline</dt>
+              <dd>
+                {{ alert.task.end_date.strftime("%d %b %Y") if alert.task.end_date else "Not set" }}
+                <small>· {{ alert.task.deadline_label }}</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Effort</dt>
+              <dd>
+                {{ "%.2f"|format(alert.task.logged_hours or 0) }}h logged
+                {% if alert.task.estimated_hours is not none %}
+                <small>of {{ "%.2f"|format(alert.task.estimated_hours) }}h estimated</small>
+                {% endif %}
+              </dd>
+            </div>
+          </dl>
         </div>
         {% endif %}
         <div class="today-alert-actions">

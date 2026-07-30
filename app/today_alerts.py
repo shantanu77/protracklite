@@ -37,6 +37,9 @@ def build_today_alert_candidates(
         overdue_days = int(task.get("overdue_days") or 1)
         tone = "critical" if overdue_days >= 3 else "urgent"
         task_id = int(task["id"])
+        task_label = task.get("name") or task["task_id"]
+        if task.get("project_name"):
+            task_label = f"{task['project_name']} · {task_label}"
         alerted_task_ids.add(task_id)
         alerts.append(
             {
@@ -46,7 +49,7 @@ def build_today_alert_candidates(
                 "kind": "overdue",
                 "tone": tone,
                 "eyebrow": "Delivery risk" if tone == "critical" else "Overdue",
-                "title": f"{task['task_id']} is {overdue_days} day{'s' if overdue_days != 1 else ''} overdue",
+                "title": f"{task_label} is {overdue_days} day{'s' if overdue_days != 1 else ''} overdue",
                 "message": (
                     "The deadline has passed. Record progress, complete the task, replan it, or explain the blocker."
                 ),
@@ -59,6 +62,9 @@ def build_today_alert_candidates(
         task_id = int(task["id"])
         if task_id in alerted_task_ids:
             continue
+        task_label = task.get("name") or task["task_id"]
+        if task.get("project_name"):
+            task_label = f"{task['project_name']} · {task_label}"
         alerted_task_ids.add(task_id)
         alerts.append(
             {
@@ -66,7 +72,7 @@ def build_today_alert_candidates(
                 "kind": "due_today",
                 "tone": "urgent",
                 "eyebrow": "Due today",
-                "title": f"{task['task_id']} still needs action",
+                "title": f"{task_label} still needs action",
                 "message": "No effort has been recorded today. Choose the next action before the deadline passes.",
                 "task": task,
                 "sort_key": (SEVERITY_PRIORITY["urgent"], 0, task["task_id"]),
@@ -78,6 +84,9 @@ def build_today_alert_candidates(
         if task_id in alerted_task_ids:
             continue
         stale_days = int(task.get("stale_days") or 2)
+        task_label = task.get("name") or task["task_id"]
+        if task.get("project_name"):
+            task_label = f"{task['project_name']} · {task_label}"
         alerts.append(
             {
                 "alert_key": (
@@ -86,7 +95,7 @@ def build_today_alert_candidates(
                 "kind": "stale_blocker",
                 "tone": "warning",
                 "eyebrow": "Blocker needs an update",
-                "title": f"{task['task_id']} has been stalled for {stale_days} day{'s' if stale_days != 1 else ''}",
+                "title": f"{task_label} has been stalled for {stale_days} day{'s' if stale_days != 1 else ''}",
                 "message": "Update the blocker, ask for help, or record the next recovery step.",
                 "task": task,
                 "sort_key": (SEVERITY_PRIORITY["warning"], -stale_days, task["task_id"]),

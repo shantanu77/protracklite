@@ -42,19 +42,20 @@ class TodayAlertCandidateTests(unittest.TestCase):
         return build_today_alert_candidates(**payload)
 
     def test_three_day_overdue_task_is_critical(self):
+        task = task_summary(
+            1,
+            "SOL-1",
+            end_date=date(2026, 7, 27),
+            overdue_days=3,
+        )
+        task["project_name"] = "Solulever"
         alerts = self.alerts(
-            delayed_tasks=[
-                task_summary(
-                    1,
-                    "SOL-1",
-                    end_date=date(2026, 7, 27),
-                    overdue_days=3,
-                )
-            ]
+            delayed_tasks=[task]
         )
 
         self.assertEqual(alerts[0]["tone"], "critical")
         self.assertIn("3-to-5", alerts[0]["alert_key"])
+        self.assertEqual(alerts[0]["title"], "Solulever · Task SOL-1 is 3 days overdue")
 
     def test_overdue_alert_suppresses_duplicate_stale_blocker(self):
         task = task_summary(

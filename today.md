@@ -20,6 +20,8 @@ Urgency must be specific and actionable. The page should not create anxiety thro
 
 The alert inbox is intentionally limited to the four highest-priority visible alerts. The complete task sections remain available below it.
 
+Each task alert must be understandable without decoding an internal task or project code. It shows the task title and description, full project name with its code, activity type, status, exact deadline, overdue context, and logged-versus-estimated effort. Internal codes remain visible as references, but are never the only context.
+
 ## Alert rules
 
 ### Overdue task
