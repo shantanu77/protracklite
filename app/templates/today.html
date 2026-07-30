@@ -262,7 +262,17 @@
       </thead>
       <tbody>
         {% for task in delayed_tasks %}
-        <tr class="dashboard-task-table-row">
+        {% set detail_id = "today-delayed-detail-" ~ task.task_id ~ "-" ~ loop.index %}
+        <tr
+          class="dashboard-task-table-row"
+          data-today-task-row
+          data-task-code="{{ task.task_id }}"
+          data-task-detail-target="{{ detail_id }}"
+          tabindex="0"
+          role="button"
+          aria-expanded="false"
+          aria-controls="{{ detail_id }}"
+        >
           <td>
             <div class="dashboard-task-table-main">
               <div class="task-card-headline">
@@ -297,6 +307,29 @@
             </div>
           </td>
         </tr>
+        <tr class="monday-task-detail-row" id="{{ detail_id }}" data-today-task-detail-row hidden>
+          <td colspan="5">
+            <div class="monday-task-details">
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Description</span>
+                {% if task.description %}
+                <div class="monday-task-detail-text">{{ task.description }}</div>
+                {% else %}
+                <p class="empty">No description added.</p>
+                {% endif %}
+                {% if task.stalled_reason %}
+                <p class="today-action-blocker"><strong>Blocked:</strong> {{ task.stalled_reason }}</p>
+                {% endif %}
+              </div>
+              <div class="monday-task-detail-block">
+                <span class="monday-task-detail-label">Time Logs</span>
+                <div class="dashboard-log-list" data-today-row-log-content>
+                  <p class="empty">Expand the task to load time logs.</p>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
         {% else %}
         <tr><td colspan="5"><p class="empty">No delayed tasks right now.</p></td></tr>
         {% endfor %}
@@ -324,4 +357,77 @@
     </form>
   </div>
 </div>
+<script>
+  (() => {
+    const rows = Array.from(document.querySelectorAll("[data-today-task-row]"));
+    const logCache = new Map();
+
+    const escapeHtml = (value) => String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+
+    const renderLogs = (container, logs) => {
+      if (!logs.length) {
+        container.innerHTML = '<p class="empty">No time logs recorded for this task.</p>';
+        return;
+      }
+      container.innerHTML = logs.map((item) => `
+        <article class="dashboard-log-item">
+          <div class="dashboard-log-meta">
+            <span>${escapeHtml(item.date || "")}</span>
+            <span class="dashboard-log-hours">${escapeHtml(item.hours || 0)}h</span>
+          </div>
+          <div class="dashboard-log-notes">${escapeHtml(item.notes || "No comments added.")}</div>
+        </article>
+      `).join("");
+    };
+
+    const loadLogs = async (taskCode) => {
+      if (!logCache.has(taskCode)) {
+        logCache.set(taskCode, fetch(`/api/v1/tasks/${encodeURIComponent(taskCode)}/time-logs`, {
+          credentials: "same-origin",
+        }).then((response) => {
+          if (!response.ok) throw new Error("Unable to load time logs");
+          return response.json();
+        }).then((payload) => Array.isArray(payload) ? payload : []));
+      }
+      return logCache.get(taskCode);
+    };
+
+    const toggleRow = async (row) => {
+      const detailRow = document.getElementById(row.dataset.taskDetailTarget || "");
+      if (!detailRow) return;
+      const opening = detailRow.hidden;
+      detailRow.hidden = !opening;
+      row.classList.toggle("is-expanded", opening);
+      row.setAttribute("aria-expanded", opening ? "true" : "false");
+      if (!opening || detailRow.dataset.logsLoaded === "true") return;
+      const container = detailRow.querySelector("[data-today-row-log-content]");
+      if (!container) return;
+      container.innerHTML = '<p class="empty">Loading time logs…</p>';
+      try {
+        renderLogs(container, await loadLogs(row.dataset.taskCode || ""));
+        detailRow.dataset.logsLoaded = "true";
+      } catch (_error) {
+        logCache.delete(row.dataset.taskCode || "");
+        container.innerHTML = '<p class="empty">Time logs could not be loaded. Try again.</p>';
+      }
+    };
+
+    rows.forEach((row) => {
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("button, a, input, textarea, select, label, form, [data-task-color-trigger]")) return;
+        toggleRow(row);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        toggleRow(row);
+      });
+    });
+  })();
+</script>
 {% endblock %}
