@@ -27,6 +27,91 @@
   </article>
 </section>
 
+{% if request.query_params.get("alert_saved") %}
+<div class="today-alert-flash" role="status">✓ {{ request.query_params.get("alert_saved") }}</div>
+{% endif %}
+
+<section class="panel today-alert-centre">
+  <div class="panel-head">
+    <div>
+      <p class="eyebrow">Daily action centre</p>
+      <h2>Attention Required</h2>
+      <p>Resolve, acknowledge, or schedule a reminder. Unresolved alerts return on the next working day.</p>
+    </div>
+    <div class="today-alert-summary">
+      {% if alert_visible_total %}
+      <strong>{{ alert_visible_total }}</strong><span>active</span>
+      {% else %}
+      <strong>✓</strong><span>clear</span>
+      {% endif %}
+      {% if alert_handled_today %}<small>{{ alert_handled_today }} handled today</small>{% endif %}
+    </div>
+  </div>
+
+  {% if alerts %}
+  <div class="today-alert-list">
+    {% for alert in alerts %}
+    <article class="today-alert-card is-{{ alert.tone }}">
+      <div class="today-alert-marker" aria-hidden="true">
+        {% if alert.tone == "critical" %}!{% elif alert.tone == "urgent" %}↑{% elif alert.tone == "warning" %}⚑{% else %}◷{% endif %}
+      </div>
+      <div class="today-alert-content">
+        <p class="today-alert-eyebrow">{{ alert.eyebrow }}</p>
+        <h3>{{ alert.title }}</h3>
+        <p>{{ alert.message }}</p>
+        {% if alert.previous_note is defined %}
+        <p class="today-alert-previous-note"><strong>Last plan:</strong> {{ alert.previous_note }}</p>
+        {% endif %}
+        {% if alert.task %}
+        <div class="today-alert-context">
+          <span class="chip">{{ alert.task.task_id }}</span>
+          <strong>{{ alert.task.name }}</strong>
+          {% if alert.task.project_code %}<small>{{ alert.task.project_code }}</small>{% endif %}
+        </div>
+        {% endif %}
+        <div class="today-alert-actions">
+          {% if alert.task %}
+          <a class="button secondary small" href="/{{ org.slug }}/tasks/{{ alert.task.task_id }}">Open task</a>
+          <button type="button" class="button ghost small" data-modal-open="today-log-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ alert.task.task_id ~ "/time-log", "log_date": today.isoformat(), "hours": "%.2f"|format(default_log_hours), "notes": "", "redirect_to": "/" ~ org.slug ~ "/today", "task_name_text": alert.task.task_id ~ " · " ~ alert.task.name}|tojson|e }}'>＋ Log hours</button>
+          {% if not alert.task.is_shared %}
+          <button type="button" class="button ghost small success-button" data-modal-open="complete-task-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ alert.task.task_id ~ "/complete", "completion_date": today.isoformat(), "redirect_to": "/" ~ org.slug ~ "/today", "task_name_text": alert.task.task_id ~ " · " ~ alert.task.name, "task_schedule_text": "Choose a completion date from " ~ alert.task.completion_min_date.isoformat() ~ " to " ~ alert.task.completion_max_date.isoformat() ~ ".", "_fieldAttributes": {"completion_date": {"min": alert.task.completion_min_date.isoformat(), "max": alert.task.completion_max_date.isoformat()}}}|tojson|e }}'>✓ Complete</button>
+          {% endif %}
+          {% if alert.task.status != "stalled" %}
+          <button type="button" class="button ghost small" data-modal-open="stalled-task-modal" data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/tasks/" ~ alert.task.task_id ~ "/stall", "stalled_reason": alert.task.stalled_reason or "", "redirect_to": "/" ~ org.slug ~ "/today", "task_name_text": alert.task.task_id ~ " · " ~ alert.task.name}|tojson|e }}'>Need help</button>
+          {% endif %}
+          {% endif %}
+        </div>
+      </div>
+      <div class="today-alert-response">
+        <form method="post" action="/{{ org.slug }}/today/alerts/respond">
+          <input type="hidden" name="alert_key" value="{{ alert.alert_key }}">
+          <input type="hidden" name="action" value="acknowledge">
+          <input type="text" name="note" maxlength="255" placeholder="Next step (optional)" aria-label="Optional next step">
+          <button type="submit" class="button small">Acknowledge</button>
+        </form>
+        <form method="post" action="/{{ org.slug }}/today/alerts/respond">
+          <input type="hidden" name="alert_key" value="{{ alert.alert_key }}">
+          <input type="hidden" name="action" value="remind_tomorrow">
+          <button type="submit" class="button ghost small">Remind next workday</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% if alert_visible_total > alerts|length %}
+  <p class="today-alert-more">{{ alert_visible_total - alerts|length }} more active alert{{ "" if alert_visible_total - alerts|length == 1 else "s" }} will appear as the highest-priority items are handled.</p>
+  {% endif %}
+  {% else %}
+  <div class="today-alert-clear">
+    <span aria-hidden="true">✓</span>
+    <div>
+      <strong>You are clear for now.</strong>
+      <p>{% if alert_handled_today %}Today’s alerts are acknowledged. Keep the promises you recorded and close the loop.{% else %}No overdue, untouched due-today, stale-blocker, or booking-pace alerts need attention.{% endif %}</p>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
 <section class="panel">
   <div class="panel-head">
     <div>

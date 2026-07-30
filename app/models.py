@@ -430,6 +430,24 @@ class UserAnnouncementView(Base):
     viewed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class TodayAlertAcknowledgement(Base):
+    __tablename__ = "today_alert_acknowledgements"
+    __table_args__ = (
+        UniqueConstraint("org_id", "user_id", "alert_key", name="uq_today_alert_ack_org_user_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    alert_key: Mapped[str] = mapped_column(String(180), index=True)
+    action: Mapped[str] = mapped_column(String(20), default="acknowledged")
+    acknowledged_on: Mapped[date] = mapped_column(Date, index=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    note: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WeeklyAISummary(Base):
     __tablename__ = "weekly_ai_summaries"
     __table_args__ = (UniqueConstraint("org_id", "user_id", "week_start", name="uq_weekly_ai_summary_org_user_week"),)

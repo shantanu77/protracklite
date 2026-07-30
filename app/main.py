@@ -9,7 +9,7 @@ import os
 import re
 import secrets
 import smtplib
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
 from pathlib import Path
@@ -61,6 +61,7 @@ from app.models import (
     TaskComment,
     TaskStatus,
     TimeLog,
+    TodayAlertAcknowledgement,
     User,
     UserAnnouncementView,
     WeeklyAISummary,
@@ -71,6 +72,7 @@ from app.models import (
     WorkListItem,
     WorkListMember,
 )
+from app.today_alerts import build_today_alert_candidates
 from app.reports import (
     admin_leaderboard_report,
     calendar_month_report,
@@ -90,8 +92,7 @@ from app.security import (
     verify_password,
 )
 from app.seed import migrate_department_activity_catalog, seed_defaults, seed_department_assignments
-from app.time_utils import format_local_datetime
-from app.time_utils import local_today
+from app.time_utils import format_local_datetime, local_datetime, local_now, local_today
 
 
 settings = get_settings()
@@ -2567,7 +2568,7 @@ def backlog_tasks_payload(db: Session, org: Organization, user: User) -> list[di
 
 
 def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
-    today = date.today()
+    today = local_today()
     month_start = today.replace(day=1)
     week_start, _ = current_week_bounds(today)
     settings_obj = get_org_settings(db, org.id)
@@ -2634,7 +2635,43 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
         ).all()
     ]
 
-    today_summaries = [*worked_today, *tasks_needing_action, *delayed_tasks]
+    stalled_task_rows = db.scalars(
+        select(Task)
+        .where(
+            Task.org_id == org.id,
+            Task.assigned_to == user.id,
+            Task.is_archived.is_(False),
+            Task.status == TaskStatus.STALLED,
+        )
+        .order_by(Task.updated_at.asc(), Task.created_at.asc())
+    ).all()
+    stalled_task_ids = [task.id for task in stalled_task_rows]
+    last_log_dates = (
+        {
+            task_id: last_log_date
+            for task_id, last_log_date in db.execute(
+                select(TimeLog.task_id, func.max(TimeLog.log_date))
+                .where(TimeLog.task_id.in_(stalled_task_ids), TimeLog.user_id == user.id)
+                .group_by(TimeLog.task_id)
+            ).all()
+        }
+        if stalled_task_ids
+        else {}
+    )
+    stale_stalled_tasks: list[dict[str, Any]] = []
+    for task in stalled_task_rows:
+        updated_at = local_datetime(task.updated_at)
+        updated_date = updated_at.date() if updated_at else task.created_at.date()
+        last_activity_date = max(updated_date, last_log_dates.get(task.id) or date.min)
+        stale_days = (today - last_activity_date).days
+        if stale_days < 2:
+            continue
+        summary = dashboard_task_summary(task, today)
+        summary["last_activity_date"] = last_activity_date
+        summary["stale_days"] = stale_days
+        stale_stalled_tasks.append(summary)
+
+    today_summaries = [*worked_today, *tasks_needing_action, *delayed_tasks, *stale_stalled_tasks]
     project_ids = {item["project_id"] for item in today_summaries}
     activity_type_ids = {item["activity_type_id"] for item in today_summaries}
     project_map = (
@@ -2668,6 +2705,52 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
         item["effort_percent"] = round(min((logged_hours / estimated_hours) * 100, 100), 1) if estimated_hours else None
 
     week_rates = compute_work_rate(db, org.id, user.id, week_start, today, settings=settings_obj)
+    today_rates = compute_work_rate(db, org.id, user.id, today, today, settings=settings_obj)
+    now = local_now()
+    workday_elapsed = min(max(((now.hour * 60 + now.minute) - (9 * 60)) / (9 * 60), 0.0), 1.0)
+    today_available_hours = float(today_rates["available_hours"] or 0)
+    prior_available_hours = max(float(week_rates["available_hours"] or 0) - today_available_hours, 0)
+    expected_week_hours = prior_available_hours + (today_available_hours * workday_elapsed)
+    alert_candidates = build_today_alert_candidates(
+        today=today,
+        week_start=week_start,
+        tasks_needing_action=tasks_needing_action,
+        delayed_tasks=delayed_tasks,
+        stalled_tasks=stale_stalled_tasks,
+        week_logged_hours=float(week_rates["total_logged_hours"] or 0),
+        expected_week_hours=expected_week_hours,
+    )
+    alert_keys = [item["alert_key"] for item in alert_candidates]
+    acknowledgements = (
+        {
+            item.alert_key: item
+            for item in db.scalars(
+                select(TodayAlertAcknowledgement).where(
+                    TodayAlertAcknowledgement.org_id == org.id,
+                    TodayAlertAcknowledgement.user_id == user.id,
+                    TodayAlertAcknowledgement.alert_key.in_(alert_keys),
+                )
+            ).all()
+        }
+        if alert_keys
+        else {}
+    )
+    visible_alerts = []
+    handled_today = 0
+    for alert in alert_candidates:
+        acknowledgement = acknowledgements.get(alert["alert_key"])
+        hidden = False
+        if acknowledgement:
+            if acknowledgement.snoozed_until and acknowledgement.snoozed_until > now:
+                hidden = True
+            elif acknowledgement.acknowledged_on == today:
+                hidden = True
+            if hidden:
+                handled_today += 1
+        if not hidden:
+            if acknowledgement and acknowledgement.note:
+                alert["previous_note"] = acknowledgement.note
+            visible_alerts.append(alert)
 
     monthly_hours_by_user = (
         select(
@@ -2719,7 +2802,13 @@ def today_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
             "week_booking_rate": round(float(week_rates["total_rate"] or 0), 2),
             "month_rank": month_rank,
             "team_size": team_size,
+            "expected_week_hours": round(expected_week_hours, 2),
         },
+        "alerts": visible_alerts[:4],
+        "alert_total": len(alert_candidates),
+        "alert_visible_total": len(visible_alerts),
+        "alert_handled_today": handled_today,
+        "alert_keys": alert_keys,
         "worked_today": worked_today,
         "tasks_needing_action": tasks_needing_action,
         "delayed_tasks": delayed_tasks,
@@ -4016,6 +4105,69 @@ def today_page(request: Request, org_user: tuple[Organization, User] = Depends(g
             "user": user,
             **payload,
         },
+    )
+
+
+@app.post("/{org_slug}/today/alerts/respond")
+def respond_to_today_alert(
+    org_slug: str,
+    alert_key: str = Form(...),
+    action: str = Form(...),
+    note: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    if action not in {"acknowledge", "remind_tomorrow"}:
+        raise HTTPException(status_code=400, detail="Choose a valid alert response")
+    normalized_note = re.sub(r"\s+", " ", note.strip())
+    if len(normalized_note) > 255:
+        raise HTTPException(status_code=400, detail="Alert note cannot exceed 255 characters")
+    current_payload = today_payload(db, org, user)
+    if alert_key not in current_payload["alert_keys"]:
+        raise HTTPException(status_code=404, detail="This alert is no longer active")
+
+    today = local_today()
+    acknowledgement = db.scalar(
+        select(TodayAlertAcknowledgement).where(
+            TodayAlertAcknowledgement.org_id == org.id,
+            TodayAlertAcknowledgement.user_id == user.id,
+            TodayAlertAcknowledgement.alert_key == alert_key,
+        )
+    )
+    if not acknowledgement:
+        acknowledgement = TodayAlertAcknowledgement(
+            org_id=org.id,
+            user_id=user.id,
+            alert_key=alert_key,
+            acknowledged_on=today,
+        )
+        db.add(acknowledgement)
+    settings_obj = get_org_settings(db, org.id)
+    weekend_days = set(settings_obj.weekend_days or [5, 6])
+    next_working_day = today + timedelta(days=1)
+    for _ in range(31):
+        is_holiday = db.scalar(
+            select(Holiday.id).where(
+                Holiday.org_id == org.id,
+                Holiday.holiday_date == next_working_day,
+            )
+        )
+        if next_working_day.weekday() not in weekend_days and not is_holiday:
+            break
+        next_working_day += timedelta(days=1)
+    acknowledgement.action = "snoozed" if action == "remind_tomorrow" else "acknowledged"
+    acknowledgement.acknowledged_on = today
+    acknowledgement.snoozed_until = datetime.combine(
+        next_working_day,
+        datetime_time(hour=9) if action == "remind_tomorrow" else datetime_time.min,
+    )
+    acknowledgement.note = normalized_note
+    db.commit()
+    label = "Reminder scheduled for the next workday" if action == "remind_tomorrow" else "Alert acknowledged"
+    return RedirectResponse(
+        url=f"/{org_slug}/today?{urlencode({'alert_saved': label})}",
+        status_code=303,
     )
 
 
