@@ -63,6 +63,7 @@ Each generated alert has a deterministic `alert_key` containing the underlying t
 - If the employee recorded a next-step note, the returning alert shows that previous plan for accountability.
 - An alert returns immediately as a new version when its urgency bucket changes.
 - Resolution is determined from source data. Closing, rescheduling, updating, or logging against a task removes the corresponding alert naturally.
+- Completing from Today shows a confirmation that the task was removed. If more than four alerts are active, the next priority alert immediately fills the open slot, so the visible card count may remain four.
 
 Acknowledgement is personal. One employee cannot acknowledge another employee's alert.
 

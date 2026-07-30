@@ -30,6 +30,12 @@
 {% if request.query_params.get("alert_saved") %}
 <div class="today-alert-flash" role="status">✓ {{ request.query_params.get("alert_saved") }}</div>
 {% endif %}
+{% if request.query_params.get("completed_task") %}
+<div class="today-alert-flash" role="status">
+  ✓ {{ request.query_params.get("completed_task") }} was completed and removed from your alerts.
+  {% if alert_visible_total %}The next priority item is now shown.{% endif %}
+</div>
+{% endif %}
 
 <section class="panel today-alert-centre">
   <div class="panel-head">

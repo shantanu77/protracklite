@@ -5831,7 +5831,7 @@ def complete_task_page(
     if not task or not ((not task.is_shared and task.assigned_to == user.id) or can_control_task(db, task, user)):
         raise HTTPException(status_code=404, detail="Task not found")
 
-    today = date.today()
+    today = local_today()
     earliest_completion_date = task.start_date or task.created_at.date()
     if completion_date < earliest_completion_date or completion_date > today:
         raise HTTPException(status_code=400, detail="Completion date must be between the task start date and today")
@@ -5846,7 +5846,14 @@ def complete_task_page(
     if task.end_date is None:
         task.end_date = completion_date
     db.commit()
-    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
+    target_url = safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard")
+    if target_url.partition("?")[0] == f"/{org_slug}/today":
+        separator = "&" if "?" in target_url else "?"
+        target_url = (
+            f"{target_url}{separator}"
+            f"{urlencode({'completed_task': f'{task.task_id} · {task.name}'})}"
+        )
+    return RedirectResponse(url=target_url, status_code=303)
 
 
 @app.post("/{org_slug}/tasks/{task_code}/stall")
