@@ -115,6 +115,7 @@ class User(Base):
     avatar_128_url: Mapped[str] = mapped_column(String(255), default="")
     avatar_24_url: Mapped[str] = mapped_column(String(255), default="")
     avatar_emoji: Mapped[str] = mapped_column(String(16), default="")
+    zoho_employee_id: Mapped[str] = mapped_column(String(40), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -29,7 +29,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.capacity import build_capacity_payload
-from app.zoho_people import cancel_zoho_leave, fetch_zoho_leave_balance, sync_zoho_leave
+from app.zoho_people import (
+    cancel_zoho_leave,
+    fetch_zoho_employee_ids,
+    fetch_zoho_leave_balance,
+    fetch_zoho_leave_requests,
+    sync_zoho_leave,
+)
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
 from app.models import (
@@ -831,6 +837,7 @@ def ensure_user_profile_schema() -> None:
         "avatar_128_url": "ALTER TABLE users ADD COLUMN avatar_128_url VARCHAR(255) NOT NULL DEFAULT ''",
         "avatar_24_url": "ALTER TABLE users ADD COLUMN avatar_24_url VARCHAR(255) NOT NULL DEFAULT ''",
         "avatar_emoji": "ALTER TABLE users ADD COLUMN avatar_emoji VARCHAR(16) NOT NULL DEFAULT ''",
+        "zoho_employee_id": "ALTER TABLE users ADD COLUMN zoho_employee_id VARCHAR(40) NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -3661,11 +3668,15 @@ def profile_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    leave_requests = profile_leave_requests(db, user.id)
     team_people = reporting_tree_people(db, org.id, user)
-    team_leave_requests = team_profile_leave_requests(db, org.id, team_people)
     today = local_today()
     current_year = today.year
+    leave_requests = profile_leave_requests(db, user.id)
+    team_leave_requests = team_profile_leave_requests(db, org.id, team_people)
+    zoho_feed = zoho_profile_leave_feed(db, user, team_people, today)
+    if zoho_feed["status"] == "synced":
+        leave_requests = zoho_feed["mine"]
+        team_leave_requests = zoho_feed["team"]
     return templates.TemplateResponse(
         "profile.html",
         {
@@ -3675,6 +3686,9 @@ def profile_page(
             "leave_requests": leave_requests,
             "team_people": team_people,
             "team_leave_requests": team_leave_requests,
+            "zoho_leave_feed_status": zoho_feed["status"],
+            "zoho_leave_feed_message": zoho_feed["message"],
+            "zoho_leave_feed_range": zoho_feed["range_label"],
             "leave_year": current_year,
             "leave_default_date": today.isoformat(),
             "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
@@ -7298,6 +7312,169 @@ def team_profile_leave_requests(
         key=lambda item: (item["start_date"], item["person_name"].lower(), item["request_key"]),
         reverse=True,
     )
+
+
+def zoho_profile_leave_feed(
+    db: Session,
+    user: User,
+    team_people: list[dict[str, Any]],
+    today: date,
+) -> dict[str, Any]:
+    """Fetch authoritative Zoho leave for the signed-in user and their permitted reporting tree."""
+    scoped_people = [{"user": user, "relationship_label": "Self"}, *team_people]
+    users = [item["user"] for item in scoped_people]
+    missing_mapping = [person for person in users if not person.zoho_employee_id.strip()]
+    mapping_error = ""
+    if missing_mapping:
+        directory_result = fetch_zoho_employee_ids(
+            employee_emails=[person.email for person in missing_mapping]
+        )
+        if directory_result.status != "synced":
+            mapping_error = directory_result.error or "Unable to map ProTrack users to Zoho employees"
+        else:
+            employee_ids = dict(directory_result.employee_ids)
+            for person in missing_mapping:
+                zoho_id = employee_ids.get(person.email.strip().lower(), "")
+                if zoho_id:
+                    person.zoho_employee_id = zoho_id
+            db.commit()
+
+    mapped_people = [person for person in users if person.zoho_employee_id.strip()]
+    unmapped_people = [person.full_name for person in users if not person.zoho_employee_id.strip()]
+    period_start = date(today.year, 1, 1)
+    period_end = date(today.year + 1, 12, 31)
+    range_label = f"{period_start.strftime('%d %b %Y')} – {period_end.strftime('%d %b %Y')}"
+    if not mapped_people:
+        detail = mapping_error or "No ProTrack users could be matched to Zoho People"
+        return {
+            "status": "failed",
+            "message": f"{detail}. Showing locally synchronized leave.",
+            "range_label": range_label,
+            "mine": [],
+            "team": [],
+        }
+
+    leave_result = fetch_zoho_leave_requests(
+        employee_zoho_ids=[person.zoho_employee_id for person in mapped_people],
+        from_date=period_start,
+        to_date=period_end,
+    )
+    if leave_result.status != "synced":
+        detail = leave_result.error or "Unable to fetch leave from Zoho People"
+        return {
+            "status": leave_result.status,
+            "message": f"{detail}. Showing locally synchronized leave.",
+            "range_label": range_label,
+            "mine": [],
+            "team": [],
+        }
+
+    scope_by_zoho_id = {
+        item["user"].zoho_employee_id: item
+        for item in scoped_people
+        if item["user"].zoho_employee_id.strip()
+    }
+    zoho_leave_ids = {
+        str(item.get("zoho_leave_id") or "")
+        for item in leave_result.leaves
+        if str(item.get("zoho_leave_id") or "")
+    }
+    local_rows = (
+        db.scalars(
+            select(Leave).where(
+                Leave.user_id.in_([person.id for person in users]),
+                Leave.zoho_leave_id.in_(zoho_leave_ids),
+            )
+        ).all()
+        if zoho_leave_ids
+        else []
+    )
+    local_by_zoho_id: dict[str, list[Leave]] = {}
+    for leave in local_rows:
+        local_by_zoho_id.setdefault(leave.zoho_leave_id, []).append(leave)
+    backup_ids = {leave.backup_user_id for leave in local_rows if leave.backup_user_id}
+    backup_names = (
+        {
+            person.id: person.full_name
+            for person in db.scalars(select(User).where(User.id.in_(backup_ids))).all()
+        }
+        if backup_ids
+        else {}
+    )
+
+    mine: list[dict[str, Any]] = []
+    team: list[dict[str, Any]] = []
+    for raw in leave_result.leaves:
+        scope = scope_by_zoho_id.get(str(raw.get("employee_zoho_id") or ""))
+        if not scope:
+            continue
+        person = scope["user"]
+        zoho_leave_id = str(raw.get("zoho_leave_id") or "")
+        local_entries = local_by_zoho_id.get(zoho_leave_id, [])
+        local_entries.sort(key=lambda item: item.leave_date)
+        if local_entries:
+            request_key = local_entries[0].request_group.strip() or f"legacy-{local_entries[0].id}"
+        else:
+            request_key = f"zoho-{zoho_leave_id}"
+        start_date = raw["start_date"]
+        end_date = raw["end_date"]
+        day_dates = raw.get("day_dates") or ()
+        year_days = 0.0
+        if day_dates:
+            day_count = float(raw.get("leave_days") or 0) / max(len(day_dates), 1)
+            year_days = sum(day_count for leave_day in day_dates if leave_day.year == today.year)
+        elif start_date.year == today.year:
+            year_days = float(raw.get("leave_days") or 0)
+        approval_status = str(raw.get("approval_status") or "Unknown")
+        approval_class = re.sub(r"[^a-z0-9]+", "-", approval_status.lower()).strip("-")
+        item = {
+            "request_key": request_key,
+            "zoho_leave_id": zoho_leave_id,
+            "person_name": person.full_name,
+            "relationship_label": scope["relationship_label"],
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "date_label": (
+                start_date.strftime("%d %b %Y")
+                if start_date == end_date
+                else f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
+            ),
+            "leave_category_label": str(raw.get("leave_type_name") or "Leave"),
+            "leave_type_label": str(raw.get("duration_label") or "Leave"),
+            "reason": str(raw.get("reason") or ""),
+            "backup_name": (
+                backup_names.get(local_entries[0].backup_user_id, "Not recorded in Zoho")
+                if local_entries
+                else "Not recorded in Zoho"
+            ),
+            "leave_days": float(raw.get("leave_days") or 0),
+            "year_leave_days": year_days,
+            "can_modify": bool(local_entries and start_date > today),
+            "approval_status": approval_status,
+            "approval_status_class": approval_class,
+            "zoho_sync_status": approval_class,
+            "created_at_label": str(raw.get("date_of_request") or "Zoho People"),
+        }
+        (mine if person.id == user.id else team).append(item)
+
+    mine.sort(key=lambda item: (item["start_date"], item["request_key"]), reverse=True)
+    team.sort(
+        key=lambda item: (item["start_date"], item["person_name"].lower(), item["request_key"]),
+        reverse=True,
+    )
+    warning_parts = []
+    if unmapped_people:
+        warning_parts.append(f"{len(unmapped_people)} user(s) could not be matched")
+    if mapping_error:
+        warning_parts.append(mapping_error)
+    suffix = f" Warning: {'; '.join(warning_parts)}." if warning_parts else ""
+    return {
+        "status": "synced",
+        "message": f"Leave loaded directly from Zoho People.{suffix}",
+        "range_label": range_label,
+        "mine": mine,
+        "team": team,
+    }
 
 
 def leave_request_entries(db: Session, user_id: int, request_key: str) -> list[Leave]:

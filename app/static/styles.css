@@ -444,6 +444,7 @@ textarea {
   font-size: 0.68rem;
   font-weight: 700;
 }
+.profile-zoho-status > span { margin-left: 0.35rem; color: var(--muted); font-weight: 600; }
 
 .profile-zoho-status.is-error,
 .profile-leave-edit-feedback.is-error { background: rgba(194, 65, 59, 0.08); color: var(--danger); }
@@ -482,6 +483,11 @@ textarea {
 }
 
 .profile-leave-sync.is-synced { background: rgba(22, 163, 74, 0.1); color: #166534; }
+.profile-leave-sync.is-approved { background: rgba(22, 163, 74, 0.1); color: #166534; }
+.profile-leave-sync.is-pending,
+.profile-leave-sync.is-cancel-pending { background: rgba(217, 119, 6, 0.1); color: #92400e; }
+.profile-leave-sync.is-rejected,
+.profile-leave-sync.is-cancelled { background: rgba(194, 65, 59, 0.1); color: var(--danger); }
 .profile-leave-sync.is-failed { background: rgba(194, 65, 59, 0.1); color: var(--danger); }
 
 .modal-card.profile-leave-edit-modal {
@@ -3376,6 +3382,27 @@ label:not(.checkbox) textarea {
 
 .today-task-card {
   gap: 0.7rem;
+}
+
+.today-delayed-table-wrap {
+  display: block;
+  border: 1px solid rgba(217, 224, 228, 0.92);
+  border-radius: 12px;
+}
+
+.today-delayed-table td > small,
+.today-delayed-table .dashboard-task-table-main > small {
+  display: block;
+  margin-top: 0.16rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-delayed-table .deadline-pill {
+  margin-bottom: 0.08rem;
 }
 
 .today-action-grid {

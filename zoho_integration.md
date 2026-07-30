@@ -29,6 +29,17 @@ ZOHO_PEOPLE_URL=https://people.zoho.in
 
 The production verification matched **22 of 24** active ProTrack employee email addresses to Zoho People. Two employee accounts must have their email addresses reconciled before their leave can synchronize.
 
+## Profile leave feed
+
+The Profile page can use Zoho People as the read source for the signed-in employee and their full ProTrack reporting tree. ProTrack first maps employee email addresses to Zoho employee record IDs, stores those IDs on the user records, and then fetches the applicable leave in one paginated Zoho leave request.
+
+The integration token must now include:
+
+- `ZOHOPEOPLE.leave.ALL`
+- `ZOHOPEOPLE.forms.READ`
+
+Keep the refresh token only in the server environment. It must never be embedded in Profile HTML or browser JavaScript. If Zoho employee mapping or leave retrieval fails, Profile shows locally synchronized leave with a visible warning rather than exposing unrelated organization leave.
+
 Zoho currently returns these four employee-eligible leave types:
 
 | Zoho leave type | Zoho ID | Unit | Proposed ProTrack mapping |

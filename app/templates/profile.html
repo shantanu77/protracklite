@@ -61,9 +61,12 @@
       <button type="button" class="button small" data-profile-leave-add>+ Apply Leave</button>
     </div>
   </div>
+  <div class="profile-zoho-status{% if zoho_leave_feed_status != 'synced' %} is-error{% endif %}">
+    {{ zoho_leave_feed_message }} <span>Period: {{ zoho_leave_feed_range }}</span>
+  </div>
 
   <div class="profile-leave-stats">
-    <article><span>Applied in {{ leave_year }}</span><strong>{{ "%g"|format(leave_year_applied) }}</strong><small>ProTrack working days</small></article>
+    <article><span>Applied in {{ leave_year }}</span><strong>{{ "%g"|format(leave_year_applied) }}</strong><small>{{ "Zoho People" if zoho_leave_feed_status == "synced" else "ProTrack working days" }}</small></article>
     <article><span>Annual leave pool</span><strong data-zoho-annual-pool>—</strong><small>Earned leave from Zoho</small></article>
     <article><span>Availed / booked</span><strong data-zoho-availed>—</strong><small>Zoho People</small></article>
     <article class="is-balance"><span>Remaining</span><strong data-zoho-remaining>—</strong><small>Zoho People</small></article>
@@ -78,10 +81,10 @@
         {% for leave in leave_requests %}
         <tr>
           <td><strong>{{ leave.date_label }}</strong><small>Applied {{ leave.created_at_label }}</small></td>
-          <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }} · {{ leave.reason }}</small></td>
+          <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }}{% if leave.reason %} · {{ leave.reason }}{% endif %}</small></td>
           <td><strong>{{ "%g"|format(leave.leave_days) }}</strong></td>
           <td>{{ leave.backup_name }}</td>
-          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
+          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.approval_status if leave.approval_status is defined else leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
           <td>
             {% if leave.can_modify %}
             <div class="profile-leave-row-actions">
@@ -94,7 +97,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty">No leave has been applied through ProTrack yet.</td></tr>
+        <tr><td colspan="6" class="empty">No leave is available for this period.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -107,14 +110,14 @@
     <div>
       <p class="eyebrow">Reporting tree</p>
       <h2>My Team Leaves</h2>
-      <p>Leave stored in ProTrack for {{ team_people|length }} team member{{ "" if team_people|length == 1 else "s" }}, including indirect reports.</p>
+      <p>Zoho leave for {{ team_people|length }} team member{{ "" if team_people|length == 1 else "s" }}, including indirect reports.</p>
     </div>
-    <span class="profile-local-data-note">Local synced data</span>
+    <span class="profile-local-data-note">{{ "Zoho People source" if zoho_leave_feed_status == "synced" else "Local fallback" }}</span>
   </div>
 
   <div class="profile-leave-table-wrap">
     <table class="profile-leave-table profile-team-leave-table">
-      <thead><tr><th>Team member</th><th>Dates</th><th>Leave</th><th>Days</th><th>Backup</th><th>Zoho sync</th></tr></thead>
+      <thead><tr><th>Team member</th><th>Dates</th><th>Leave</th><th>Days</th><th>Backup</th><th>Approval</th></tr></thead>
       <tbody>
         {% for leave in team_leave_requests %}
         <tr>
@@ -123,10 +126,10 @@
           <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }}{% if leave.reason %} · {{ leave.reason }}{% endif %}</small></td>
           <td><strong>{{ "%g"|format(leave.leave_days) }}</strong></td>
           <td>{{ leave.backup_name }}</td>
-          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
+          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.approval_status if leave.approval_status is defined else leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty">No locally synced leave is available for your reporting team yet.</td></tr>
+        <tr><td colspan="6" class="empty">No team leave is available for this period.</td></tr>
         {% endfor %}
       </tbody>
     </table>
