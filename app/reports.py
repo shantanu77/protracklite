@@ -300,10 +300,8 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
             Task.is_archived.is_(False),
             Task.status != TaskStatus.CLOSED,
             Task.status != TaskStatus.STALLED,
-            Task.start_date < this_monday,
-            Task.start_date.is_not(None),
         )
-        .order_by(Task.start_date.asc(), null_end_date_last.asc(), Task.end_date.asc(), Task.created_at.asc())
+        .order_by(null_end_date_last.asc(), Task.end_date.asc(), Task.start_date.asc(), Task.created_at.asc())
     ).all()
 
     backlog_tasks = db.scalars(
@@ -430,7 +428,7 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
 
     pending_from_last_week_count = sum(1 for task in pending_tasks if task.start_date and prev_monday <= task.start_date <= prev_sunday)
     pending_more_than_two_weeks_count = sum(1 for task in pending_tasks if task.start_date and task.start_date < two_week_cutoff)
-    total_open_task_count = len(this_week_tasks) + len(pending_tasks) + len(backlog_tasks) + len(stalled_tasks)
+    total_open_task_count = len({task.id for task in [*pending_tasks, *stalled_tasks]})
 
     booking_summary = (
         f"Last week: {previous_week_booked_hours:.2f}h booked against "

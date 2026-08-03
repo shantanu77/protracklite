@@ -543,7 +543,7 @@
 <div class="stack">
   {{ render_monday_table(report.worked_last_week_tasks, "Worked Last Week", "Every task where you booked effort in the previous week. These hours should sum to the booked-hours total above.", "No effort was booked last week.", "open", "worked", true) }}
   {{ render_monday_table(report.completed_tasks, "Completed Tasks", "Tasks closed in the previous week, with estimated versus actual effort.", "No tasks were closed last week.", "completed", "completed") }}
-  {{ render_monday_table(report.pending_tasks, "Pending Tasks", "All open tasks assigned to you that are not stalled and started before this week.", "No pending non-stalled tasks.", "open", "pending", true) }}
+  {{ render_monday_table(report.pending_tasks, "Pending Tasks", "All open tasks assigned to you that are not stalled, including newly created and unscheduled tasks.", "No pending non-stalled tasks.", "open", "pending", true) }}
   {{ render_monday_table(report.stalled_tasks, "Stalled Tasks", "Tasks marked stalled, along with the reason recorded on the task.", "No stalled tasks.", "stalled", "stalled") }}
 </div>
 
