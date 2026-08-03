@@ -297,6 +297,44 @@
   (() => {
     const modals = document.querySelectorAll("[data-modal]");
     const logHoursForms = document.querySelectorAll("[data-log-hours-form]");
+    const aiTaskForms = document.querySelectorAll("[data-ai-task-form]");
+
+    function setAITaskFormWorking(form, working) {
+      const submitButton = form.querySelector("[data-ai-task-submit]");
+      if (!submitButton) {
+        return;
+      }
+      submitButton.dataset.defaultLabel ||= submitButton.textContent.trim();
+      form.dataset.submitting = working ? "true" : "false";
+      form.setAttribute("aria-busy", working ? "true" : "false");
+      submitButton.disabled = working;
+      if (working) {
+        const spinner = document.createElement("span");
+        spinner.className = "ai-task-working-glyph";
+        spinner.setAttribute("aria-hidden", "true");
+        submitButton.replaceChildren(spinner, document.createTextNode("Creating Tasks…"));
+      } else {
+        submitButton.textContent = submitButton.dataset.defaultLabel;
+      }
+    }
+
+    aiTaskForms.forEach((form) => {
+      setAITaskFormWorking(form, false);
+      form.addEventListener("submit", (event) => {
+        if (form.dataset.submitting === "true") {
+          event.preventDefault();
+          return;
+        }
+        if (!form.checkValidity()) {
+          return;
+        }
+        setAITaskFormWorking(form, true);
+      });
+    });
+
+    window.addEventListener("pageshow", () => {
+      aiTaskForms.forEach((form) => setAITaskFormWorking(form, false));
+    });
 
     function syncLogNotesState(form) {
       const notesField = form.querySelector("[data-log-notes-input]");

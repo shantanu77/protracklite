@@ -272,11 +272,11 @@
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close bulk backlog modal">×</button>
     </div>
-    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid">
+    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid" data-ai-task-form>
       <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Prepare the client deck by Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday.\n\nWorked 3h on last Monday on dashboard API fixes and 2h on last Tuesday on release note cleanup.\n\nReview dashboard options next week and follow up with the QA team on regression blockers." required></textarea></label>
       <p class="form-helper full">Understands multiple tasks, explicit due dates, and effort already spent on dates like last Monday, last Tuesday, or 2026-07-07.</p>
       <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
-      <button type="submit">Create Tasks With AI</button>
+      <button type="submit" class="ai-task-submit" data-ai-task-submit>Create Tasks With AI</button>
     </form>
   </div>
 </div>

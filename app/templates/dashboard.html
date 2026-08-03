@@ -691,11 +691,11 @@
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close add task using AI modal">×</button>
     </div>
-    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid">
+    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid" data-ai-task-form>
       <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Hi Shantanu, please prepare the client deck for Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday. Also block some time next week to review dashboard options." required></textarea></label>
       <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
       <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
-      <button type="submit">Create Tasks With AI</button>
+      <button type="submit" class="ai-task-submit" data-ai-task-submit>Create Tasks With AI</button>
     </form>
   </div>
 </div>
