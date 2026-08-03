@@ -6,7 +6,7 @@ os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["USER_CONTENT_DIR"] = "/tmp/protracklite-test-user-content"
 
 from app.database import Base, SessionLocal, engine
-from app.models import ActivityType, Organization, Project, Task, User
+from app.models import ActivityType, Organization, Project, Task, TimeLog, User
 from app.reports import monday_report
 
 if engine.dialect.name != "sqlite":
@@ -74,6 +74,24 @@ class MondayReportPendingTaskTests(unittest.TestCase):
             {"MON-OLD", "MON-NEW", "MON-BACKLOG"},
         )
         self.assertEqual(report["total_open_task_count"], 3)
+
+    def test_worked_last_week_excludes_archived_tasks(self):
+        self.add_task("MON-ACTIVE", date(2026, 7, 27))
+        self.add_task("MON-ARCHIVED", date(2026, 7, 27))
+        self.db.flush()
+        tasks = {task.task_id: task for task in self.db.query(Task).all()}
+        tasks["MON-ARCHIVED"].is_archived = True
+        self.db.add_all(
+            [
+                TimeLog(task_id=task.id, user_id=self.user.id, log_date=date(2026, 7, 30), hours=1, notes="x" * 80)
+                for task in tasks.values()
+            ]
+        )
+        self.db.commit()
+
+        report = monday_report(self.db, self.org.id, self.user.id, today=date(2026, 8, 3))
+
+        self.assertEqual([task["task_id"] for task in report["worked_last_week_tasks"]], ["MON-ACTIVE"])
 
 
 if __name__ == "__main__":

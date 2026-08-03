@@ -272,7 +272,15 @@
       <p>{{ report.weekly_ai_summary.week_start.strftime("%d %b %Y") }} to {{ report.weekly_ai_summary.week_end.strftime("%d %b %Y") }}</p>
     </div>
   </div>
-  <p class="ai-summary-copy">{{ report.weekly_ai_summary.summary_text }}</p>
+  {% if report.weekly_ai_summary.highlight_task %}
+  <div class="ai-summary-highlight">
+    <span>Highlight of the week</span>
+    <strong><a href="/{{ org.slug }}/tasks/{{ report.weekly_ai_summary.highlight_task.task_id }}">{{ report.weekly_ai_summary.highlight_task.task_id }}</a> · {{ report.weekly_ai_summary.highlight_task.name }}</strong>
+  </div>
+  {% endif %}
+  <ul class="ai-summary-copy ai-summary-bullets">
+    {% for bullet in report.weekly_ai_summary.summary_bullets %}<li>{{ bullet }}</li>{% endfor %}
+  </ul>
   <div class="ai-summary-meta">
     <span>Generated {{ report.weekly_ai_summary.generated_at|local_datetime("%d %b %Y %I:%M %p") }}</span>
     <span>From {{ report.weekly_ai_summary.task_count }} selected task{% if report.weekly_ai_summary.task_count != 1 %}s{% endif %}</span>
@@ -713,6 +721,7 @@
             <tr>
               <th>Select</th>
               <th>Task</th>
+              <th>Highlight of the week</th>
               <th>Status</th>
               <th>Effort In Week</th>
             </tr>
@@ -726,6 +735,12 @@
               <td class="backlog-task-cell">
                 <strong>{{ task.task_id }}</strong><br>
                 <small>{{ task.name }}</small>
+              </td>
+              <td>
+                <label class="ai-summary-highlight-choice">
+                  <input type="radio" name="highlight_task_code" value="{{ task.task_id }}" data-ai-summary-highlight {% if loop.first %}checked{% endif %}>
+                  <span>Highlight</span>
+                </label>
               </td>
               <td><span class="badge muted">{{ task.status|replace('_', ' ') }}</span></td>
               <td>{{ "%.2f"|format(task.report_hours or 0) }}h</td>
@@ -1041,15 +1056,26 @@
       const aiSummaryToggles = [...aiSummaryForm.querySelectorAll("[data-ai-summary-toggle]")];
       const aiSummarySubmit = aiSummaryForm.querySelector("[data-ai-summary-submit]");
       const aiSummaryNote = aiSummaryForm.querySelector("[data-ai-summary-selection-note]");
+      const aiSummaryHighlights = [...aiSummaryForm.querySelectorAll("[data-ai-summary-highlight]")];
 
       function syncAiSummarySelection() {
-        const selectedCount = aiSummaryToggles.filter((item) => item.checked).length;
+        const selectedToggles = aiSummaryToggles.filter((item) => item.checked);
+        const selectedCodes = new Set(selectedToggles.map((item) => item.value));
+        aiSummaryHighlights.forEach((item) => {
+          item.disabled = !selectedCodes.has(item.value);
+          if (item.disabled) item.checked = false;
+        });
+        if (!aiSummaryHighlights.some((item) => item.checked)) {
+          aiSummaryHighlights.find((item) => !item.disabled)?.click();
+        }
+        const selectedCount = selectedToggles.length;
+        const hasHighlight = aiSummaryHighlights.some((item) => item.checked && !item.disabled);
         if (aiSummarySubmit) {
-          aiSummarySubmit.disabled = selectedCount === 0;
+          aiSummarySubmit.disabled = selectedCount === 0 || !hasHighlight;
         }
         if (aiSummaryNote) {
-          aiSummaryNote.textContent = selectedCount > 0
-            ? `${selectedCount} task${selectedCount === 1 ? "" : "s"} selected for summary generation.`
+          aiSummaryNote.textContent = selectedCount > 0 && hasHighlight
+            ? `${selectedCount} task${selectedCount === 1 ? "" : "s"} selected. One is marked as Highlight of the week.`
             : "Select at least one task.";
         }
       }

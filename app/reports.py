@@ -346,10 +346,14 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
 
     last_week_logs = db.scalars(
         select(TimeLog)
+        .join(Task, Task.id == TimeLog.task_id)
         .where(
             TimeLog.user_id == user_id,
             TimeLog.log_date >= prev_monday,
             TimeLog.log_date <= prev_sunday,
+            Task.org_id == org_id,
+            Task.assigned_to == user_id,
+            Task.is_archived.is_(False),
         )
         .order_by(TimeLog.task_id.asc(), TimeLog.log_date.desc(), TimeLog.created_at.desc())
     ).all()
@@ -519,7 +523,14 @@ def monday_report(db: Session, org_id: int, user_id: int, today: date | None = N
     }
     missing_worked_task_ids = [task_id for task_id in worked_last_week_task_ids if task_id not in task_lookup]
     if missing_worked_task_ids:
-        missing_tasks = db.scalars(select(Task).where(Task.id.in_(missing_worked_task_ids))).all()
+        missing_tasks = db.scalars(
+            select(Task).where(
+                Task.id.in_(missing_worked_task_ids),
+                Task.org_id == org_id,
+                Task.assigned_to == user_id,
+                Task.is_archived.is_(False),
+            )
+        ).all()
         for task in missing_tasks:
             task_lookup[task.id] = task
 

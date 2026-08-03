@@ -243,7 +243,7 @@ WHATS_NEW_ANNOUNCEMENTS = [
 ]
 TIME_LOG_NOTES_PLACEHOLDER = "No Details Provided"
 TIME_LOG_NOTES_MIN_LENGTH = 80
-WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v2"
+WEEKLY_AI_SUMMARY_PROMPT_VERSION = "v3-bullets-highlight"
 WEEKLY_AI_SUMMARY_MAX_CHARS = 700
 WEEKLY_AI_SUMMARY_TARGET_MODEL = "weekly-ai-summary"
 FLOWER_AVATAR_EMOJIS = ("🌸", "🌼", "🌻", "🌺", "🌷", "🪻", "🌹", "🪷", "💐", "🏵️")
@@ -462,8 +462,16 @@ def serialize_weekly_ai_summary(summary: WeeklyAISummary | None) -> dict[str, An
     if not summary:
         return None
     selected_task_ids = summary.selected_task_ids_json or []
+    snapshot = summary.input_snapshot_json or {}
+    summary_bullets = [
+        re.sub(r"^[\s•*\-]+", "", line).strip()
+        for line in str(summary.summary_text or "").splitlines()
+        if re.sub(r"^[\s•*\-]+", "", line).strip()
+    ]
     return {
         "summary_text": summary.summary_text,
+        "summary_bullets": summary_bullets or [summary.summary_text],
+        "highlight_task": snapshot.get("highlight_task"),
         "week_start": summary.week_start,
         "week_end": summary.week_end,
         "task_count": len(selected_task_ids),
@@ -473,27 +481,36 @@ def serialize_weekly_ai_summary(summary: WeeklyAISummary | None) -> dict[str, An
     }
 
 
-def normalize_weekly_ai_summary_text(raw_text: str) -> str:
-    text_value = re.sub(r"\s+", " ", str(raw_text or "").strip())
-    if not text_value:
+def normalize_weekly_ai_summary_bullets(raw_bullets: Any, highlight_task: dict[str, Any]) -> str:
+    source_bullets = raw_bullets if isinstance(raw_bullets, list) else [raw_bullets]
+    bullets = [
+        re.sub(r"\s+", " ", re.sub(r"^[\s•*\-]+", "", str(item or "")).strip())
+        for item in source_bullets
+    ]
+    bullets = [item for item in bullets if item]
+    if not bullets:
         raise ValueError("Generated summary was empty")
-    if len(text_value) <= WEEKLY_AI_SUMMARY_MAX_CHARS:
-        return text_value
-    sentences = re.split(r"(?<=[.!?])\s+", text_value)
-    compact_sentences: list[str] = []
+
+    highlight_prefix = "Highlight of the week:"
+    highlight_bullets = [item for item in bullets if item.lower().startswith(highlight_prefix.lower())]
+    other_bullets = [item for item in bullets if not item.lower().startswith(highlight_prefix.lower())]
+    if highlight_bullets:
+        highlight_bullet = highlight_bullets[0]
+    else:
+        highlight_bullet = f"{highlight_prefix} {highlight_task['task_id']} — {highlight_task['name']}."
+    ordered_bullets = [highlight_bullet, *other_bullets][:5]
+
+    compact_bullets: list[str] = []
     running_length = 0
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-        projected = running_length + len(sentence) + (1 if compact_sentences else 0)
+    for bullet in ordered_bullets:
+        projected = running_length + len(bullet) + (1 if compact_bullets else 0)
         if projected > WEEKLY_AI_SUMMARY_MAX_CHARS:
+            if not compact_bullets:
+                compact_bullets.append(bullet[: WEEKLY_AI_SUMMARY_MAX_CHARS - 1].rstrip(" ,;:-") + "…")
             break
-        compact_sentences.append(sentence)
+        compact_bullets.append(bullet)
         running_length = projected
-    if compact_sentences:
-        return " ".join(compact_sentences)
-    return text_value[: WEEKLY_AI_SUMMARY_MAX_CHARS - 1].rstrip(" ,;:-") + "…"
+    return "\n".join(compact_bullets)
 
 
 def generate_weekly_ai_summary_with_openai(snapshot: dict[str, Any]) -> tuple[str, str]:
@@ -509,10 +526,11 @@ def generate_weekly_ai_summary_with_openai(snapshot: dict[str, Any]) -> tuple[st
                 "role": "system",
                 "content": (
                     "You write concise factual weekly work summaries for an employee work tracker. "
-                    "Return JSON only in this exact shape: {\"summary\":\"...\"}. "
-                    "Write exactly one paragraph in plain business language. "
-                    "Keep it factual, grounded only in the provided data, and avoid bullet points. "
-                    "Target 4 to 5 lines of typical UI width, roughly 350 to 550 characters, and never exceed 700 characters. "
+                    "Return JSON only in this exact shape: {\"bullets\":[\"...\",\"...\"]}. "
+                    "Write 3 to 5 concise, standalone bullet points in plain business language. "
+                    "The first bullet must begin exactly with 'Highlight of the week:' and must specifically describe highlight_task. "
+                    "Keep every bullet factual and grounded only in the provided data. "
+                    "Keep the combined bullets roughly 350 to 550 characters and never exceed 700 characters. "
                     "Summarize meaningful work completed, progress made, key effort areas, and blockers if present. "
                     "When describing effort coverage, use the booked-hours percentage from booking_percent and do not mention absolute booked-hour totals. "
                     "Mention leave only when it materially affected the week. "
@@ -522,7 +540,7 @@ def generate_weekly_ai_summary_with_openai(snapshot: dict[str, Any]) -> tuple[st
             {
                 "role": "user",
                 "content": (
-                    "Generate one weekly summary paragraph from this structured input and return JSON only:\n"
+                    "Generate the weekly summary bullets from this structured input and return JSON only:\n"
                     f"{json.dumps(snapshot, default=str)}"
                 ),
             },
@@ -541,7 +559,7 @@ def generate_weekly_ai_summary_with_openai(snapshot: dict[str, Any]) -> tuple[st
         response.raise_for_status()
         data = response.json()
         parsed = parse_json_payload(data["choices"][0]["message"]["content"])
-        summary_text = normalize_weekly_ai_summary_text(str(parsed.get("summary") or ""))
+        summary_text = normalize_weekly_ai_summary_bullets(parsed.get("bullets"), snapshot["highlight_task"])
         return summary_text, model_name
     except Exception as exc:
         response_text = ""
@@ -6868,6 +6886,7 @@ async def monday_report_generate_ai_summary(
 
     form = await request.form()
     selected_task_codes = [str(item).strip() for item in form.getlist("selected_task_codes") if str(item).strip()]
+    highlight_task_code = str(form.get("highlight_task_code") or "").strip()
     if not selected_task_codes:
         return RedirectResponse(
             url=monday_report_redirect_url(org_slug, summary_error="Select at least one worked task to generate the weekly summary."),
@@ -6879,6 +6898,12 @@ async def monday_report_generate_ai_summary(
     if not selected_report_tasks:
         return RedirectResponse(
             url=monday_report_redirect_url(org_slug, summary_error="Selected tasks must come from Worked Last Week."),
+            status_code=303,
+        )
+
+    if highlight_task_code not in {task["task_id"] for task in selected_report_tasks}:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, summary_error="Select one of the included tasks as Highlight of the week."),
             status_code=303,
         )
 
@@ -6929,6 +6954,13 @@ async def monday_report_generate_ai_summary(
             status_code=303,
         )
 
+    highlight_task = next((item for item in selected_tasks_snapshot if item["task_id"] == highlight_task_code), None)
+    if not highlight_task:
+        return RedirectResponse(
+            url=monday_report_redirect_url(org_slug, summary_error="The Highlight of the week task is no longer available."),
+            status_code=303,
+        )
+
     input_snapshot = {
         "user": {"id": user.id, "full_name": user.full_name},
         "week": {
@@ -6942,6 +6974,7 @@ async def monday_report_generate_ai_summary(
         "selected_tasks": selected_tasks_snapshot,
         "selected_task_count": len(selected_tasks_snapshot),
         "selected_task_codes": [item["task_id"] for item in selected_tasks_snapshot],
+        "highlight_task": highlight_task,
     }
 
     try:

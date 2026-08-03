@@ -6313,6 +6313,40 @@ mark {
   line-height: 1.65;
 }
 
+.ai-summary-bullets {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.ai-summary-highlight {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(217, 119, 6, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 251, 235, 0.9);
+}
+
+.ai-summary-highlight span {
+  color: #92400e;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-summary-highlight-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ai-summary-highlight-choice input {
+  width: auto;
+}
+
 .ai-summary-meta {
   display: flex;
   flex-wrap: wrap;
