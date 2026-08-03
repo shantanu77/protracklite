@@ -587,7 +587,7 @@
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close effort modal">×</button>
     </div>
-    <form method="post" action="/{{ org.slug }}/dashboard/day-log" class="stack monday-catchup-flow" data-dashboard-daylog-form>
+    <form method="post" action="/{{ org.slug }}/dashboard/day-log" class="stack monday-catchup-flow" data-dashboard-daylog-form data-log-hours-form>
       <label class="full">
         <span class="monday-task-detail-label">Search task</span>
         <input type="search" placeholder="Type a task id or name" data-dashboard-daylog-search autocomplete="off">
@@ -625,9 +625,9 @@
       <input type="hidden" name="log_date" value="" data-dashboard-daylog-date>
       <div class="form-grid dashboard-daylog-fields">
         <label>Effort<input type="number" name="hours" step="0.25" min="0.25" required placeholder="e.g. 1.5"></label>
-        <label class="dashboard-daylog-comment">Comment<textarea name="notes" rows="3" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on that day?"></textarea></label>
+        <label class="dashboard-daylog-comment">Comment<textarea name="notes" rows="3" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on that day?" data-log-notes-input aria-describedby="dashboard-daylog-notes-helper"></textarea></label>
       </div>
-      <p class="form-helper">{{ time_log_notes_min_length }}+ characters required.</p>
+      <p class="form-helper" id="dashboard-daylog-notes-helper" data-log-notes-helper>Minimum {{ time_log_notes_min_length }} characters. {{ time_log_notes_min_length }} characters left.</p>
       <div class="monday-catchup-footer">
         <span></span>
         <div class="page-head-actions">

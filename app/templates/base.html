@@ -305,7 +305,7 @@
         return;
       }
       const minLength = Number(notesField.getAttribute("minlength") || "0");
-      const currentLength = notesField.value.trim().length;
+      const currentLength = notesField.value.trim().replace(/\s+/g, " ").length;
       const remaining = Math.max(minLength - currentLength, 0);
       notesField.setCustomValidity(currentLength >= minLength ? "" : `Please enter at least ${minLength} characters.`);
       helper.textContent = remaining > 0

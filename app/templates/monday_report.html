@@ -340,7 +340,7 @@
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close day log modal">×</button>
     </div>
-    <form method="post" action="/{{ org.slug }}/reports/monday/day-log" class="stack monday-catchup-flow" data-daylog-form>
+    <form method="post" action="/{{ org.slug }}/reports/monday/day-log" class="stack monday-catchup-flow" data-daylog-form data-log-hours-form>
       <div class="monday-catchup-meta">
         <span data-modal-text="day_detail_text">Select a day to start logging.</span>
         <span data-modal-text="day_value_text"></span>
@@ -388,9 +388,9 @@
       </div>
       <label class="full">
         Comments
-        <textarea name="notes" rows="5" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on for this selected day?"></textarea>
+        <textarea name="notes" rows="5" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on for this selected day?" data-log-notes-input aria-describedby="day-log-notes-helper"></textarea>
       </label>
-      <p class="form-helper full">{{ time_log_notes_min_length }}+ characters required.</p>
+      <p class="form-helper full" id="day-log-notes-helper" data-log-notes-helper>Minimum {{ time_log_notes_min_length }} characters. {{ time_log_notes_min_length }} characters left.</p>
       <div class="monday-catchup-footer">
         <p class="empty">Save once, then keep adding more tasks to the same selected day.</p>
         <div class="page-head-actions">
@@ -556,7 +556,7 @@
       </div>
       <button type="button" class="modal-close" data-modal-close aria-label="Close last week catch-up modal">×</button>
     </div>
-    <form method="post" action="/{{ org.slug }}/reports/monday/catch-up" class="stack monday-catchup-flow" data-catchup-form>
+    <form method="post" action="/{{ org.slug }}/reports/monday/catch-up" class="stack monday-catchup-flow" data-catchup-form data-log-hours-form>
       <div class="monday-catchup-toolbar">
         <label class="full">
           <span class="monday-task-detail-label">Task Search</span>
@@ -614,9 +614,9 @@
       </div>
       <label class="full">
         Comments
-        <textarea name="notes" rows="5" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on? This comment is mandatory." data-catchup-notes></textarea>
+        <textarea name="notes" rows="5" minlength="{{ time_log_notes_min_length }}" required placeholder="What did you work on? This comment is mandatory." data-catchup-notes data-log-notes-input aria-describedby="catchup-log-notes-helper"></textarea>
       </label>
-      <p class="form-helper full">{{ time_log_notes_min_length }}+ characters required.</p>
+      <p class="form-helper full" id="catchup-log-notes-helper" data-log-notes-helper>Minimum {{ time_log_notes_min_length }} characters. {{ time_log_notes_min_length }} characters left.</p>
       <div class="monday-catchup-footer">
         <p class="empty">Only days from last week without holiday or leave are shown.</p>
         <div class="page-head-actions">
