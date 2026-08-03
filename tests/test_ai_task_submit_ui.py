@@ -13,11 +13,12 @@ class AITaskSubmitUITests(unittest.TestCase):
                 self.assertIn("data-ai-task-form", template)
                 self.assertIn("data-ai-task-submit", template)
 
-    def test_shared_handler_disables_and_blocks_repeat_submission(self):
+    def test_shared_handler_locks_and_blocks_repeat_submission(self):
         template = (ROOT / "app/templates/base.html").read_text()
 
         self.assertIn('form.dataset.submitting === "true"', template)
-        self.assertIn("submitButton.disabled = working", template)
+        self.assertIn('submitButton.setAttribute("aria-disabled", working ? "true" : "false")', template)
+        self.assertIn('submitButton.classList.toggle("is-working", working)', template)
         self.assertIn('document.createTextNode("Creating Tasks…")', template)
 
 

@@ -105,9 +105,11 @@ button:hover {
   min-width: 190px;
 }
 
-.ai-task-submit:disabled {
+.ai-task-submit.is-working,
+.ai-task-submit[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.72;
+  pointer-events: none;
   transform: none;
 }
 

@@ -307,7 +307,9 @@
       submitButton.dataset.defaultLabel ||= submitButton.textContent.trim();
       form.dataset.submitting = working ? "true" : "false";
       form.setAttribute("aria-busy", working ? "true" : "false");
-      submitButton.disabled = working;
+      submitButton.disabled = false;
+      submitButton.setAttribute("aria-disabled", working ? "true" : "false");
+      submitButton.classList.toggle("is-working", working);
       if (working) {
         const spinner = document.createElement("span");
         spinner.className = "ai-task-working-glyph";
