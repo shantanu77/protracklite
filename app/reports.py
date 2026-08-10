@@ -9,7 +9,10 @@ from decimal import Decimal
 from sqlalchemy import case, false, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus, TimeLog, User
+from app.models import (
+    ActivityType, Holiday, Leave, LeaveType, OrgSettings, Project, Task, TaskStatus,
+    TimeLog, User, WeeklyAISummary, WeeklyTaskPlan,
+)
 from app.time_utils import local_now, local_today
 
 
@@ -30,6 +33,74 @@ def month_bounds(month_anchor: date) -> tuple[date, date]:
     month_start = month_anchor.replace(day=1)
     month_end = month_anchor.replace(day=calendar.monthrange(month_anchor.year, month_anchor.month)[1])
     return month_start, month_end
+
+
+def monthly_work_facts(db: Session, org_id: int, user_id: int, month_anchor: date) -> dict:
+    """Build the documented evidence used by a monthly self-appraisal."""
+    month_start, calendar_end = month_bounds(month_anchor)
+    month_end = min(calendar_end, local_today())
+    rates = compute_work_rate(db, org_id, user_id, month_start, month_end)
+
+    logs = db.execute(
+        select(Task, func.coalesce(func.sum(TimeLog.hours), 0))
+        .join(TimeLog, TimeLog.task_id == Task.id)
+        .where(
+            Task.org_id == org_id, Task.assigned_to == user_id,
+            TimeLog.user_id == user_id, TimeLog.log_date >= month_start, TimeLog.log_date <= month_end,
+        )
+        .group_by(Task.id).order_by(func.sum(TimeLog.hours).desc(), Task.task_id.asc())
+    ).all()
+    worked_tasks = [
+        {
+            "task_id": task.task_id, "name": task.name, "status": task.status.value,
+            "hours": round(float(hours or 0), 2), "description": task.description or "",
+            "stalled_reason": task.stalled_reason or "",
+        }
+        for task, hours in logs
+    ]
+    completed = db.scalars(
+        select(Task).where(
+            Task.org_id == org_id, Task.assigned_to == user_id, Task.is_archived.is_(False),
+            Task.closed_at.is_not(None), func.date(Task.closed_at) >= month_start, func.date(Task.closed_at) <= month_end,
+        ).order_by(Task.closed_at.asc())
+    ).all()
+    weekly_summaries = db.scalars(
+        select(WeeklyAISummary).where(
+            WeeklyAISummary.org_id == org_id, WeeklyAISummary.user_id == user_id,
+            WeeklyAISummary.week_end >= month_start, WeeklyAISummary.week_start <= month_end,
+        ).order_by(WeeklyAISummary.week_start.asc())
+    ).all()
+    weekly_plans = db.scalars(
+        select(WeeklyTaskPlan).where(
+            WeeklyTaskPlan.org_id == org_id, WeeklyTaskPlan.user_id == user_id,
+            WeeklyTaskPlan.week_end >= month_start, WeeklyTaskPlan.week_start <= month_end,
+        ).order_by(WeeklyTaskPlan.week_start.asc())
+    ).all()
+    monthly_task_ids = {task.task_id for task, _ in logs} | {task.task_id for task in completed}
+    return {
+        "period": {"start": month_start.isoformat(), "end": month_end.isoformat()},
+        "task_count": len(monthly_task_ids),
+        "completed_count": len(completed),
+        "completion_percent": round((len(completed) / len(monthly_task_ids) * 100) if monthly_task_ids else 0, 1),
+        "effort": {
+            "logged_hours": rates["total_logged_hours"], "available_hours": rates["available_hours"],
+            "attendance_percent": min(rates["total_rate"], 100), "leave_days": rates["leave_days"],
+            "holiday_days": rates["holiday_days"],
+        },
+        "tasks": worked_tasks,
+        "delivered_results": [
+            {"task_id": task.task_id, "name": task.name, "completed_on": task.closed_at.date().isoformat()}
+            for task in completed
+        ],
+        "weekly_focus": [
+            {"week_start": plan.week_start.isoformat(), "focus": plan.focus_note.strip()}
+            for plan in weekly_plans if plan.focus_note.strip()
+        ],
+        "weekly_summaries": [
+            {"week_start": item.week_start.isoformat(), "summary": item.summary_text}
+            for item in weekly_summaries
+        ],
+    }
 
 
 def leave_weight(leave_type: LeaveType) -> Decimal:

@@ -468,6 +468,27 @@ class WeeklyAISummary(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class MonthlyWorkReport(Base):
+    __tablename__ = "monthly_work_reports"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "month_start", name="uq_monthly_work_report_org_user_month"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    month_start: Mapped[date] = mapped_column(Date, index=True)
+    month_end: Mapped[date] = mapped_column(Date)
+    facts_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary_text: Mapped[str] = mapped_column(Text, default="")
+    rating: Mapped[Decimal | None] = mapped_column(Numeric(2, 1), nullable=True)
+    manager_comment: Mapped[str] = mapped_column(Text, default="")
+    manager_comment_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(120), default="")
+    prompt_version: Mapped[str] = mapped_column(String(40), default="")
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WeeklyTaskPlan(Base):
     __tablename__ = "weekly_task_plans"
     __table_args__ = (UniqueConstraint("org_id", "user_id", "week_start", name="uq_weekly_task_plan_org_user_week"),)

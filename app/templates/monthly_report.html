@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header monthly-report-header">
+  <div>
+    <p class="eyebrow">Documented self-appraisal</p>
+    <h1>Monthly Work Report</h1>
+    <p>Facts from tasks, time logs, leave, weekly focus, and weekly summaries.</p>
+  </div>
+  <form method="get" class="monthly-report-picker">
+    <label>Employee
+      <select name="user_id" onchange="this.form.submit()">
+        {% for person in people %}<option value="{{ person.id }}" {% if person.id == target.id %}selected{% endif %}>{{ person.full_name }}{% if person.id == user.id %} (me){% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Month <input type="month" name="month" value="{{ month_start.strftime('%Y-%m') }}" onchange="this.form.submit()"></label>
+  </form>
+</div>
+
+{% if generated %}<div class="notice success">Monthly appraisal generated from the latest documented facts.</div>{% endif %}
+{% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+
+<div class="monthly-period-nav">
+  <a href="?month={{ previous_month.strftime('%Y-%m') }}&user_id={{ target.id }}">← Previous</a>
+  <strong>{{ month_start.strftime('%B %Y') }} · {{ target.full_name }}</strong>
+  {% if next_month <= current_month %}<a href="?month={{ next_month.strftime('%Y-%m') }}&user_id={{ target.id }}">Next →</a>{% else %}<span></span>{% endif %}
+</div>
+
+<section class="panel monthly-ai-card">
+  <div class="section-heading">
+    <div><p class="eyebrow">AI appraisal</p><h2>{{ 'Generated summary' if report else 'Not generated yet' }}</h2></div>
+    {% if report and report.rating is not none %}<div class="monthly-rating"><strong>{{ "%.1f"|format(report.rating|float) }}</strong><span>out of 5</span></div>{% endif %}
+  </div>
+  {% if report %}
+    <p class="monthly-summary">{{ report.summary_text }}</p>
+    <p class="muted">Generated {{ report.generated_at|localdatetime }}. Refreshing replaces the summary and rating with a new evidence-based version.</p>
+  {% else %}
+    <p class="empty">Generate this report to create a concise appraisal and rating from the evidence below.</p>
+  {% endif %}
+  <form method="post" action="/{{ org.slug }}/reports/monthly/generate" class="monthly-generate-form">
+    <input type="hidden" name="user_id" value="{{ target.id }}">
+    <input type="hidden" name="month" value="{{ month_start.strftime('%Y-%m') }}">
+    {% if can_comment %}
+      <label>Manager comments
+        <textarea name="manager_comment" rows="3" maxlength="4000" placeholder="Add factual context, coaching, or recognition. Regenerating will incorporate it.">{{ report.manager_comment if report else '' }}</textarea>
+      </label>
+    {% elif report and report.manager_comment %}
+      <div class="manager-comment"><strong>Manager comments</strong><p>{{ report.manager_comment }}</p></div>
+    {% endif %}
+    <button type="submit" {% if not ai_configured %}disabled title="AI is not configured"{% endif %}>{{ 'Refresh appraisal' if report else 'Generate appraisal' }}</button>
+    {% if not ai_configured %}<span class="muted">AI generation is not configured for this workspace.</span>{% endif %}
+  </form>
+</section>
+
+<div class="monthly-fact-grid">
+  <section class="panel"><span class="eyebrow">Documented tasks</span><strong>{{ facts.task_count }}</strong></section>
+  <section class="panel"><span class="eyebrow">Delivered results</span><strong>{{ facts.completed_count }}</strong><small>{{ facts.completion_percent }}% of worked tasks</small></section>
+  <section class="panel"><span class="eyebrow">Attendance effort</span><strong>{{ facts.effort.attendance_percent }}%</strong><small>{{ facts.effort.logged_hours }}h of {{ facts.effort.available_hours }}h available</small></section>
+  <section class="panel"><span class="eyebrow">Leave</span><strong>{{ facts.effort.leave_days }}</strong><small>day-equivalents · {{ facts.effort.holiday_days }} holidays</small></section>
+</div>
+
+<div class="grid monthly-detail-grid">
+  <section class="panel">
+    <h2>Delivered results</h2>
+    {% for item in facts.delivered_results %}<div class="monthly-evidence-row"><strong>{{ item.task_id }} · {{ item.name }}</strong><span>{{ item.completed_on }}</span></div>{% else %}<p class="empty">No task completions documented in this month.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <h2>Weekly focus</h2>
+    {% for item in facts.weekly_focus %}<div class="monthly-evidence-row"><strong>Week of {{ item.week_start }}</strong><span>{{ item.focus }}</span></div>{% else %}<p class="empty">No weekly focus notes documented.</p>{% endfor %}
+  </section>
+  <section class="panel monthly-span-2">
+    <h2>Task evidence</h2>
+    {% for item in facts.tasks %}<div class="monthly-task-row"><div><strong>{{ item.task_id }} · {{ item.name }}</strong><span>{{ item.status|replace('_', ' ') }}</span></div><strong>{{ item.hours }}h</strong></div>{% else %}<p class="empty">No task effort documented.</p>{% endfor %}
+  </section>
+  <section class="panel monthly-span-2">
+    <h2>Previous weekly summaries</h2>
+    {% for item in facts.weekly_summaries %}<div class="monthly-week-summary"><strong>Week of {{ item.week_start }}</strong><p>{{ item.summary }}</p></div>{% else %}<p class="empty">No weekly AI summaries are available for this month.</p>{% endfor %}
+  </section>
+</div>
+
+<section class="panel monthly-history">
+  <h2>Rating history</h2>
+  {% if rating_history %}
+  <div class="rating-chart" role="img" aria-label="Monthly rating history out of five">
+    {% for item in rating_history %}<div class="rating-column"><span>{{ "%.1f"|format(item.rating) }}</span><div class="rating-bar" style="height: {{ (item.rating / 5 * 150)|round }}px"></div><small>{{ item.month }}</small></div>{% endfor %}
+  </div>
+  {% else %}<p class="empty">Generate a report to begin rating history.</p>{% endif %}
+</section>
+{% endblock %}

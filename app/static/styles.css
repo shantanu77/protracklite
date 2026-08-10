@@ -5205,7 +5205,37 @@ mark {
   }
 }
 
+.monthly-report-header, .monthly-period-nav, .section-heading, .monthly-task-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.monthly-report-picker { display:flex; gap:.75rem; align-items:end; }
+.monthly-report-picker label, .monthly-generate-form label { display:grid; gap:.35rem; color:#62707c; font-size:.82rem; font-weight:700; }
+.monthly-period-nav { margin:1rem 0; }
+.monthly-ai-card { border-top:4px solid #6d5ce7; }
+.monthly-rating { width:88px; height:88px; border-radius:50%; background:#f0edff; display:grid; place-content:center; text-align:center; color:#5541d8; }
+.monthly-rating strong { font-size:1.75rem; line-height:1; }
+.monthly-rating span { font-size:.7rem; margin-top:.25rem; }
+.monthly-summary { font-size:1rem; line-height:1.75; white-space:pre-line; max-width:950px; }
+.monthly-generate-form { display:grid; gap:.75rem; margin-top:1rem; }
+.monthly-generate-form button { justify-self:start; }
+.monthly-fact-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; margin:1rem 0; }
+.monthly-fact-grid .panel { display:grid; gap:.35rem; }
+.monthly-fact-grid strong { font-size:1.8rem; }
+.monthly-fact-grid small { color:#62707c; }
+.monthly-detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.monthly-span-2 { grid-column:span 2; }
+.monthly-evidence-row, .monthly-week-summary { display:grid; gap:.3rem; padding:.8rem 0; border-bottom:1px solid #e7ebef; }
+.monthly-evidence-row span, .monthly-task-row span { color:#62707c; font-size:.85rem; }
+.monthly-task-row { padding:.7rem 0; border-bottom:1px solid #e7ebef; }
+.monthly-task-row > div { display:grid; gap:.2rem; }
+.manager-comment { padding:1rem; border-left:3px solid #6d5ce7; background:#f8f7ff; }
+.rating-chart { min-height:210px; display:flex; align-items:end; gap:1rem; padding:1.5rem 1rem 0; border-bottom:1px solid #ccd4dc; overflow-x:auto; }
+.rating-column { min-width:64px; display:grid; justify-items:center; gap:.35rem; color:#62707c; font-size:.75rem; }
+.rating-bar { width:34px; min-height:2px; border-radius:6px 6px 0 0; background:linear-gradient(#7c6bea,#5541d8); }
+
 @media (max-width: 640px) {
+  .monthly-report-header, .monthly-report-picker { align-items:stretch; flex-direction:column; }
+  .monthly-fact-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .monthly-detail-grid { grid-template-columns:1fr; }
+  .monthly-span-2 { grid-column:span 1; }
   .capacity-header-controls,
   .capacity-card-toolbar {
     align-items: stretch;
