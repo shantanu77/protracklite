@@ -32,7 +32,7 @@
   </div>
   {% if report %}
     <p class="monthly-summary">{{ report.summary_text }}</p>
-    <p class="muted">Generated {{ report.generated_at|localdatetime }}. Refreshing replaces the summary and rating with a new evidence-based version.</p>
+    <p class="muted">Generated {{ report.generated_at|local_datetime("%d %b %Y %I:%M %p") }}. Refreshing replaces the summary and rating with a new evidence-based version.</p>
   {% else %}
     <p class="empty">Generate this report to create a concise appraisal and rating from the evidence below.</p>
   {% endif %}
