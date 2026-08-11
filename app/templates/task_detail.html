@@ -154,6 +154,13 @@
       <label>Start Date<input name="start_date" type="date" value="{{ task.start_date or '' }}" data-backlog-field></label>
       <label>End Date<input name="end_date" type="date" value="{{ task.end_date or '' }}" data-backlog-field></label>
       <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" value="{{ task.estimated_hours or '' }}" data-backlog-field></label>
+      <label>Complexity
+        <select name="complexity_weight">
+          {% for value, label in [(1.0, 'Low'), (1.5, 'Medium'), (2.0, 'High'), (2.5, 'Critical')] %}<option value="{{ value }}" {% if task.complexity_weight|float == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="checkbox"><input name="is_high_priority" type="checkbox" {% if task.is_high_priority %}checked{% endif %}>High priority</label>
+      <p><strong>{{ task.rework_count }}</strong> recorded rework request{% if task.rework_count != 1 %}s{% endif %}</p>
       <label class="checkbox"><input name="is_private" type="checkbox" {% if task.is_private %}checked{% endif %}>Private task</label>
       <label class="full">Tags
         <div class="tag-editor" data-tag-editor>

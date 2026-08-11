@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import calendar
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from math import ceil
 from decimal import Decimal
 
-from sqlalchemy import case, false, func, or_, select
+from sqlalchemy import and_, case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -64,6 +65,16 @@ def monthly_work_facts(db: Session, org_id: int, user_id: int, month_anchor: dat
             Task.closed_at.is_not(None), func.date(Task.closed_at) >= month_start, func.date(Task.closed_at) <= month_end,
         ).order_by(Task.closed_at.asc())
     ).all()
+    eligible_tasks = db.scalars(
+        select(Task).where(
+            Task.org_id == org_id, Task.assigned_to == user_id, Task.is_archived.is_(False),
+            or_(
+                and_(Task.closed_at.is_not(None), func.date(Task.closed_at) >= month_start, func.date(Task.closed_at) <= month_end),
+                and_(Task.end_date >= month_start, Task.end_date <= month_end,
+                     or_(Task.closed_at.is_(None), func.date(Task.closed_at) >= month_start)),
+            ),
+        ).order_by(Task.end_date.asc(), Task.task_id.asc())
+    ).all()
     weekly_summaries = db.scalars(
         select(WeeklyAISummary).where(
             WeeklyAISummary.org_id == org_id, WeeklyAISummary.user_id == user_id,
@@ -76,7 +87,19 @@ def monthly_work_facts(db: Session, org_id: int, user_id: int, month_anchor: dat
             WeeklyTaskPlan.week_end >= month_start, WeeklyTaskPlan.week_start <= month_end,
         ).order_by(WeeklyTaskPlan.week_start.asc())
     ).all()
-    monthly_task_ids = {task.task_id for task, _ in logs} | {task.task_id for task in completed}
+    monthly_task_ids = {task.task_id for task in eligible_tasks}
+    completed_ids = {task.task_id for task in completed}
+    scoring_tasks = [
+        {
+            "task_id": task.task_id, "name": task.name, "description": task.description or "",
+            "complexity_weight": float(task.complexity_weight or 1),
+            "is_high_priority": bool(task.is_high_priority), "rework_count": int(task.rework_count or 0),
+            "due_date": task.end_date.isoformat() if task.end_date else None,
+            "completion_date": task.closed_at.date().isoformat() if task.closed_at and task.task_id in completed_ids else None,
+            "completed_in_month": task.task_id in completed_ids,
+        }
+        for task in eligible_tasks
+    ]
     return {
         "period": {"start": month_start.isoformat(), "end": month_end.isoformat()},
         "task_count": len(monthly_task_ids),
@@ -100,6 +123,57 @@ def monthly_work_facts(db: Session, org_id: int, user_id: int, month_anchor: dat
             {"week_start": item.week_start.isoformat(), "summary": item.summary_text}
             for item in weekly_summaries
         ],
+        "scoring_tasks": scoring_tasks,
+    }
+
+
+def calculate_monthly_base_score(facts: dict, manager_comment: str = "") -> dict:
+    """Deterministic portion of the hybrid rating, with explicit missing-data behavior."""
+    tasks = list(facts.get("scoring_tasks") or [])
+    if not tasks:
+        return {
+            "base_score": 3.0, "completion_score": None, "quality_score": None, "timeliness_score": None,
+            "ai_adjustment_limit": 0.5, "data_sufficiency_flag": "INSUFFICIENT_EVIDENCE",
+            "maximum_final_rating": 3.0, "eligible_task_count": 0, "completed_task_count": 0,
+            "on_time_task_count": 0, "timeliness_task_count": 0, "total_rework_count": 0,
+            "evidence_note": "No tasks due or completed in this month; the neutral base score is provisional.",
+        }
+
+    def points(task: dict) -> float:
+        return float(task.get("complexity_weight") or 1) * (1.25 if task.get("is_high_priority") else 1.0)
+
+    total_points = sum(points(task) for task in tasks)
+    completed = [task for task in tasks if task.get("completed_in_month")]
+    completion_points = sum(points(task) for task in completed)
+    completion_score = (completion_points / total_points * 5) if total_points else 0
+    total_rework = sum(max(int(task.get("rework_count") or 0), 0) for task in tasks)
+    quality_score = max(1.0, 5.0 - (0.5 * total_rework))
+    timed = [task for task in completed if task.get("due_date")]
+    on_time = [task for task in timed if task["completion_date"] <= task["due_date"]]
+    timeliness_score = (len(on_time) / len(timed) * 5) if timed else 3.0
+    base_score = max(1.0, min(5.0, (0.50 * completion_score) + (0.30 * quality_score) + (0.20 * timeliness_score)))
+
+    meaningful_descriptions = sum(
+        1 for task in tasks if len(re.sub(r"<[^>]+>", " ", str(task.get("description") or "")).strip()) >= 30
+    )
+    focus_count = len([item for item in facts.get("weekly_focus") or [] if str(item.get("focus") or "").strip()])
+    manager_context = len(str(manager_comment or "").strip()) >= 30
+    descriptions_sufficient = meaningful_descriptions >= max(1, (len(tasks) + 1) // 2)
+    sufficient = focus_count >= 2 and (descriptions_sufficient or manager_context)
+    return {
+        "base_score": round(base_score, 2), "completion_score": round(completion_score, 2),
+        "quality_score": round(quality_score, 2), "timeliness_score": round(timeliness_score, 2),
+        "ai_adjustment_limit": 0.5,
+        "data_sufficiency_flag": "SUFFICIENT" if sufficient else "INSUFFICIENT_EVIDENCE",
+        "maximum_final_rating": 5.0 if sufficient else 3.0,
+        "eligible_task_count": len(tasks), "completed_task_count": len(completed),
+        "on_time_task_count": len(on_time), "timeliness_task_count": len(timed),
+        "total_rework_count": total_rework, "weekly_focus_count": focus_count,
+        "meaningful_description_count": meaningful_descriptions,
+        "evidence_note": (
+            "Evidence is sufficient for the full rating range."
+            if sufficient else "Rating is capped at 3.0 until at least two weekly focus notes and meaningful task or manager context are documented."
+        ),
     }
 
 

@@ -51,6 +51,25 @@
   </form>
 </section>
 
+{% if facts.scoring %}
+<section class="panel monthly-score-breakdown">
+  <div class="section-heading"><div><p class="eyebrow">Transparent hybrid score</p><h2>How this rating was formed</h2></div><span class="badge {{ 'success' if facts.scoring.data_sufficiency_flag == 'SUFFICIENT' else 'warning' }}">{{ facts.scoring.data_sufficiency_flag|replace('_', ' ') }}</span></div>
+  <div class="monthly-score-grid">
+    <div><span>Weighted completion · 50%</span><strong>{{ facts.scoring.completion_score if facts.scoring.completion_score is not none else '—' }} / 5</strong></div>
+    <div><span>Quality/rework · 30%</span><strong>{{ facts.scoring.quality_score if facts.scoring.quality_score is not none else '—' }} / 5</strong></div>
+    <div><span>Timeliness · 20%</span><strong>{{ facts.scoring.timeliness_score if facts.scoring.timeliness_score is not none else '—' }} / 5</strong></div>
+    <div><span>Deterministic base</span><strong>{{ facts.scoring.base_score }} / 5</strong></div>
+    <div><span>Bounded AI adjustment</span><strong>{{ "%+.1f"|format(facts.score_explanation.ai_adjustment) if facts.score_explanation else 'Pending' }}</strong></div>
+    <div><span>Final rating cap</span><strong>{{ facts.scoring.maximum_final_rating }} / 5</strong></div>
+  </div>
+  <p>{{ facts.scoring.evidence_note }}</p>
+  <p class="muted">Eligible: {{ facts.scoring.eligible_task_count }} tasks · Completed: {{ facts.scoring.completed_task_count }} · On time: {{ facts.scoring.on_time_task_count }}/{{ facts.scoring.timeliness_task_count }} with known due dates · Rework: {{ facts.scoring.total_rework_count }}</p>
+  {% if facts.score_explanation and facts.score_explanation.evidence_citations %}<div class="monthly-citations"><strong>Adjustment evidence</strong>{% for item in facts.score_explanation.evidence_citations %}<p><span class="chip">{{ item.task_id }}</span> {{ item.reason }}</p>{% endfor %}</div>{% endif %}
+</section>
+{% elif report %}
+<div class="notice warning">This report uses the previous AI-only rating method. Refresh it to apply the transparent hybrid rubric.</div>
+{% endif %}
+
 <div class="monthly-fact-grid">
   <section class="panel"><span class="eyebrow">Documented tasks</span><strong>{{ facts.task_count }}</strong></section>
   <section class="panel"><span class="eyebrow">Delivered results</span><strong>{{ facts.completed_count }}</strong><small>{{ facts.completion_percent }}% of worked tasks</small></section>
