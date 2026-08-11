@@ -7338,6 +7338,8 @@ async def monday_report_add_day_log(
 
 
 def monthly_report_target(db: Session, org: Organization, viewer: User, user_id: int | None) -> User:
+    if viewer.role not in {Role.MANAGER, Role.ADMIN}:
+        raise HTTPException(status_code=403, detail="Monthly appraisals are currently available to managers only")
     target_id = user_id or viewer.id
     target = db.get(User, target_id)
     if not target or target.org_id != org.id or not target.is_active:
