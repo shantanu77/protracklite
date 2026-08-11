@@ -1556,6 +1556,20 @@ def can_manage_user_scope(db: Session, org_id: int, user: User, target_user_id: 
     return target_user_id in managed_user_ids(db, org_id, user)
 
 
+def management_assignment_creates_cycle(assignments: dict[int, int | None], user_id: int, manager_id: int | None) -> bool:
+    """Return true when a proposed reporting line reaches the employee again."""
+    cursor = manager_id
+    visited: set[int] = set()
+    while cursor is not None:
+        if cursor == user_id:
+            return True
+        if cursor in visited:
+            return True
+        visited.add(cursor)
+        cursor = assignments.get(cursor)
+    return False
+
+
 def next_task_id(project: Project) -> str:
     project.project_task_sequence += 1
     return f"{project.code}{project.project_task_sequence:04d}"
@@ -8694,6 +8708,111 @@ def admin_users_page(
     )
 
 
+@app.get("/{org_slug}/admin/hierarchy", response_class=HTMLResponse)
+def admin_hierarchy_page(
+    request: Request, saved: int | None = None,
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, user = org_user
+    must_be_admin(user)
+    people = db.scalars(
+        select(User).options(selectinload(User.department))
+        .where(User.org_id == org.id, User.is_active.is_(True)).order_by(User.full_name.asc())
+    ).all()
+    people_by_id = {person.id: person for person in people}
+    reports_by_manager: dict[int, list[User]] = {}
+    roots: list[User] = []
+    for person in people:
+        if person.manager_id in people_by_id and person.manager_id != person.id:
+            reports_by_manager.setdefault(person.manager_id, []).append(person)
+        else:
+            roots.append(person)
+    for reports in reports_by_manager.values():
+        reports.sort(key=lambda item: item.full_name.lower())
+
+    def node(person: User, path: set[int]) -> dict[str, Any]:
+        if person.id in path:
+            return {"person": person, "reports": [], "cycle": True, "total_reports": 0}
+        children = [node(child, path | {person.id}) for child in reports_by_manager.get(person.id, [])]
+        return {
+            "person": person, "reports": children, "cycle": False,
+            "total_reports": sum(1 + child["total_reports"] for child in children),
+        }
+
+    tree = [node(person, set()) for person in sorted(roots, key=lambda item: item.full_name.lower())]
+    represented: set[int] = set()
+
+    def collect(items: list[dict[str, Any]]) -> None:
+        for item in items:
+            represented.add(item["person"].id)
+            collect(item["reports"])
+
+    collect(tree)
+    tree.extend(node(person, set()) for person in people if person.id not in represented)
+    manager_candidates = [person for person in people if person.role in {Role.ADMIN, Role.MANAGER}]
+    def descendant_ids(person_id: int, seen: set[int] | None = None) -> set[int]:
+        seen = set(seen or set())
+        if person_id in seen:
+            return set()
+        seen.add(person_id)
+        descendants: set[int] = set()
+        for report in reports_by_manager.get(person_id, []):
+            descendants.add(report.id)
+            descendants.update(descendant_ids(report.id, seen))
+        return descendants
+
+    manager_options_by_user = {
+        person.id: [candidate for candidate in manager_candidates if candidate.id != person.id and candidate.id not in descendant_ids(person.id)]
+        for person in people
+    }
+    return templates.TemplateResponse("admin_hierarchy.html", {
+        "request": request, "org": org, "user": user, "people": people, "tree": tree,
+        "manager_candidates": manager_candidates, "roles": list(Role), "saved": bool(saved),
+        "manager_options_by_user": manager_options_by_user,
+        "unassigned_count": sum(1 for person in people if person.manager_id not in people_by_id),
+    })
+
+
+@app.post("/{org_slug}/admin/hierarchy/{user_id}")
+def admin_update_hierarchy(
+    org_slug: str, user_id: int, manager_id: str = Form(""), role: Role = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, admin = org_user
+    must_be_admin(admin)
+    target = db.scalar(select(User).where(User.id == user_id, User.org_id == org.id, User.is_active.is_(True)))
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    parsed_manager_id = parse_optional_form_int(manager_id, "Manager")
+    manager = None
+    if parsed_manager_id is not None:
+        manager = db.scalar(select(User).where(
+            User.id == parsed_manager_id, User.org_id == org.id, User.is_active.is_(True),
+            User.role.in_([Role.ADMIN, Role.MANAGER]),
+        ))
+        if not manager:
+            raise HTTPException(status_code=400, detail="Reporting manager must have a manager or admin role")
+    assignments = {
+        person_id: assigned_manager_id
+        for person_id, assigned_manager_id in db.execute(
+            select(User.id, User.manager_id).where(User.org_id == org.id, User.is_active.is_(True))
+        ).all()
+    }
+    if management_assignment_creates_cycle(assignments, target.id, manager.id if manager else None):
+        raise HTTPException(status_code=400, detail="This reporting line would create a management cycle")
+    has_reports = db.scalar(select(func.count(User.id)).where(
+        User.org_id == org.id, User.manager_id == target.id, User.is_active.is_(True)
+    )) or 0
+    if has_reports and role == Role.EMPLOYEE:
+        raise HTTPException(status_code=400, detail="Move this person's direct reports before changing their role to employee")
+    if target.id == admin.id and role != Role.ADMIN:
+        raise HTTPException(status_code=400, detail="You cannot remove your own admin role")
+    target.manager_id = manager.id if manager else None
+    target.role = role
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/admin/hierarchy?saved=1", status_code=303)
+
+
 @app.post("/{org_slug}/admin/users")
 def admin_create_user(
     org_slug: str,
@@ -8783,11 +8902,26 @@ def admin_update_user(
             raise HTTPException(status_code=400, detail="Manager not found")
         if manager.id == target.id:
             raise HTTPException(status_code=400, detail="A user cannot be their own manager")
+        assignments = {
+            person_id: assigned_manager_id
+            for person_id, assigned_manager_id in db.execute(
+                select(User.id, User.manager_id).where(User.org_id == org.id, User.is_active.is_(True))
+            ).all()
+        }
+        if management_assignment_creates_cycle(assignments, target.id, manager.id):
+            raise HTTPException(status_code=400, detail="This reporting line would create a management cycle")
     if department_id is not None:
         department = db.get(Department, department_id)
         if not department or department.org_id != org.id:
             raise HTTPException(status_code=400, detail="Department not found")
         target.department_id = department.id
+    active_report_count = db.scalar(select(func.count(User.id)).where(
+        User.org_id == org.id, User.manager_id == target.id, User.is_active.is_(True)
+    )) or 0
+    if active_report_count and role == Role.EMPLOYEE:
+        raise HTTPException(status_code=400, detail="Move this user's direct reports before changing their role to employee")
+    if target.id == user.id and role != Role.ADMIN:
+        raise HTTPException(status_code=400, detail="You cannot remove your own admin role")
     target.full_name = full_name.strip()
     target.manager_id = manager.id if manager else None
     target.role = role

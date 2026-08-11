@@ -5235,11 +5235,29 @@ mark {
 .rating-chart { min-height:210px; display:flex; align-items:end; gap:1rem; padding:1.5rem 1rem 0; border-bottom:1px solid #ccd4dc; overflow-x:auto; }
 .rating-column { min-width:64px; display:grid; justify-items:center; gap:.35rem; color:#62707c; font-size:.75rem; }
 .rating-bar { width:34px; min-height:2px; border-radius:6px 6px 0 0; background:linear-gradient(#7c6bea,#5541d8); }
+.hierarchy-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin-bottom:1rem; }
+.hierarchy-summary-grid .panel { display:grid; gap:.3rem; }
+.hierarchy-summary-grid strong { font-size:1.7rem; }
+.hierarchy-tree, .hierarchy-tree ul { list-style:none; margin:0; padding-left:0; }
+.hierarchy-tree ul { margin-left:1.1rem; padding-left:1.4rem; border-left:2px solid #e2e7ec; }
+.hierarchy-person { display:flex; align-items:center; gap:.65rem; padding:.65rem .75rem; margin:.35rem 0; border:1px solid #e2e7ec; border-radius:9px; background:#fff; }
+.hierarchy-person > div { display:grid; flex:1; }
+.hierarchy-person span { color:#62707c; font-size:.78rem; }
+.hierarchy-person.has-cycle { border-color:#dc5964; }
+.hierarchy-roster-head { align-items:end; }
+.hierarchy-roster-head label { display:grid; gap:.3rem; }
+.hierarchy-roster-row { display:grid; grid-template-columns:minmax(220px,1fr) 150px minmax(220px,280px) auto; gap:.75rem; align-items:end; padding:.8rem 0; border-top:1px solid #e2e7ec; }
+.hierarchy-roster-row label { display:grid; gap:.3rem; color:#62707c; font-size:.75rem; }
+.hierarchy-roster-person { display:flex; align-items:center; gap:.65rem; align-self:center; }
+.hierarchy-roster-person > div { display:grid; }
+.hierarchy-roster-person span { color:#62707c; font-size:.78rem; }
 
 @media (max-width: 640px) {
   .monthly-report-header, .monthly-report-picker { align-items:stretch; flex-direction:column; }
   .monthly-fact-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .monthly-score-grid { grid-template-columns:1fr; }
+  .hierarchy-summary-grid { grid-template-columns:1fr; }
+  .hierarchy-roster-row { grid-template-columns:1fr; align-items:stretch; }
   .monthly-detail-grid { grid-template-columns:1fr; }
   .monthly-span-2 { grid-column:span 1; }
   .capacity-header-controls,

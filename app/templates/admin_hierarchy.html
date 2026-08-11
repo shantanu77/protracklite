@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% macro render_node(item) %}
+<li class="hierarchy-node">
+  <div class="hierarchy-person{% if item.cycle %} has-cycle{% endif %}">
+    {{ user_avatar(item.person, 24) }}
+    <div><strong>{{ item.person.full_name }}</strong><span>{{ item.person.role.value|title }}{% if item.person.department %} · {{ item.person.department.name }}{% endif %}</span></div>
+    {% if item.total_reports %}<span class="badge">{{ item.total_reports }} total report{{ '' if item.total_reports == 1 else 's' }}</span>{% endif %}
+    {% if item.cycle %}<span class="badge danger">Cycle detected</span>{% endif %}
+  </div>
+  {% if item.reports %}<ul>{% for child in item.reports %}{{ render_node(child) }}{% endfor %}</ul>{% endif %}
+</li>
+{% endmacro %}
+{% block content %}
+<section class="page-head">
+  <div><p class="eyebrow">Admin</p><h1>Organization Hierarchy</h1><p>See reporting lines and update each person's role and manager in one place.</p></div>
+  <a class="button secondary" href="/{{ org.slug }}/admin/users">Open User Directory</a>
+</section>
+{% if saved %}<div class="notice success">Reporting line updated.</div>{% endif %}
+
+<div class="hierarchy-summary-grid">
+  <section class="panel"><span class="eyebrow">Active people</span><strong>{{ people|length }}</strong></section>
+  <section class="panel"><span class="eyebrow">Managers and admins</span><strong>{{ manager_candidates|length }}</strong></section>
+  <section class="panel"><span class="eyebrow">Top-level / unassigned</span><strong>{{ unassigned_count }}</strong></section>
+</div>
+
+<section class="panel hierarchy-tree-panel">
+  <div class="panel-head"><div><h2>Reporting tree</h2><p>Top-level people appear first. Counts include all descendants.</p></div></div>
+  {% if tree %}<ul class="hierarchy-tree">{% for item in tree %}{{ render_node(item) }}{% endfor %}</ul>{% else %}<p class="empty">No active users.</p>{% endif %}
+</section>
+
+<section class="panel hierarchy-roster">
+  <div class="panel-head hierarchy-roster-head">
+    <div><h2>Quick assignment</h2><p>Promote someone to Manager first, then they become available as a reporting manager.</p></div>
+    <label>Find person<input type="search" placeholder="Name, department, or role" data-hierarchy-search></label>
+  </div>
+  <div class="hierarchy-roster-list">
+    {% for person in people %}
+    <form method="post" action="/{{ org.slug }}/admin/hierarchy/{{ person.id }}" class="hierarchy-roster-row" data-hierarchy-row data-search="{{ (person.full_name ~ ' ' ~ person.email ~ ' ' ~ person.role.value ~ ' ' ~ (person.department.name if person.department else ''))|lower }}">
+      <div class="hierarchy-roster-person">{{ user_avatar(person, 24) }}<div><strong>{{ person.full_name }}</strong><span>{{ person.email }}{% if person.department %} · {{ person.department.name }}{% endif %}</span></div></div>
+      <label>Role<select name="role">{% for role in roles %}<option value="{{ role.value }}" {% if role == person.role %}selected{% endif %}>{{ role.value|title }}</option>{% endfor %}</select></label>
+      <label>Reports to<select name="manager_id"><option value="">Top level / unassigned</option>{% for manager in manager_options_by_user[person.id] %}<option value="{{ manager.id }}" {% if manager.id == person.manager_id %}selected{% endif %}>{{ manager.full_name }}</option>{% endfor %}</select></label>
+      <button type="submit" class="button small">Save</button>
+    </form>
+    {% endfor %}
+    <p class="empty" data-hierarchy-empty hidden>No people match your search.</p>
+  </div>
+</section>
+<script>
+(() => {
+  const input = document.querySelector('[data-hierarchy-search]');
+  if (!input) return;
+  const rows = [...document.querySelectorAll('[data-hierarchy-row]')];
+  const empty = document.querySelector('[data-hierarchy-empty]');
+  input.addEventListener('input', () => {
+    const query = input.value.trim().toLowerCase();
+    let visible = 0;
+    rows.forEach(row => { const match = !query || row.dataset.search.includes(query); row.hidden = !match; if (match) visible += 1; });
+    empty.hidden = visible > 0;
+  });
+})();
+</script>
+{% endblock %}
