@@ -92,6 +92,7 @@ from app.security import (
     decode_token,
     generate_temp_password,
     hash_password,
+    token_issued_at,
     verify_password,
 )
 from app.seed import migrate_department_activity_catalog, seed_defaults, seed_department_assignments
@@ -1215,12 +1216,14 @@ def on_startup() -> None:
         db.close()
 
 
-def send_email(recipient: str, subject: str, body: str) -> None:
+def send_email(recipient: str, subject: str, body: str, html_body: str | None = None) -> None:
     message = EmailMessage()
     message["From"] = settings.smtp_from
     message["To"] = recipient
     message["Subject"] = subject
     message.set_content(body)
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
         if settings.smtp_username:
             server.starttls()
@@ -1468,6 +1471,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, int(user_id_str))
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
+    if user.last_login_at is None:
+        session_started_at = token_issued_at(request.cookies.get("refresh_token", ""), "refresh")
+        session_started_at = session_started_at or token_issued_at(token, "access")
+        if session_started_at:
+            record_successful_login(db, user, session_started_at)
     return user
 
 
@@ -3335,7 +3343,7 @@ def app_base_url() -> str:
     return f"https://{domain}"
 
 
-def build_login_reminder_message(org: Organization, user: User) -> tuple[str, str]:
+def build_login_reminder_message(org: Organization, user: User) -> tuple[str, str, str]:
     base_url = app_base_url()
     login_path = f"/{org.slug}/login"
     login_url = f"{base_url}{login_path}" if base_url else login_path
@@ -3355,7 +3363,44 @@ def build_login_reminder_message(org: Organization, user: User) -> tuple[str, st
         "For your security, this reminder does not contain or change your current password.\n\n"
         f"Organization: {org.name}\n"
     )
-    return subject, body
+    safe_name = html.escape(user.full_name)
+    safe_email = html.escape(user.email)
+    safe_org = html.escape(org.name)
+    safe_login_url = html.escape(login_url, quote=True)
+    html_body = f"""<!doctype html>
+<html>
+  <body style="margin:0;background:#f2f5f4;font-family:Arial,Helvetica,sans-serif;color:#1d3442;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2f5f4;padding:28px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #dce4e2;border-radius:18px;overflow:hidden;">
+          <tr><td style="background:#123d39;padding:28px 32px;color:#ffffff;">
+            <div style="font-size:12px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:#9ed8c8;">Account reminder</div>
+            <h1 style="margin:8px 0 4px;font-size:26px;line-height:1.25;">Sign in to {html.escape(settings.app_name)}</h1>
+            <p style="margin:0;color:#d9eee8;font-size:15px;">Your work and updates are waiting.</p>
+          </td></tr>
+          <tr><td style="padding:30px 32px;">
+            <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi {safe_name},</p>
+            <p style="margin:0 0 22px;color:#52636d;font-size:15px;line-height:1.65;">This is a friendly reminder to sign in using your existing account password.</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;background:#f5f8f7;border-radius:12px;">
+              <tr><td style="padding:16px 18px;color:#52636d;font-size:13px;">LOGIN EMAIL<br><strong style="display:block;margin-top:5px;color:#1d3442;font-size:16px;">{safe_email}</strong></td></tr>
+            </table>
+            <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 28px;"><tr><td style="border-radius:10px;background:#16765f;">
+              <a href="{safe_login_url}" style="display:inline-block;padding:13px 22px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Sign in to {html.escape(settings.app_name)}</a>
+            </td></tr></table>
+            <div style="border-top:1px solid #e3e9e7;padding-top:22px;">
+              <h2 style="margin:0 0 10px;font-size:17px;">Forgot your password?</h2>
+              <p style="margin:0 0 10px;color:#52636d;font-size:14px;line-height:1.6;">Open the sign-in page using the button above, select <strong>Forgot Password?</strong>, enter <strong>{safe_email}</strong>, complete the captcha, and choose <strong>Send Reset Password</strong>.</p>
+              <p style="margin:0;color:#52636d;font-size:14px;line-height:1.6;">We will email you a temporary password valid for 24 hours. Sign in with it, then set a password you will remember.</p>
+            </div>
+            <p style="margin:24px 0 0;padding:14px 16px;background:#eef6f3;border-radius:10px;color:#356257;font-size:13px;line-height:1.5;">For your security, this reminder does not contain or change your current password.</p>
+          </td></tr>
+          <tr><td style="padding:18px 32px;background:#f8faf9;color:#71808a;font-size:12px;">{safe_org} &middot; {html.escape(settings.app_name)}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>"""
+    return subject, body, html_body
 
 
 def work_list_page_url(org_slug: str, work_list: WorkList) -> str:
@@ -8993,9 +9038,9 @@ def admin_send_login_reminder(
     if not target.is_active:
         raise HTTPException(status_code=400, detail="Login reminders can only be sent to active users")
 
-    subject, body = build_login_reminder_message(org, target)
+    subject, body, html_body = build_login_reminder_message(org, target)
     try:
-        send_email(target.email, subject, body)
+        send_email(target.email, subject, body, html_body)
     except Exception:
         logger.exception("Unable to send login reminder to user_id=%s", target.id)
         params = urlencode({"reminder_error": 1, "reminder_name": target.full_name})

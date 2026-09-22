@@ -27,7 +27,7 @@ class LoginReminderTests(unittest.TestCase):
         with patch("app.main.settings.base_domain", "tasks.example.com"), patch(
             "app.main.settings.app_name", "ProtrackLite"
         ):
-            subject, body = build_login_reminder_message(org, user)
+            subject, body, html_body = build_login_reminder_message(org, user)
 
         self.assertEqual(subject, "Reminder: sign in to ProtrackLite")
         self.assertIn("https://tasks.example.com/example/login", body)
@@ -36,6 +36,10 @@ class LoginReminderTests(unittest.TestCase):
         self.assertIn("Forgot Password?", body)
         self.assertIn("valid for 24 hours", body)
         self.assertIn("does not contain or change your current password", body)
+        self.assertIn('href="https://tasks.example.com/example/login"', html_body)
+        self.assertIn("Sign in to ProtrackLite</a>", html_body)
+        self.assertIn("Forgot your password?", html_body)
+        self.assertNotIn("Login page: https://", html_body)
 
     def test_admin_user_list_has_send_reminder_action(self):
         template = (ROOT / "app/templates/admin_users.html").read_text()

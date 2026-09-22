@@ -101,7 +101,7 @@
               {% if person.send_effort_reminder %}On{% else %}Off{% endif %}
             </span>
           </td>
-          <td>{% if person.last_login_at %}{{ local_datetime(person.last_login_at) }}{% else %}<span class="muted">Never</span>{% endif %}</td>
+          <td>{% if person.last_login_at %}{{ local_datetime(person.last_login_at) }}{% else %}<span class="muted">Not recorded yet</span>{% endif %}</td>
           <td>
             <div class="table-actions">
               <form method="post" action="/{{ org.slug }}/admin/users/{{ person.id }}/send-login-reminder" onsubmit='return confirm({{ ("Send a login reminder to " ~ person.email ~ "?")|tojson|e }});'>

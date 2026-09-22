@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from secrets import choice
 from string import ascii_letters, digits
 
@@ -30,14 +30,29 @@ def create_token(subject: str, token_type: str, expires_delta: timedelta) -> str
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_token(token: str, expected_type: str) -> str | None:
+def decode_token_payload(token: str, expected_type: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
     if payload.get("type") != expected_type:
         return None
-    return payload.get("sub")
+    return payload
+
+
+def decode_token(token: str, expected_type: str) -> str | None:
+    payload = decode_token_payload(token, expected_type)
+    return payload.get("sub") if payload else None
+
+
+def token_issued_at(token: str, expected_type: str) -> datetime | None:
+    payload = decode_token_payload(token, expected_type)
+    if not payload or payload.get("iat") is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(payload["iat"]), timezone.utc).replace(tzinfo=None)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def create_access_token(subject: str) -> str:
