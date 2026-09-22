@@ -3329,6 +3329,29 @@ def app_base_url() -> str:
     return f"https://{domain}"
 
 
+def build_login_reminder_message(org: Organization, user: User) -> tuple[str, str]:
+    base_url = app_base_url()
+    login_path = f"/{org.slug}/login"
+    login_url = f"{base_url}{login_path}" if base_url else login_path
+    subject = f"Reminder: sign in to {settings.app_name}"
+    body = (
+        f"Hi {user.full_name},\n\n"
+        f"This is a reminder to sign in to {settings.app_name}.\n\n"
+        f"Login page: {login_url}\n"
+        f"Login email: {user.email}\n"
+        "Password: Use the password you already set for your account.\n\n"
+        "If you do not remember your password:\n"
+        f"1. Open {login_url}\n"
+        "2. Select 'Forgot Password?'.\n"
+        f"3. Enter {user.email}, complete the captcha, and select 'Send Reset Password'.\n"
+        "4. Check your email for a temporary password. It is valid for 24 hours.\n"
+        "5. Sign in with the temporary password, then set a password you will remember.\n\n"
+        "For your security, this reminder does not contain or change your current password.\n\n"
+        f"Organization: {org.name}\n"
+    )
+    return subject, body
+
+
 def work_list_page_url(org_slug: str, work_list: WorkList) -> str:
     base_url = app_base_url()
     path = f"/{org_slug}/lists?list_id={work_list.id}"
@@ -8645,6 +8668,9 @@ def admin_users_page(
     status_filter: str | None = None,
     page: int = 1,
     page_size: int = 25,
+    reminder_sent: int | None = None,
+    reminder_error: int | None = None,
+    reminder_name: str | None = None,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -8704,6 +8730,9 @@ def admin_users_page(
             "role_filter": selected_role,
             "status_filter": status_filter,
             "pagination": pagination,
+            "reminder_sent": bool(reminder_sent),
+            "reminder_error": bool(reminder_error),
+            "reminder_name": (reminder_name or "").strip(),
         },
     )
 
@@ -8938,6 +8967,33 @@ def admin_update_user(
             print(f"[admin-reset-user] {target.email}: {temp_password}")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/admin/users", status_code=303)
+
+
+@app.post("/{org_slug}/admin/users/{user_id}/send-login-reminder")
+def admin_send_login_reminder(
+    org_slug: str,
+    user_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, admin = org_user
+    must_be_admin(admin)
+    target = db.scalar(select(User).where(User.id == user_id, User.org_id == org.id))
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Login reminders can only be sent to active users")
+
+    subject, body = build_login_reminder_message(org, target)
+    try:
+        send_email(target.email, subject, body)
+    except Exception:
+        logger.exception("Unable to send login reminder to user_id=%s", target.id)
+        params = urlencode({"reminder_error": 1, "reminder_name": target.full_name})
+        return RedirectResponse(url=f"/{org_slug}/admin/users?{params}", status_code=303)
+
+    params = urlencode({"reminder_sent": 1, "reminder_name": target.full_name})
+    return RedirectResponse(url=f"/{org_slug}/admin/users?{params}", status_code=303)
 
 
 @app.get("/{org_slug}/admin/projects", response_class=HTMLResponse)

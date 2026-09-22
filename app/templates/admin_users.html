@@ -7,6 +7,11 @@
     <p>Add team members, update roles, and manage access without leaving the page.</p>
   </div>
 </section>
+{% if reminder_sent %}
+<div class="alert alert-success">Login reminder sent to {{ reminder_name }}.</div>
+{% elif reminder_error %}
+<div class="alert">The login reminder for {{ reminder_name }} could not be sent. Please try again.</div>
+{% endif %}
 <section class="panel data-grid">
   <div class="grid-toolbar">
     <div class="grid-toolbar-main">
@@ -99,6 +104,15 @@
           <td>{{ person.created_at.strftime('%d %b %Y') }}</td>
           <td>
             <div class="table-actions">
+              <form method="post" action="/{{ org.slug }}/admin/users/{{ person.id }}/send-login-reminder" onsubmit='return confirm({{ ("Send a login reminder to " ~ person.email ~ "?")|tojson|e }});'>
+                <button
+                  type="submit"
+                  class="button secondary small"
+                  {% if not person.is_active %}disabled title="Activate this user before sending a login reminder"{% endif %}
+                >
+                  Send Reminder
+                </button>
+              </form>
               <button
                 type="button"
                 class="button secondary small"
