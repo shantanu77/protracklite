@@ -1,0 +1,10 @@
+[Unit]
+Description=Send ProtrackLite manager effort digest every Monday evening
+
+[Timer]
+OnCalendar=Mon *-*-* 18:00:00 Asia/Kolkata
+Persistent=true
+Unit=protracklite-manager-effort-digest.service
+
+[Install]
+WantedBy=timers.target

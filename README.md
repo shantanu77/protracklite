@@ -75,6 +75,7 @@ The script:
 - reloads systemd and restarts `protracklite`
 - installs and enables the Friday 3 PM weekly effort reminder timer
 - installs and enables the daily 5 PM shared-list activity digest
+- installs and enables the Monday 6 PM manager effort digest
 - disables the old automatic list-target reminder timer
 
 ## Weekly effort reminder
@@ -101,4 +102,22 @@ To preview a digest without sending email or recording a delivery:
 
 ```bash
 python3 -m app.list_activity_digest --dry-run --email shantanu.singh@solulever.com
+```
+
+## Monday manager effort digest
+
+Every Monday at 6 PM Asia/Kolkata, each active manager receives one table covering
+all active direct and indirect reports. It shows available and booked hours for
+the previous week, plus booked and available hours for the current month to date.
+
+Preview one manager's digest:
+
+```bash
+python3 -m app.manager_effort_digest --dry-run --manager-email manager@example.com
+```
+
+Send that manager's digest to a test address without changing the manager account:
+
+```bash
+python3 -m app.manager_effort_digest --manager-email manager@example.com --recipient test@example.com
 ```
