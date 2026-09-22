@@ -792,6 +792,7 @@ def ensure_users_schema() -> None:
         "send_effort_reminder": "ALTER TABLE users ADD COLUMN send_effort_reminder BOOLEAN NOT NULL DEFAULT TRUE",
         "department_id": "ALTER TABLE users ADD COLUMN department_id INTEGER NULL",
         "manager_id": "ALTER TABLE users ADD COLUMN manager_id INTEGER NULL",
+        "last_login_at": "ALTER TABLE users ADD COLUMN last_login_at DATETIME NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -1355,6 +1356,11 @@ def issue_auth_cookies(response: RedirectResponse | JSONResponse, user: User, or
         samesite="lax",
         max_age=refresh_cookie_age,
     )
+
+
+def record_successful_login(db: Session, user: User, logged_in_at: datetime | None = None) -> None:
+    user.last_login_at = logged_in_at or datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
 
 
 def clear_auth_cookies(response: RedirectResponse | JSONResponse) -> None:
@@ -3868,6 +3874,7 @@ def login_action(
     if not user or not verify_password(password, user.password_hash):
         return render_login(request, org, error="Invalid email or password")
 
+    record_successful_login(db, user)
     response = RedirectResponse(url=f"/{org_slug}/dashboard", status_code=303)
     issue_auth_cookies(response, user, org_slug)
     return response
@@ -3958,6 +3965,7 @@ def api_login(payload: dict, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == payload["email"].strip().lower(), User.org_id == org.id))
     if not user or not verify_password(payload["password"], user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    record_successful_login(db, user)
     response = JSONResponse({"ok": True, "user_id": user.id, "org_slug": org.slug})
     issue_auth_cookies(response, user, org.slug)
     return response
@@ -8681,6 +8689,7 @@ def admin_users_page(
     search_term = (q or "").strip()
     selected_department_id = int(department_id) if department_id and department_id.isdigit() else None
     selected_role = role_filter if role_filter in {item.value for item in Role} else None
+    selected_status = status_filter if status_filter in {"all", "active", "inactive"} else "active"
     if search_term:
         pattern = f"%{search_term}%"
         query = query.where(or_(User.full_name.ilike(pattern), User.email.ilike(pattern)))
@@ -8688,9 +8697,9 @@ def admin_users_page(
         query = query.where(User.department_id == selected_department_id)
     if selected_role:
         query = query.where(User.role == Role(selected_role))
-    if status_filter == "active":
+    if selected_status == "active":
         query = query.where(User.is_active.is_(True))
-    elif status_filter == "inactive":
+    elif selected_status == "inactive":
         query = query.where(User.is_active.is_(False))
     total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
     pagination = pagination_payload(request, total, page, page_size)
@@ -8728,7 +8737,7 @@ def admin_users_page(
             "q": search_term,
             "department_id": selected_department_id,
             "role_filter": selected_role,
-            "status_filter": status_filter,
+            "status_filter": selected_status,
             "pagination": pagination,
             "reminder_sent": bool(reminder_sent),
             "reminder_error": bool(reminder_error),
