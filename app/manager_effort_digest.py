@@ -20,6 +20,14 @@ from app.time_utils import local_today
 settings = get_settings()
 
 
+def utilization_style(rate: float) -> tuple[str, str, str]:
+    if rate < 85:
+        return "Needs attention", "#b42318", "#fee4e2"
+    if rate < 100:
+        return "Watch", "#b54708", "#fef0c7"
+    return "On target", "#027a48", "#d1fadf"
+
+
 @dataclass
 class DigestResult:
     manager_email: str
@@ -93,34 +101,36 @@ def build_message(
     report_date: date,
 ) -> tuple[str, str, str, int]:
     rows, last_week_start, last_week_end, month_start = effort_rows(db, org, manager, report_date)
-    subject = f"Team effort summary: {last_week_start:%d %b}–{last_week_end:%d %b %Y}"
+    subject = f"Team utilization summary: {last_week_start:%d %b}–{last_week_end:%d %b %Y}"
 
     text_lines = [
         f"Hi {manager.full_name},",
         "",
-        "Here is the Monday effort summary for your full reporting line.",
+        "Here is the Monday utilization summary for your full reporting line.",
         f"Last week: {last_week_start:%d %b %Y} to {last_week_end:%d %b %Y}",
         f"Month to date: {month_start:%d %b %Y} to {report_date:%d %b %Y}",
         "",
-        "Team member | Level | Last week available | Last week booked | Last week % | MTD booked | MTD available | MTD %",
+        "Status: below 85% = RED; 85% to below 100% = YELLOW; 100% or above = GREEN",
+        "",
+        "Team member | Level | Last week utilization | Month-to-date utilization",
     ]
     html_rows: list[str] = []
     for row in rows:
+        last_label, last_color, last_background = utilization_style(row["last_week_rate"])
+        month_label, month_color, month_background = utilization_style(row["month_rate"])
         text_lines.append(
-            f"{row['name']} | {row['relationship']} | {row['last_week_available']:.2f}h | "
-            f"{row['last_week_logged']:.2f}h | {row['last_week_rate']:.1f}% | "
-            f"{row['month_logged']:.2f}h | {row['month_available']:.2f}h | {row['month_rate']:.1f}%"
+            f"{row['name']} | {row['relationship']} | {row['last_week_rate']:.1f}% ({last_label}) | "
+            f"{row['month_rate']:.1f}% ({month_label})"
         )
         html_rows.append(
             "<tr>"
             f"<td style='padding:10px;border-bottom:1px solid #e1e7ea'><strong>{html.escape(row['name'])}</strong><br>"
             f"<span style='color:#687780;font-size:12px'>{html.escape(row['email'])}</span></td>"
             f"<td style='padding:10px;border-bottom:1px solid #e1e7ea'>{row['relationship']}</td>"
-            f"<td style='padding:10px;border-bottom:1px solid #e1e7ea;text-align:right'>{row['last_week_available']:.2f}h</td>"
-            f"<td style='padding:10px;border-bottom:1px solid #e1e7ea;text-align:right'>{row['last_week_logged']:.2f}h<br>"
-            f"<span style='color:#687780;font-size:12px'>{row['last_week_rate']:.1f}%</span></td>"
-            f"<td style='padding:10px;border-bottom:1px solid #e1e7ea;text-align:right'>{row['month_logged']:.2f}h<br>"
-            f"<span style='color:#687780;font-size:12px'>{row['month_rate']:.1f}% of {row['month_available']:.2f}h</span></td>"
+            f"<td style='padding:10px;border-bottom:1px solid #e1e7ea;text-align:right'><span style='display:inline-block;padding:7px 10px;border-radius:999px;background:{last_background};color:{last_color};font-weight:800'>{row['last_week_rate']:.1f}%</span><br>"
+            f"<span style='display:inline-block;margin-top:5px;color:{last_color};font-size:11px;font-weight:700'>{last_label}</span></td>"
+            f"<td style='padding:10px;border-bottom:1px solid #e1e7ea;text-align:right'><span style='display:inline-block;padding:7px 10px;border-radius:999px;background:{month_background};color:{month_color};font-weight:800'>{row['month_rate']:.1f}%</span><br>"
+            f"<span style='display:inline-block;margin-top:5px;color:{month_color};font-size:11px;font-weight:700'>{month_label}</span></td>"
             "</tr>"
         )
 
@@ -130,31 +140,36 @@ def build_message(
         "month_available": sum(row["month_available"] for row in rows),
         "month_logged": sum(row["month_logged"] for row in rows),
     }
+    totals["last_rate"] = (totals["last_logged"] / totals["last_available"] * 100) if totals["last_available"] else 0
+    totals["month_rate"] = (totals["month_logged"] / totals["month_available"] * 100) if totals["month_available"] else 0
+    total_last_label, total_last_color, total_last_background = utilization_style(totals["last_rate"])
+    total_month_label, total_month_color, total_month_background = utilization_style(totals["month_rate"])
     text_lines.extend(
         [
             "",
-            f"Team totals | Last week: {totals['last_logged']:.2f}h booked / {totals['last_available']:.2f}h available | "
-            f"Month to date: {totals['month_logged']:.2f}h booked / {totals['month_available']:.2f}h available",
+            f"Team utilization | Last week: {totals['last_rate']:.1f}% ({total_last_label}) | "
+            f"Month to date: {totals['month_rate']:.1f}% ({total_month_label})",
             "",
             f"Organization: {org.name}",
         ]
     )
-    empty_row = "<tr><td colspan='5' style='padding:18px;color:#687780'>No active reports are assigned.</td></tr>"
+    empty_row = "<tr><td colspan='4' style='padding:18px;color:#687780'>No active reports are assigned.</td></tr>"
     html_body = f"""<!doctype html>
 <html><body style="margin:0;background:#f3f6f5;font-family:Arial,sans-serif;color:#1d3442">
 <div style="max-width:900px;margin:0 auto;padding:28px 18px">
   <div style="background:#123d39;border-radius:16px 16px 0 0;padding:24px;color:#fff">
     <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#9ed8c8">Monday manager digest</div>
-    <h1 style="font-size:25px;margin:8px 0">Team effort summary</h1>
+    <h1 style="font-size:25px;margin:8px 0">Team utilization summary</h1>
     <div style="color:#d9eee8">Last week: {last_week_start:%d %b}–{last_week_end:%d %b %Y} &middot; Month to date: {month_start:%d %b}–{report_date:%d %b %Y}</div>
   </div>
   <div style="background:#fff;border:1px solid #d9e0e4;border-top:0;border-radius:0 0 16px 16px;padding:24px;overflow-x:auto">
     <p>Hi {html.escape(manager.full_name)},</p>
-    <p style="color:#52636d">Here is the effort position for every active person in your direct and lower reporting line.</p>
+    <p style="color:#52636d">Here is the utilization position for every active person in your direct and lower reporting line.</p>
+    <div style="margin:0 0 18px;font-size:12px;color:#52636d"><strong style="color:#b42318">Red:</strong> below 85% &nbsp; <strong style="color:#b54708">Yellow:</strong> 85% to below 100% &nbsp; <strong style="color:#027a48">Green:</strong> 100% or above</div>
     <table style="width:100%;border-collapse:collapse;font-size:14px">
-      <thead><tr style="background:#eef4f2;text-align:left"><th style="padding:10px">Team member</th><th style="padding:10px">Level</th><th style="padding:10px;text-align:right">Available last week</th><th style="padding:10px;text-align:right">Booked last week</th><th style="padding:10px;text-align:right">Booked MTD</th></tr></thead>
+      <thead><tr style="background:#eef4f2;text-align:left"><th style="padding:10px">Team member</th><th style="padding:10px">Level</th><th style="padding:10px;text-align:right">Last week</th><th style="padding:10px;text-align:right">Month to date</th></tr></thead>
       <tbody>{''.join(html_rows) if html_rows else empty_row}</tbody>
-      <tfoot><tr style="font-weight:700;background:#f7f9f8"><td colspan="2" style="padding:10px">Team totals</td><td style="padding:10px;text-align:right">{totals['last_available']:.2f}h</td><td style="padding:10px;text-align:right">{totals['last_logged']:.2f}h</td><td style="padding:10px;text-align:right">{totals['month_logged']:.2f}h of {totals['month_available']:.2f}h</td></tr></tfoot>
+      <tfoot><tr style="font-weight:700;background:#f7f9f8"><td colspan="2" style="padding:10px">Team utilization</td><td style="padding:10px;text-align:right"><span style="display:inline-block;padding:7px 10px;border-radius:999px;background:{total_last_background};color:{total_last_color};font-weight:800">{totals['last_rate']:.1f}%</span><br><span style="display:inline-block;margin-top:5px;color:{total_last_color};font-size:11px">{total_last_label}</span></td><td style="padding:10px;text-align:right"><span style="display:inline-block;padding:7px 10px;border-radius:999px;background:{total_month_background};color:{total_month_color};font-weight:800">{totals['month_rate']:.1f}%</span><br><span style="display:inline-block;margin-top:5px;color:{total_month_color};font-size:11px">{total_month_label}</span></td></tr></tfoot>
     </table>
     <p style="margin:20px 0 0;color:#71808a;font-size:12px">ProtrackLite &middot; {html.escape(org.name)}</p>
   </div>

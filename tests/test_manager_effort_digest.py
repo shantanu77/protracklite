@@ -7,7 +7,7 @@ os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["USER_CONTENT_DIR"] = "/tmp/protracklite-test-user-content"
 
 from app.database import Base, SessionLocal, engine
-from app.manager_effort_digest import build_message, effort_rows, reporting_line
+from app.manager_effort_digest import build_message, effort_rows, reporting_line, utilization_style
 from app.models import ActivityType, Organization, OrgSettings, Project, Role, Task, TimeLog, User
 
 
@@ -52,6 +52,12 @@ class ManagerEffortDigestTests(unittest.TestCase):
         line = reporting_line(self.db, self.org.id, self.manager.id)
         self.assertEqual([(person.email, depth) for person, depth in line], [("direct@example.com", 1), ("indirect@example.com", 2)])
 
+    def test_utilization_thresholds(self):
+        self.assertEqual(utilization_style(84.9)[0], "Needs attention")
+        self.assertEqual(utilization_style(85)[0], "Watch")
+        self.assertEqual(utilization_style(99.9)[0], "Watch")
+        self.assertEqual(utilization_style(100)[0], "On target")
+
     def test_digest_uses_previous_week_and_current_month_to_date(self):
         self.db.add_all([
             TimeLog(task_id=self.task.id, user_id=self.direct.id, log_date=date(2026, 9, 18), hours=Decimal("6"), notes="last week"),
@@ -70,8 +76,11 @@ class ManagerEffortDigestTests(unittest.TestCase):
         subject, text_body, html_body, count = build_message(self.db, self.org, self.manager, date(2026, 9, 21))
         self.assertEqual(count, 2)
         self.assertIn("14 Sep–20 Sep 2026", subject)
-        self.assertIn("Indirect | Level 2", text_body)
-        self.assertIn("Booked MTD", html_body)
+        self.assertIn("Indirect | Level 2 | 0.0% (Needs attention)", text_body)
+        self.assertIn("Month to date", html_body)
+        self.assertIn("#b42318", html_body)
+        self.assertNotIn("40.00h", text_body)
+        self.assertNotIn("40.00h", html_body)
 
 
 if __name__ == "__main__":
