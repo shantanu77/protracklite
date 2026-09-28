@@ -13,7 +13,7 @@ from app.config import get_settings
 
 
 _ACCESS_TOKEN_LOCK = threading.Lock()
-_ACCESS_TOKEN_CACHE: tuple[str, float] = ("", 0.0)
+_ACCESS_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
 
 
 @dataclass(frozen=True)
@@ -44,30 +44,52 @@ class ZohoLeaveListResult:
     error: str = ""
 
 
+@dataclass(frozen=True)
+class ZohoAttendanceResult:
+    status: str
+    entries: tuple[dict[str, object], ...] = ()
+    error: str = ""
+
+
 def _date_label(value: date) -> str:
     return value.strftime("%d-%b-%Y")
 
 
-def _access_token() -> tuple[str, str]:
-    global _ACCESS_TOKEN_CACHE
+def _token_failure_status(error: str) -> str:
+    return "not_configured" if error.endswith("is not configured") else "failed"
+
+
+def _access_token(profile: str = "leave") -> tuple[str, str]:
     settings = get_settings()
-    required = [settings.zoho_client_id, settings.zoho_client_secret, settings.zoho_refresh_token]
+    if profile == "read":
+        client_id = settings.zoho_read_client_id
+        client_secret = settings.zoho_read_client_secret
+        refresh_token = settings.zoho_read_refresh_token
+        configuration_error = "Zoho directory and attendance integration is not configured"
+    else:
+        client_id = settings.zoho_client_id
+        client_secret = settings.zoho_client_secret
+        refresh_token = settings.zoho_refresh_token
+        configuration_error = "Zoho leave integration is not configured"
+    required = [client_id, client_secret, refresh_token]
     if not all(value.strip() for value in required):
-        return "", "Zoho integration is not configured"
+        return "", configuration_error
     now = time.monotonic()
-    if _ACCESS_TOKEN_CACHE[0] and _ACCESS_TOKEN_CACHE[1] > now:
-        return _ACCESS_TOKEN_CACHE[0], ""
+    cached_token, cached_expiry = _ACCESS_TOKEN_CACHE.get(profile, ("", 0.0))
+    if cached_token and cached_expiry > now:
+        return cached_token, ""
     with _ACCESS_TOKEN_LOCK:
         now = time.monotonic()
-        if _ACCESS_TOKEN_CACHE[0] and _ACCESS_TOKEN_CACHE[1] > now:
-            return _ACCESS_TOKEN_CACHE[0], ""
+        cached_token, cached_expiry = _ACCESS_TOKEN_CACHE.get(profile, ("", 0.0))
+        if cached_token and cached_expiry > now:
+            return cached_token, ""
         try:
             response = httpx.post(
                 f"{settings.zoho_accounts_url.rstrip('/')}/oauth/v2/token",
                 data={
-                    "client_id": settings.zoho_client_id,
-                    "client_secret": settings.zoho_client_secret,
-                    "refresh_token": settings.zoho_refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
                 timeout=20.0,
@@ -79,7 +101,7 @@ def _access_token() -> tuple[str, str]:
                 expires_in = int(payload.get("expires_in") or 3600)
             except (TypeError, ValueError):
                 expires_in = 3600
-            _ACCESS_TOKEN_CACHE = (token, now + max(expires_in - 60, 60))
+            _ACCESS_TOKEN_CACHE[profile] = (token, now + max(expires_in - 60, 60))
             return token, ""
         except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
             return "", f"Zoho authentication failed: {exc}"
@@ -88,6 +110,7 @@ def _access_token() -> tuple[str, str]:
 def sync_zoho_leave(
     *,
     employee_email: str,
+    employee_zoho_id: str = "",
     leave_category: str,
     leave_type: str,
     working_dates: list[date],
@@ -109,7 +132,7 @@ def sync_zoho_leave(
     try:
         access_token, token_error = _access_token()
         if not access_token:
-            status = "not_configured" if token_error == "Zoho integration is not configured" else "failed"
+            status = _token_failure_status(token_error)
             return ZohoLeaveResult(status=status, error=token_error)
 
         leave_count = 0.5 if leave_type in {"half_am", "half_pm"} else 1.0
@@ -123,14 +146,32 @@ def sync_zoho_leave(
             days[_date_label(leave_date)] = detail
 
         endpoint = f"{settings.zoho_people_url.rstrip('/')}/people/api/v3/leave-tracker/leaves"
+        employee_parameter = {"employee_email_id": employee_email.strip().lower()}
         if existing_leave_id:
             endpoint = f"{endpoint}/{existing_leave_id}"
+            resolved_zoho_id = employee_zoho_id.strip()
+            if not resolved_zoho_id:
+                directory_result = fetch_zoho_employee_ids(employee_emails=[employee_email])
+                if directory_result.status != "synced":
+                    return ZohoLeaveResult(
+                        status=directory_result.status,
+                        leave_id=existing_leave_id,
+                        error=directory_result.error or "Unable to map the employee to Zoho People",
+                    )
+                resolved_zoho_id = dict(directory_result.employee_ids).get(employee_email.strip().lower(), "")
+            if not resolved_zoho_id:
+                return ZohoLeaveResult(
+                    status="failed",
+                    leave_id=existing_leave_id,
+                    error="The employee is not mapped to a Zoho People record",
+                )
+            employee_parameter = {"employee_zoho_id": resolved_zoho_id}
         response = httpx.request(
             "PUT" if existing_leave_id else "POST",
             endpoint,
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
             data={
-                "employee_email_id": employee_email.strip().lower(),
+                **employee_parameter,
                 "leave_type_id": leave_type_id,
                 "from_date": _date_label(min(working_dates)),
                 "to_date": _date_label(max(working_dates)),
@@ -156,7 +197,7 @@ def fetch_zoho_leave_balance(*, employee_email: str) -> ZohoBalanceResult:
     settings = get_settings()
     access_token, token_error = _access_token()
     if not access_token:
-        status = "not_configured" if token_error == "Zoho integration is not configured" else "failed"
+        status = _token_failure_status(token_error)
         return ZohoBalanceResult(status=status, error=token_error)
     try:
         response = httpx.get(
@@ -232,9 +273,9 @@ def fetch_zoho_employee_ids(*, employee_emails: Iterable[str]) -> ZohoEmployeeDi
     if not requested:
         return ZohoEmployeeDirectoryResult(status="synced")
     settings = get_settings()
-    access_token, token_error = _access_token()
+    access_token, token_error = _access_token("read")
     if not access_token:
-        status = "not_configured" if token_error == "Zoho integration is not configured" else "failed"
+        status = _token_failure_status(token_error)
         return ZohoEmployeeDirectoryResult(status=status, error=token_error)
     try:
         matches: dict[str, str] = {}
@@ -290,6 +331,131 @@ def _parse_zoho_date(value: object) -> date | None:
     return None
 
 
+def _parse_zoho_datetime(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw or raw == "-":
+        return None
+    for date_format in (
+        "%d-%b-%Y %H:%M:%S",
+        "%d-%b-%Y %H:%M",
+        "%d-%b-%Y - %I:%M %p",
+        "%d-%b-%Y %I:%M %p",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+    ):
+        try:
+            return datetime.strptime(raw, date_format)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _attendance_rows(payload: object) -> list[dict[str, object]]:
+    """Flatten each documented V3 grouping shape into attendance-entry rows."""
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    rows: list[dict[str, object]] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+            return
+        if not isinstance(value, dict):
+            return
+        if "employee" in value or "entry_id" in value or "origin_day" in value:
+            rows.append(value)
+            return
+        for nested in value.values():
+            collect(nested)
+
+    collect(data)
+    return rows
+
+
+def fetch_zoho_attendance_entries(
+    *,
+    employee_zoho_id: str,
+    from_date: date,
+    to_date: date,
+) -> ZohoAttendanceResult:
+    """Fetch one employee's attendance and reduce multiple punches to daily first-in/last-out values."""
+    zoho_id = employee_zoho_id.strip()
+    if not zoho_id:
+        return ZohoAttendanceResult(status="failed", error="The employee is not mapped to Zoho People")
+    if to_date < from_date:
+        return ZohoAttendanceResult(status="failed", error="Attendance end date cannot be before start date")
+    settings = get_settings()
+    access_token, token_error = _access_token("read")
+    if not access_token:
+        status = _token_failure_status(token_error)
+        return ZohoAttendanceResult(status=status, error=token_error)
+    try:
+        response = httpx.get(
+            f"{settings.zoho_people_url.rstrip('/')}/people/api/v3/attendance/entries",
+            headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+            params={
+                "employee_zoho_id": zoho_id,
+                "from_date": _date_label(from_date),
+                "to_date": _date_label(to_date),
+                "group_entries_by_date": "true",
+            },
+            timeout=30.0,
+        )
+        payload = response.json()
+        if (
+            not response.is_success
+            or not isinstance(payload, dict)
+            or payload.get("status") != "success"
+        ):
+            return ZohoAttendanceResult(status="failed", error=_zoho_error(response, payload))
+
+        days: dict[date, dict[str, object]] = {}
+        for raw in _attendance_rows(payload):
+            if raw.get("is_break") is True:
+                continue
+            employee = raw.get("employee") or {}
+            if isinstance(employee, dict):
+                row_employee_id = str(employee.get("zoho_id") or "").strip()
+                if row_employee_id and row_employee_id != zoho_id:
+                    continue
+            origin_day = _parse_zoho_date(raw.get("origin_day"))
+            punch_in = raw.get("punch_in") or {}
+            punch_out = raw.get("punch_out") or {}
+            if not isinstance(punch_in, dict):
+                punch_in = {}
+            if not isinstance(punch_out, dict):
+                punch_out = {}
+            first_in = _parse_zoho_datetime(punch_in.get("punch"))
+            last_out = _parse_zoho_datetime(punch_out.get("punch"))
+            attendance_date = origin_day or (first_in.date() if first_in else None) or (last_out.date() if last_out else None)
+            if not attendance_date or attendance_date < from_date or attendance_date > to_date:
+                continue
+            day = days.setdefault(
+                attendance_date,
+                {
+                    "attendance_date": attendance_date,
+                    "first_in": None,
+                    "last_out": None,
+                    "punch_count": 0,
+                },
+            )
+            if first_in and (day["first_in"] is None or first_in < day["first_in"]):
+                day["first_in"] = first_in
+            if last_out and (day["last_out"] is None or last_out > day["last_out"]):
+                day["last_out"] = last_out
+            if first_in or last_out:
+                day["punch_count"] = int(day["punch_count"]) + 1
+
+        return ZohoAttendanceResult(
+            status="synced",
+            entries=tuple(days[day] for day in sorted(days)),
+        )
+    except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
+        return ZohoAttendanceResult(status="failed", error=f"Zoho attendance lookup failed: {exc}")
+
+
 def fetch_zoho_leave_requests(
     *,
     employee_zoho_ids: Iterable[str],
@@ -302,7 +468,7 @@ def fetch_zoho_leave_requests(
     settings = get_settings()
     access_token, token_error = _access_token()
     if not access_token:
-        status = "not_configured" if token_error == "Zoho integration is not configured" else "failed"
+        status = _token_failure_status(token_error)
         return ZohoLeaveListResult(status=status, error=token_error)
     try:
         records: list[dict[str, object]] = []
@@ -380,9 +546,11 @@ def fetch_zoho_leave_requests(
                         "start_date": start,
                         "end_date": end,
                         "day_dates": tuple(item[0] for item in day_values),
+                        "day_counts": tuple((item[0], item[1]) for item in day_values),
                         "leave_days": leave_days,
                         "duration_label": duration,
                         "leave_type_name": str(leave_type.get("name") or "Leave").strip(),
+                        "leave_type_id": str(leave_type.get("id") or "").strip(),
                         "leave_type_kind": str(leave_type.get("type") or "").strip(),
                         "approval_status": str(raw.get("approval_status") or "Unknown").strip(),
                         "reason": str(raw.get("reason") or "").strip(),
@@ -403,13 +571,13 @@ def cancel_zoho_leave(*, leave_id: str, reason: str = "Cancelled from ProTrack")
     settings = get_settings()
     access_token, token_error = _access_token()
     if not access_token:
-        status = "not_configured" if token_error == "Zoho integration is not configured" else "failed"
+        status = _token_failure_status(token_error)
         return ZohoLeaveResult(status=status, error=token_error)
     try:
         response = httpx.patch(
-            f"{settings.zoho_people_url.rstrip('/')}/api/v2/leavetracker/leaves/records/cancel/{leave_id.strip()}",
+            f"{settings.zoho_people_url.rstrip('/')}/people/api/v3/leave-tracker/leaves/{leave_id.strip()}",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
-            params={"reason": reason},
+            data={"reason": reason},
             timeout=20.0,
         )
         payload = response.json()

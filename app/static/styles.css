@@ -481,6 +481,17 @@ textarea {
 
 .profile-zoho-types { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .profile-zoho-types span { padding: 0.22rem 0.45rem; border-radius: 999px; background: rgba(29, 52, 66, 0.06); color: var(--muted); font-size: 0.62rem; font-weight: 700; }
+.profile-attendance-panel { margin-bottom: 1rem; }
+.profile-attendance-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.profile-attendance-stats article { padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: #f8faf9; }
+.profile-attendance-stats span, .profile-attendance-stats small { display: block; color: var(--muted); }
+.profile-attendance-stats strong { display: block; margin: 0.2rem 0; font-size: 1.45rem; }
+.profile-attendance-table td small { display: block; margin-top: 0.2rem; color: #b45309; }
+.profile-work-mode { display: inline-flex; padding: 0.25rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 750; }
+.profile-work-mode.is-office { color: #166534; background: #dcfce7; }
+.profile-work-mode.is-remote { color: #1d4ed8; background: #dbeafe; }
+.profile-work-mode.is-hybrid { color: #92400e; background: #fef3c7; }
+@media (max-width: 720px) { .profile-attendance-stats { grid-template-columns: 1fr; } }
 
 .profile-leave-table-wrap {
   max-height: 25rem;

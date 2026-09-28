@@ -1,13 +1,20 @@
 import os
 import unittest
-from datetime import date
+from datetime import date, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 
-from app.zoho_people import fetch_zoho_employee_ids, fetch_zoho_leave_requests
+from app.zoho_people import (
+    cancel_zoho_leave,
+    fetch_zoho_attendance_entries,
+    fetch_zoho_employee_ids,
+    fetch_zoho_leave_requests,
+    sync_zoho_leave,
+)
 
 
 def zoho_response(payload: dict, status_code: int = 200) -> httpx.Response:
@@ -103,6 +110,108 @@ class ZohoPeopleReadTests(unittest.TestCase):
         self.assertEqual(leave["leave_days"], 0.5)
         self.assertEqual(leave["duration_label"], "Half day (PM)")
         self.assertEqual(leave["approval_status"], "Pending")
+
+    @patch("app.zoho_people.get_settings")
+    @patch("app.zoho_people._access_token", return_value=("access-token", ""))
+    @patch("app.zoho_people.httpx.get")
+    def test_attendance_reduces_daily_entries_to_first_login_and_last_logout(
+        self, mock_get, _mock_token, mock_settings
+    ):
+        mock_settings.return_value = SimpleNamespace(zoho_people_url="https://people.zoho.in")
+        mock_get.return_value = zoho_response(
+            {
+                "status": "success",
+                "data": {
+                    "244130000000123001": {
+                        "21-Sep-2026": [
+                            {
+                                "entry_id": "one",
+                                "origin_day": "21-Sep-2026",
+                                "employee": {"zoho_id": "244130000000123001"},
+                                "punch_in": {"punch": "21-Sep-2026 09:12"},
+                                "punch_out": {"punch": "21-Sep-2026 13:00"},
+                                "is_break": False,
+                            },
+                            {
+                                "entry_id": "two",
+                                "origin_day": "21-Sep-2026",
+                                "employee": {"zoho_id": "244130000000123001"},
+                                "punch_in": {"punch": "21-Sep-2026 14:00"},
+                                "punch_out": {"punch": "21-Sep-2026 18:35"},
+                                "is_break": False,
+                            },
+                            {
+                                "entry_id": "break",
+                                "origin_day": "21-Sep-2026",
+                                "employee": {"zoho_id": "244130000000123001"},
+                                "punch_in": {"punch": "21-Sep-2026 13:00"},
+                                "punch_out": {"punch": "21-Sep-2026 14:00"},
+                                "is_break": True,
+                            },
+                        ]
+                    }
+                },
+            }
+        )
+
+        result = fetch_zoho_attendance_entries(
+            employee_zoho_id="244130000000123001",
+            from_date=date(2026, 9, 1),
+            to_date=date(2026, 9, 30),
+        )
+
+        self.assertEqual(result.status, "synced")
+        self.assertEqual(len(result.entries), 1)
+        self.assertEqual(result.entries[0]["first_in"], datetime(2026, 9, 21, 9, 12))
+        self.assertEqual(result.entries[0]["last_out"], datetime(2026, 9, 21, 18, 35))
+        self.assertEqual(mock_get.call_args.kwargs["params"]["employee_zoho_id"], "244130000000123001")
+
+    @patch("app.zoho_people.get_settings")
+    @patch("app.zoho_people._access_token", return_value=("access-token", ""))
+    @patch("app.zoho_people.httpx.request")
+    def test_leave_edit_uses_required_zoho_employee_id(self, mock_request, _mock_token, mock_settings):
+        mock_settings.return_value = SimpleNamespace(
+            zoho_people_url="https://people.zoho.in",
+            zoho_earned_leave_type_id="earned-id",
+            zoho_unpaid_leave_type_id="unpaid-id",
+        )
+        mock_request.return_value = zoho_response(
+            {"status": "success", "data": {"id": "leave-1"}}
+        )
+
+        result = sync_zoho_leave(
+            employee_email="manager@solulever.com",
+            employee_zoho_id="244130000000123001",
+            leave_category="planned",
+            leave_type="full",
+            working_dates=[date(2026, 10, 1)],
+            reason="Planned leave with a documented handover and sufficient context for the team.",
+            existing_leave_id="leave-1",
+        )
+
+        self.assertEqual(result.status, "synced")
+        sent_data = mock_request.call_args.kwargs["data"]
+        self.assertEqual(sent_data["employee_zoho_id"], "244130000000123001")
+        self.assertNotIn("employee_email_id", sent_data)
+        self.assertTrue(mock_request.call_args.args[1].endswith("/people/api/v3/leave-tracker/leaves/leave-1"))
+
+    @patch("app.zoho_people.get_settings")
+    @patch("app.zoho_people._access_token", return_value=("access-token", ""))
+    @patch("app.zoho_people.httpx.patch")
+    def test_leave_cancel_uses_v3_endpoint(self, mock_patch, _mock_token, mock_settings):
+        mock_settings.return_value = SimpleNamespace(zoho_people_url="https://people.zoho.in")
+        mock_patch.return_value = zoho_response(
+            {"status": "success", "data": {"id": "leave-1"}}
+        )
+
+        result = cancel_zoho_leave(leave_id="leave-1", reason="Cancelled in ProTrack")
+
+        self.assertEqual(result.status, "cancelled")
+        self.assertEqual(
+            mock_patch.call_args.args[0],
+            "https://people.zoho.in/people/api/v3/leave-tracker/leaves/leave-1",
+        )
+        self.assertEqual(mock_patch.call_args.kwargs["data"]["reason"], "Cancelled in ProTrack")
 
 
 if __name__ == "__main__":

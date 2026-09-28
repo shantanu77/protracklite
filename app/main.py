@@ -31,6 +31,7 @@ from app.config import get_settings
 from app.capacity import build_capacity_payload
 from app.zoho_people import (
     cancel_zoho_leave,
+    fetch_zoho_attendance_entries,
     fetch_zoho_employee_ids,
     fetch_zoho_leave_balance,
     fetch_zoho_leave_requests,
@@ -3945,6 +3946,7 @@ def profile_page(
     leave_requests = profile_leave_requests(db, user.id)
     team_leave_requests = team_profile_leave_requests(db, org.id, team_people)
     zoho_feed = zoho_profile_leave_feed(db, user, team_people, today)
+    attendance = zoho_profile_attendance_feed(user, today, zoho_feed.get("remote_dates", {}))
     if zoho_feed["status"] == "synced":
         leave_requests = zoho_feed["mine"]
         team_leave_requests = zoho_feed["team"]
@@ -3960,6 +3962,7 @@ def profile_page(
             "zoho_leave_feed_status": zoho_feed["status"],
             "zoho_leave_feed_message": zoho_feed["message"],
             "zoho_leave_feed_range": zoho_feed["range_label"],
+            "zoho_attendance": attendance,
             "leave_year": current_year,
             "leave_default_date": today.isoformat(),
             "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
@@ -7840,6 +7843,7 @@ def zoho_profile_leave_feed(
             "range_label": range_label,
             "mine": [],
             "team": [],
+            "remote_dates": {},
         }
 
     leave_result = fetch_zoho_leave_requests(
@@ -7855,6 +7859,7 @@ def zoho_profile_leave_feed(
             "range_label": range_label,
             "mine": [],
             "team": [],
+            "remote_dates": {},
         }
 
     scope_by_zoho_id = {
@@ -7892,6 +7897,7 @@ def zoho_profile_leave_feed(
 
     mine: list[dict[str, Any]] = []
     team: list[dict[str, Any]] = []
+    remote_dates: dict[date, float] = {}
     for raw in leave_result.leaves:
         scope = scope_by_zoho_id.get(str(raw.get("employee_zoho_id") or ""))
         if not scope:
@@ -7914,6 +7920,28 @@ def zoho_profile_leave_feed(
         elif start_date.year == today.year:
             year_days = float(raw.get("leave_days") or 0)
         approval_status = str(raw.get("approval_status") or "Unknown")
+        leave_type_name = str(raw.get("leave_type_name") or "Leave").strip()
+        leave_type_id = str(raw.get("leave_type_id") or "").strip()
+        normalized_leave_type = leave_type_name.casefold()
+        if person.id == user.id and approval_status.strip().upper() == "APPROVED" and (
+            (
+                settings.zoho_work_from_home_leave_type_id.strip()
+                and leave_type_id == settings.zoho_work_from_home_leave_type_id.strip()
+            )
+            or "work from home" in normalized_leave_type
+            or "remote" in normalized_leave_type
+        ):
+            day_counts = raw.get("day_counts") or ()
+            if day_counts:
+                for remote_date, remote_count in day_counts:
+                    if period_start <= remote_date <= period_end:
+                        remote_dates[remote_date] = max(remote_dates.get(remote_date, 0.0), float(remote_count))
+            else:
+                cursor = start_date
+                fallback_count = float(raw.get("leave_days") or 0) / max((end_date - start_date).days + 1, 1)
+                while cursor <= end_date:
+                    remote_dates[cursor] = max(remote_dates.get(cursor, 0.0), fallback_count)
+                    cursor += timedelta(days=1)
         approval_class = re.sub(r"[^a-z0-9]+", "-", approval_status.lower()).strip("-")
         item = {
             "request_key": request_key,
@@ -7927,7 +7955,7 @@ def zoho_profile_leave_feed(
                 if start_date == end_date
                 else f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
             ),
-            "leave_category_label": str(raw.get("leave_type_name") or "Leave"),
+            "leave_category_label": leave_type_name,
             "leave_type_label": str(raw.get("duration_label") or "Leave"),
             "reason": str(raw.get("reason") or ""),
             "backup_name": (
@@ -7962,6 +7990,87 @@ def zoho_profile_leave_feed(
         "range_label": range_label,
         "mine": mine,
         "team": team,
+        "remote_dates": remote_dates,
+    }
+
+
+def zoho_profile_attendance_feed(
+    user: User,
+    today: date,
+    remote_dates: dict[date, float],
+) -> dict[str, Any]:
+    """Build the signed-in employee's current-month Zoho attendance summary."""
+    period_start = today.replace(day=1)
+    range_label = f"{period_start.strftime('%d %b %Y')} – {today.strftime('%d %b %Y')}"
+    if not user.zoho_employee_id.strip():
+        return {
+            "status": "failed",
+            "message": "Attendance unavailable because this account is not mapped to Zoho People.",
+            "range_label": range_label,
+            "office_days": 0.0,
+            "remote_days": 0.0,
+            "total_days": 0.0,
+            "rows": [],
+        }
+    result = fetch_zoho_attendance_entries(
+        employee_zoho_id=user.zoho_employee_id,
+        from_date=period_start,
+        to_date=today,
+    )
+    if result.status != "synced":
+        return {
+            "status": result.status,
+            "message": result.error or "Unable to fetch attendance from Zoho People.",
+            "range_label": range_label,
+            "office_days": 0.0,
+            "remote_days": 0.0,
+            "total_days": 0.0,
+            "rows": [],
+        }
+
+    attendance_by_date = {
+        item["attendance_date"]: item
+        for item in result.entries
+        if period_start <= item["attendance_date"] <= today
+    }
+    current_remote_dates = {
+        day: min(max(float(count), 0.0), 1.0)
+        for day, count in remote_dates.items()
+        if period_start <= day <= today and float(count) > 0
+    }
+    all_dates = sorted(set(attendance_by_date) | set(current_remote_dates), reverse=True)
+    rows = []
+    office_days = 0.0
+    for attendance_date in all_dates:
+        entry = attendance_by_date.get(attendance_date, {})
+        remote_count = current_remote_dates.get(attendance_date, 0.0)
+        first_in = entry.get("first_in")
+        last_out = entry.get("last_out")
+        is_remote = remote_count > 0
+        has_attendance = bool(first_in or last_out)
+        office_count = max(1.0 - min(remote_count, 1.0), 0.0) if has_attendance else 0.0
+        office_days += office_count
+        is_hybrid = is_remote and office_count > 0
+        rows.append(
+            {
+                "date": attendance_date,
+                "date_label": attendance_date.strftime("%a, %d %b"),
+                "first_in_label": first_in.strftime("%I:%M %p") if first_in else "—",
+                "last_out_label": last_out.strftime("%I:%M %p") if last_out else "—",
+                "mode": "hybrid" if is_hybrid else ("remote" if is_remote else "office"),
+                "mode_label": "Hybrid" if is_hybrid else ("Work from home" if is_remote else "Office"),
+                "is_open": bool(first_in and not last_out),
+            }
+        )
+    remote_days = round(sum(current_remote_dates.values()), 2)
+    return {
+        "status": "synced",
+        "message": "Attendance loaded directly from Zoho People.",
+        "range_label": range_label,
+        "office_days": office_days,
+        "remote_days": remote_days,
+        "total_days": round(office_days + remote_days, 2),
+        "rows": rows,
     }
 
 
@@ -8385,6 +8494,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
     db.commit()
     zoho_result = sync_zoho_leave(
         employee_email=user.email,
+        employee_zoho_id=user.zoho_employee_id,
         leave_category=leave_category,
         leave_type=leave_type.value,
         working_dates=working_dates,
@@ -8520,6 +8630,7 @@ def api_update_leave_request(
         raise HTTPException(status_code=409, detail="This leave request has inconsistent Zoho records; contact an administrator")
     zoho_result = sync_zoho_leave(
         employee_email=user.email,
+        employee_zoho_id=user.zoho_employee_id,
         leave_category=leave_category,
         leave_type=leave_type.value,
         working_dates=working_dates,

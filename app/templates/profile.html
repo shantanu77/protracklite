@@ -49,6 +49,42 @@
   </form>
 </section>
 
+<section class="panel profile-attendance-panel">
+  <div class="profile-leaves-head">
+    <div>
+      <p class="eyebrow">Zoho attendance</p>
+      <h2>Login, Logout &amp; Work Mode</h2>
+      <p>First check-in and last check-out for the current month. Approved Work From Home entries are counted as remote days.</p>
+    </div>
+    <span class="profile-local-data-note">{{ zoho_attendance.range_label }}</span>
+  </div>
+  <div class="profile-zoho-status{% if zoho_attendance.status != 'synced' %} is-error{% endif %}">
+    {{ zoho_attendance.message }}
+  </div>
+  <div class="profile-attendance-stats">
+    <article><span>Work from office</span><strong>{{ "%g"|format(zoho_attendance.office_days) }}</strong><small>Days with Zoho attendance</small></article>
+    <article><span>Work from home</span><strong>{{ "%g"|format(zoho_attendance.remote_days) }}</strong><small>Approved remote days</small></article>
+    <article><span>Total work days</span><strong>{{ "%g"|format(zoho_attendance.total_days) }}</strong><small>Office plus remote</small></article>
+  </div>
+  <div class="profile-leave-table-wrap">
+    <table class="profile-leave-table profile-attendance-table">
+      <thead><tr><th>Date</th><th>First login</th><th>Last logout</th><th>Work mode</th></tr></thead>
+      <tbody>
+        {% for row in zoho_attendance.rows %}
+        <tr>
+          <td><strong>{{ row.date_label }}</strong></td>
+          <td>{{ row.first_in_label }}</td>
+          <td>{{ row.last_out_label }}{% if row.is_open %}<small>Open attendance entry</small>{% endif %}</td>
+          <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">No Zoho attendance is available for this month.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <section class="panel profile-leaves-panel">
   <div class="profile-leaves-head">
     <div>

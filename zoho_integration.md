@@ -1,4 +1,4 @@
-# Zoho People Leave Integration
+# Zoho People Leave and Attendance Integration
 
 ## Tenant and authorization
 
@@ -9,7 +9,10 @@
 - Previous integration account: `shantanu.singh@solulever.com` (token was valid, but Zoho rejected People API access with error `7077`)
 - OAuth client type: Self Client
 - Active OAuth client ID: `1000.HKOXXNYNWLAI21KKJQPQD3REYD40CA`
-- OAuth scope: `ZOHOPEOPLE.leave.ALL`
+- OAuth scopes:
+  - `ZOHOPEOPLE.leave.ALL`
+  - `ZOHOPEOPLE.forms.READ`
+  - `ZOHOPEOPLE.attendance.READ`
 - Accounts endpoint: `https://accounts.zoho.in/oauth/v2/token`
 - People API base: `https://people.zoho.in`
 
@@ -21,8 +24,12 @@ Abhishek's one-time authorization code was exchanged successfully. Zoho issued a
 ZOHO_CLIENT_ID=...
 ZOHO_CLIENT_SECRET=...
 ZOHO_REFRESH_TOKEN=...
+ZOHO_READ_CLIENT_ID=...
+ZOHO_READ_CLIENT_SECRET=...
+ZOHO_READ_REFRESH_TOKEN=...
 ZOHO_ACCOUNTS_URL=https://accounts.zoho.in
 ZOHO_PEOPLE_URL=https://people.zoho.in
+ZOHO_WORK_FROM_HOME_LEAVE_TYPE_ID=24413000002552035
 ```
 
 ## Verified access and leave types
@@ -33,10 +40,20 @@ The production verification matched **22 of 24** active ProTrack employee email 
 
 The Profile page can use Zoho People as the read source for the signed-in employee and their full ProTrack reporting tree. ProTrack first maps employee email addresses to Zoho employee record IDs, stores those IDs on the user records, and then fetches the applicable leave in one paginated Zoho leave request.
 
-The integration token must now include:
+The original credential profile is reserved for leave and must include:
 
 - `ZOHOPEOPLE.leave.ALL`
+
+The read credential profile is used for employee mapping and attendance and
+must include:
+
 - `ZOHOPEOPLE.forms.READ`
+- `ZOHOPEOPLE.attendance.READ`
+
+`ALL` is also accepted in place of `READ`. Separate refresh tokens are supported
+because Zoho does not add scopes to an existing refresh token. The leave token
+continues to use `ZOHO_CLIENT_*` and `ZOHO_REFRESH_TOKEN`; Forms and Attendance
+use the `ZOHO_READ_*` variables.
 
 Keep the refresh token only in the server environment. It must never be embedded in Profile HTML or browser JavaScript. If Zoho employee mapping or leave retrieval fails, Profile shows locally synchronized leave with a visible warning rather than exposing unrelated organization leave.
 
@@ -82,6 +99,40 @@ Automatic synchronization uses the approved leave-type mapping above. Two employ
 5. Update the Zoho request when leave changes and cancel it when the grouped ProTrack leave is removed.
 6. Retry transient failures without creating duplicate Zoho records.
 
+Leave creation uses the employee email address. Zoho V3 leave editing requires
+the employee Zoho record ID, so ProTrack resolves and stores that ID before an
+existing request is changed. Cancellation uses the V3 leave endpoint used by
+the rest of the integration.
+
+## Attendance behavior
+
+The Profile page displays current-month attendance from the Zoho People V3
+attendance entries API.
+
+For each date, ProTrack:
+
+- ignores entries identified by Zoho as breaks
+- selects the earliest punch-in as `First login`
+- selects the latest punch-out as `Last logout`
+- shows an open-entry warning when a punch-in has no punch-out
+
+Work-mode counts use these rules:
+
+- an approved Zoho leave record matching
+  `ZOHO_WORK_FROM_HOME_LEAVE_TYPE_ID` is counted as a remote day; name matching
+  for `Work From Home` or `Remote` remains as a compatibility fallback
+- an attendance day without such an approved remote record is counted as a
+  work-from-office day
+- a full remote record takes precedence if both a remote approval and
+  attendance punches exist for the same date
+- half-day remote records retain their fractional leave count; a day with
+  attendance and half-day remote approval is shown as hybrid and contributes
+  `0.5` to each count
+
+This classification deliberately uses the approved Work From Home leave record
+instead of guessing from punch source or location. Zoho's V3 attendance-entry
+response does not guarantee that office/remote location labels are present.
+
 The India endpoint validates the employee email parameter as `employee_email_id` (despite some published Zoho examples using `employee_mail_id`). A production probe with a deliberately nonexistent employee is used to validate request structure without creating a real leave.
 
 Official references:
@@ -91,3 +142,4 @@ Official references:
 - [Add Leave Request API v3](https://www.zoho.com/people/api/v3/leave-tracker/add-leave.html)
 - [Edit Leave Request API v3](https://www.zoho.com/people/api/v3/leave-tracker/edit-leave.html)
 - [Cancel Leave API](https://www.zoho.com/people/api/cancel-leave.html)
+- [Attendance Entries API V3](https://www.zoho.com/people/api/v3/attendance/entries.html)
