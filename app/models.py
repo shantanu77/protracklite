@@ -292,14 +292,27 @@ class PerformancePlan(Base):
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     year: Mapped[int] = mapped_column(index=True)
+    cycle_label: Mapped[str] = mapped_column(String(40), default="")
+    cycle_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cycle_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="draft")
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    self_assessment: Mapped[str] = mapped_column(Text, default="")
+    reviewer_assessment: Mapped[str] = mapped_column(Text, default="")
+    final_rating: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     goals: Mapped[list["PerformanceGoal"]] = relationship(back_populates="plan", cascade="all, delete-orphan")
+    comments: Mapped[list["PerformanceComment"]] = relationship(back_populates="plan", cascade="all, delete-orphan")
+    events: Mapped[list["PerformanceEvent"]] = relationship(back_populates="plan", cascade="all, delete-orphan")
 
 
 class PerformanceGoal(Base):
@@ -309,6 +322,7 @@ class PerformanceGoal(Base):
     performance_plan_id: Mapped[int] = mapped_column(ForeignKey("performance_plans.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
+    kra_type: Mapped[str] = mapped_column(String(60), default="delivery_execution")
     weightage: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
     sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -325,6 +339,15 @@ class PerformanceKPI(Base):
     performance_goal_id: Mapped[int] = mapped_column(ForeignKey("performance_goals.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
+    measurement_type: Mapped[str] = mapped_column(String(30), default="checklist")
+    unit: Mapped[str] = mapped_column(String(40), default="")
+    baseline_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    target_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    actual_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    approved_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    measurement_frequency: Mapped[str] = mapped_column(String(30), default="annual")
+    owner_update: Mapped[str] = mapped_column(Text, default="")
     weightage: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
     sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -332,6 +355,7 @@ class PerformanceKPI(Base):
 
     goal: Mapped[PerformanceGoal] = relationship(back_populates="kpis")
     items: Mapped[list["PerformanceKPIItem"]] = relationship(back_populates="kpi", cascade="all, delete-orphan")
+    evidence: Mapped[list["PerformanceEvidence"]] = relationship(back_populates="kpi", cascade="all, delete-orphan")
 
 
 class PerformanceKPIItem(Base):
@@ -350,6 +374,49 @@ class PerformanceKPIItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     kpi: Mapped[PerformanceKPI] = relationship(back_populates="items")
+
+
+class PerformanceEvidence(Base):
+    __tablename__ = "performance_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_kpi_id: Mapped[int] = mapped_column(ForeignKey("performance_kpis.id"), index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
+    work_list_item_id: Mapped[int | None] = mapped_column(ForeignKey("work_list_items.id"), nullable=True, index=True)
+    external_url: Mapped[str] = mapped_column(String(1000), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    kpi: Mapped[PerformanceKPI] = relationship(back_populates="evidence")
+
+
+class PerformanceComment(Base):
+    __tablename__ = "performance_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_plan_id: Mapped[int] = mapped_column(ForeignKey("performance_plans.id"), index=True)
+    performance_goal_id: Mapped[int | None] = mapped_column(ForeignKey("performance_goals.id"), nullable=True, index=True)
+    performance_kpi_id: Mapped[int | None] = mapped_column(ForeignKey("performance_kpis.id"), nullable=True, index=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    comment_type: Mapped[str] = mapped_column(String(30), default="comment")
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    plan: Mapped[PerformancePlan] = relationship(back_populates="comments")
+
+
+class PerformanceEvent(Base):
+    __tablename__ = "performance_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_plan_id: Mapped[int] = mapped_column(ForeignKey("performance_plans.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40))
+    details: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    plan: Mapped[PerformancePlan] = relationship(back_populates="events")
 
 
 class TimeLog(Base):

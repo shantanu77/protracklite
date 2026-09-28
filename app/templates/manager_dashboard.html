@@ -51,6 +51,7 @@
           <th>Open</th>
           <th>Closed</th>
           <th>Goal %</th>
+          <th>Goal status</th>
         </tr>
       </thead>
       <tbody>
@@ -66,6 +67,7 @@
           <td>{{ row.open_tasks }}</td>
           <td>{{ row.closed_tasks }}</td>
           <td>{% if row.has_plan %}{{ "%.2f"|format(row.goal_progress) }}%{% else %}No plan{% endif %}</td>
+          <td>{% if row.has_plan %}{{ row.goal_status }}<br><small>{{ row.goal_cycle }}</small>{% else %}Not assigned{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

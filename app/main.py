@@ -51,6 +51,9 @@ from app.models import (
     MonthlyWorkReport,
     Organization,
     OrgSettings,
+    PerformanceComment,
+    PerformanceEvidence,
+    PerformanceEvent,
     PerformanceGoal,
     PerformanceKPI,
     PerformanceKPIItem,
@@ -142,10 +145,38 @@ LIST_ITEM_PRIORITY_LABELS = {
     "stalled": "Stalled",
 }
 PERFORMANCE_PLAN_STATUS_DRAFT = "draft"
-PERFORMANCE_PLAN_STATUS_FINALIZED = "finalized"
+PERFORMANCE_PLAN_STATUS_ACTIVE = "active"
+PERFORMANCE_PLAN_STATUS_SUBMITTED = "submitted_for_review"
+PERFORMANCE_PLAN_STATUS_UNDER_REVIEW = "under_review"
+PERFORMANCE_PLAN_STATUS_REVIEWED = "reviewed"
+PERFORMANCE_PLAN_STATUS_CLOSED = "closed"
 PERFORMANCE_PLAN_STATUSES = {
     PERFORMANCE_PLAN_STATUS_DRAFT: "Draft",
-    PERFORMANCE_PLAN_STATUS_FINALIZED: "Finalized",
+    PERFORMANCE_PLAN_STATUS_ACTIVE: "Active",
+    PERFORMANCE_PLAN_STATUS_SUBMITTED: "Submitted for Review",
+    PERFORMANCE_PLAN_STATUS_UNDER_REVIEW: "Under Review",
+    PERFORMANCE_PLAN_STATUS_REVIEWED: "Reviewed",
+    PERFORMANCE_PLAN_STATUS_CLOSED: "Closed",
+    "finalized": "Closed",
+}
+PERFORMANCE_KRA_TYPES = {
+    "financial": "Financial",
+    "customer_stakeholder": "Customer / Stakeholder",
+    "delivery_execution": "Delivery & Execution",
+    "operational_excellence": "Operational Excellence",
+    "people_management": "People Management",
+    "capability_development": "Capability Development",
+    "compliance_governance": "Compliance & Governance",
+    "innovation_improvement": "Innovation & Improvement",
+    "other": "Other",
+}
+PERFORMANCE_MEASUREMENT_TYPES = {
+    "checklist": "Checklist / Milestones",
+    "numeric_higher": "Numeric — Higher is Better",
+    "numeric_lower": "Numeric — Lower is Better",
+    "percentage": "Percentage Target",
+    "binary": "Achieved / Not Achieved",
+    "manual": "Manual Rating",
 }
 TASK_COLOR_CHOICES = [
     ("#22c55e", "Green"),
@@ -377,6 +408,39 @@ def parse_optional_form_int(raw_value: str | None, field_name: str) -> int | Non
 
 
 def calculate_kpi_achievement_percent(kpi: PerformanceKPI) -> float:
+    measurement_type = (kpi.measurement_type or "checklist").strip().lower()
+    if measurement_type != "checklist":
+        value = kpi.approved_value if kpi.approved_value is not None else kpi.actual_value
+        if value is None:
+            return 0.0
+        actual = float(value)
+        target = float(kpi.target_value) if kpi.target_value is not None else None
+        baseline = float(kpi.baseline_value) if kpi.baseline_value is not None else None
+        if measurement_type == "manual":
+            return round(max(0.0, min(actual, 100.0)), 2)
+        if measurement_type == "binary":
+            return 100.0 if actual >= 1 else 0.0
+        if target is None:
+            return 0.0
+        if measurement_type in {"percentage", "numeric_higher"}:
+            if baseline is not None and target != baseline:
+                progress = ((actual - baseline) / (target - baseline)) * 100
+            elif target != 0:
+                progress = (actual / target) * 100
+            else:
+                progress = 100.0 if actual >= target else 0.0
+        elif measurement_type == "numeric_lower":
+            if baseline is not None and baseline != target:
+                progress = ((baseline - actual) / (baseline - target)) * 100
+            elif actual <= target:
+                progress = 100.0
+            elif actual != 0:
+                progress = (target / actual) * 100
+            else:
+                progress = 0.0
+        else:
+            progress = 0.0
+        return round(max(0.0, min(progress, 100.0)), 2)
     total_items = len(kpi.items)
     if total_items == 0:
         return 0.0
@@ -412,15 +476,103 @@ def validate_goal_kpi_weights(goal: PerformanceGoal) -> Decimal:
     return normalized_weight_total([kpi.weightage for kpi in goal.kpis])
 
 
+def performance_weight(value: Decimal, field_name: str) -> Decimal:
+    normalized = Decimal(str(value)).quantize(Decimal("0.01"))
+    if normalized < 0 or normalized > 100:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be between 0 and 100")
+    return normalized
+
+
+def optional_decimal(raw_value: str | None, field_name: str) -> Decimal | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        return Decimal(value).quantize(Decimal("0.01"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a number") from exc
+
+
+def financial_cycle_for_year(year: int) -> tuple[date, date, str]:
+    if year < 2000 or year > 2100:
+        raise HTTPException(status_code=400, detail="Financial year is invalid")
+    return date(year, 4, 1), date(year + 1, 3, 31), f"FY {year}-{str(year + 1)[-2:]}"
+
+
+def record_performance_event(db: Session, plan: PerformancePlan, actor: User, event_type: str, details: str = "") -> None:
+    db.add(
+        PerformanceEvent(
+            performance_plan_id=plan.id,
+            actor_id=actor.id,
+            event_type=event_type[:40],
+            details=details.strip(),
+        )
+    )
+
+
+def validate_plan_for_activation(plan: PerformancePlan) -> None:
+    if not plan.goals:
+        raise HTTPException(status_code=400, detail="Add at least one goal before activation")
+    if not weight_total_is_valid(validate_plan_goal_weights(plan)):
+        raise HTTPException(status_code=400, detail="Goal weights must total 100 before activation")
+    for goal in plan.goals:
+        if not goal.kpis:
+            raise HTTPException(status_code=400, detail=f'Add at least one KPI to "{goal.title}"')
+        if not weight_total_is_valid(validate_goal_kpi_weights(goal)):
+            raise HTTPException(status_code=400, detail=f'KPI weights for "{goal.title}" must total 100')
+        for kpi in goal.kpis:
+            measurement_type = (kpi.measurement_type or "checklist").strip().lower()
+            if measurement_type == "checklist" and not kpi.items:
+                raise HTTPException(status_code=400, detail=f'Checklist KPI "{kpi.title}" needs at least one item')
+            if measurement_type in {"numeric_higher", "numeric_lower", "percentage"} and kpi.target_value is None:
+                raise HTTPException(status_code=400, detail=f'KPI "{kpi.title}" needs a target value')
+
+
 def plan_is_locked(plan: PerformancePlan) -> bool:
-    return (plan.status or "").strip().lower() == PERFORMANCE_PLAN_STATUS_FINALIZED
+    return (plan.status or "").strip().lower() in {PERFORMANCE_PLAN_STATUS_CLOSED, "finalized"}
+
+
+def plan_structure_is_locked(plan: PerformancePlan) -> bool:
+    return (plan.status or PERFORMANCE_PLAN_STATUS_DRAFT).strip().lower() != PERFORMANCE_PLAN_STATUS_DRAFT
+
+
+def plan_progress_is_locked(plan: PerformancePlan) -> bool:
+    return (plan.status or "").strip().lower() in {
+        PERFORMANCE_PLAN_STATUS_SUBMITTED,
+        PERFORMANCE_PLAN_STATUS_UNDER_REVIEW,
+        PERFORMANCE_PLAN_STATUS_REVIEWED,
+        PERFORMANCE_PLAN_STATUS_CLOSED,
+        "finalized",
+    }
+
+
+def can_manage_plan_structure(db: Session, user: User, plan: PerformancePlan) -> bool:
+    return user.role == Role.ADMIN or (
+        user.role == Role.MANAGER and plan.user_id in managed_user_ids(db, plan.org_id, user)
+    )
+
+
+def can_update_plan_progress(db: Session, user: User, plan: PerformancePlan) -> bool:
+    if plan_progress_is_locked(plan):
+        return False
+    return user.role == Role.ADMIN or plan.user_id == user.id or (
+        user.role == Role.MANAGER and plan.user_id in managed_user_ids(db, plan.org_id, user)
+    )
+
+
+def can_review_plan(db: Session, user: User, plan: PerformancePlan) -> bool:
+    if plan.user_id == user.id:
+        return False
+    return user.role == Role.ADMIN or plan.reviewer_id == user.id or (
+        user.role == Role.MANAGER and plan.user_id in managed_user_ids(db, plan.org_id, user)
+    )
 
 
 def can_manage_performance_item(db: Session, user: User, plan: PerformancePlan, item: PerformanceKPIItem) -> bool:
-    if user.role == Role.ADMIN:
+    if not can_update_plan_progress(db, user, plan):
+        return False
+    if user.role in {Role.ADMIN, Role.MANAGER}:
         return True
-    if user.role == Role.MANAGER:
-        return plan.user_id in managed_user_ids(db, plan.org_id, user)
     return plan.user_id == user.id and item.created_by == user.id and not item.is_completed
 
 
@@ -1005,6 +1157,51 @@ def ensure_dev_releases_schema() -> None:
                 connection.execute(text(ddl))
 
 
+def ensure_performance_goals_schema() -> None:
+    """Add Goal/KRA v2 columns to installations created before this release."""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    table_columns = {
+        "performance_plans": {
+            "cycle_label": "ALTER TABLE performance_plans ADD COLUMN cycle_label VARCHAR(40) NOT NULL DEFAULT ''",
+            "cycle_start": "ALTER TABLE performance_plans ADD COLUMN cycle_start DATE NULL",
+            "cycle_end": "ALTER TABLE performance_plans ADD COLUMN cycle_end DATE NULL",
+            "reviewer_id": "ALTER TABLE performance_plans ADD COLUMN reviewer_id INTEGER NULL",
+            "self_assessment": "ALTER TABLE performance_plans ADD COLUMN self_assessment TEXT NULL",
+            "reviewer_assessment": "ALTER TABLE performance_plans ADD COLUMN reviewer_assessment TEXT NULL",
+            "final_rating": "ALTER TABLE performance_plans ADD COLUMN final_rating NUMERIC(3, 2) NULL",
+            "activated_at": "ALTER TABLE performance_plans ADD COLUMN activated_at DATETIME NULL",
+            "submitted_at": "ALTER TABLE performance_plans ADD COLUMN submitted_at DATETIME NULL",
+            "reviewed_at": "ALTER TABLE performance_plans ADD COLUMN reviewed_at DATETIME NULL",
+            "closed_at": "ALTER TABLE performance_plans ADD COLUMN closed_at DATETIME NULL",
+        },
+        "performance_goals": {
+            "kra_type": "ALTER TABLE performance_goals ADD COLUMN kra_type VARCHAR(60) NOT NULL DEFAULT 'delivery_execution'",
+        },
+        "performance_kpis": {
+            "measurement_type": "ALTER TABLE performance_kpis ADD COLUMN measurement_type VARCHAR(30) NOT NULL DEFAULT 'checklist'",
+            "unit": "ALTER TABLE performance_kpis ADD COLUMN unit VARCHAR(40) NOT NULL DEFAULT ''",
+            "baseline_value": "ALTER TABLE performance_kpis ADD COLUMN baseline_value NUMERIC(12, 2) NULL",
+            "target_value": "ALTER TABLE performance_kpis ADD COLUMN target_value NUMERIC(12, 2) NULL",
+            "actual_value": "ALTER TABLE performance_kpis ADD COLUMN actual_value NUMERIC(12, 2) NULL",
+            "approved_value": "ALTER TABLE performance_kpis ADD COLUMN approved_value NUMERIC(12, 2) NULL",
+            "target_date": "ALTER TABLE performance_kpis ADD COLUMN target_date DATE NULL",
+            "measurement_frequency": "ALTER TABLE performance_kpis ADD COLUMN measurement_frequency VARCHAR(30) NOT NULL DEFAULT 'annual'",
+            "owner_update": "ALTER TABLE performance_kpis ADD COLUMN owner_update TEXT NULL",
+        },
+    }
+    with engine.begin() as connection:
+        for table_name, ddl_by_column in table_columns.items():
+            if table_name not in table_names:
+                continue
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, ddl in ddl_by_column.items():
+                if column_name not in columns:
+                    connection.execute(text(ddl))
+        if "performance_plans" in table_names:
+            connection.execute(text("UPDATE performance_plans SET status = 'closed' WHERE status = 'finalized'"))
+
+
 def ensure_query_indexes() -> None:
     inspector = inspect(engine)
     index_plan = {
@@ -1202,6 +1399,7 @@ def on_startup() -> None:
     ensure_time_logs_schema()
     ensure_leaves_schema()
     ensure_dev_releases_schema()
+    ensure_performance_goals_schema()
     ensure_query_indexes()
     db = next(get_db())
     try:
@@ -1554,13 +1752,6 @@ def managed_people(db: Session, org_id: int, user: User) -> list[User]:
         .where(User.org_id == org_id, User.manager_id == user.id, User.is_active.is_(True))
         .order_by(User.full_name.asc())
     ).all()
-
-
-def managed_user_ids(db: Session, org_id: int, user: User, *, include_self: bool = False) -> set[int]:
-    ids = {person.id for person in managed_people(db, org_id, user)}
-    if include_self:
-        ids.add(user.id)
-    return ids
 
 
 def can_manage_user_scope(db: Session, org_id: int, user: User, target_user_id: int) -> bool:
@@ -2944,17 +3135,21 @@ def safe_org_redirect(org_slug: str, redirect_to: str | None, fallback: str) -> 
     return fallback
 
 
-def managed_user_ids(db: Session, org_id: int, manager: User) -> set[int]:
+def managed_user_ids(db: Session, org_id: int, manager: User, *, include_self: bool = False) -> set[int]:
     if manager.role == Role.ADMIN:
-        return {item.id for item in org_people(db, org_id)}
-    if manager.role != Role.MANAGER:
-        return set()
-    return {
-        user_id
-        for user_id in db.scalars(
-            select(User.id).where(User.org_id == org_id, User.manager_id == manager.id, User.is_active.is_(True))
-        ).all()
-    }
+        ids = {item.id for item in org_people(db, org_id)}
+    elif manager.role == Role.MANAGER:
+        ids = {
+            user_id
+            for user_id in db.scalars(
+                select(User.id).where(User.org_id == org_id, User.manager_id == manager.id, User.is_active.is_(True))
+            ).all()
+        }
+    else:
+        ids = set()
+    if include_self:
+        ids.add(manager.id)
+    return ids
 
 
 def can_control_task(db: Session, task: Task, user: User) -> bool:
@@ -3644,7 +3839,12 @@ def performance_plan_query(org_id: int):
         .options(
             selectinload(PerformancePlan.goals)
             .selectinload(PerformanceGoal.kpis)
-            .selectinload(PerformanceKPI.items)
+            .selectinload(PerformanceKPI.items),
+            selectinload(PerformancePlan.goals)
+            .selectinload(PerformanceGoal.kpis)
+            .selectinload(PerformanceKPI.evidence),
+            selectinload(PerformancePlan.comments),
+            selectinload(PerformancePlan.events),
         )
         .where(PerformancePlan.org_id == org_id)
     )
@@ -3660,7 +3860,12 @@ def performance_plan_for_access(
         return None
     query = performance_plan_query(org_id).where(PerformancePlan.id == plan_id)
     if user.role == Role.MANAGER:
-        query = query.where(PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)))
+        query = query.where(
+            or_(
+                PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)),
+                PerformancePlan.reviewer_id == user.id,
+            )
+        )
     elif user.role != Role.ADMIN:
         query = query.where(PerformancePlan.user_id == user.id)
     return db.scalar(query)
@@ -3681,7 +3886,12 @@ def next_performance_kpi_item_sort_order(kpi: PerformanceKPI) -> int:
 def performance_plan_summaries(db: Session, org_id: int, user: User) -> list[dict[str, Any]]:
     query = performance_plan_query(org_id)
     if user.role == Role.MANAGER:
-        query = query.where(PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)))
+        query = query.where(
+            or_(
+                PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)),
+                PerformancePlan.reviewer_id == user.id,
+            )
+        )
     elif user.role != Role.ADMIN:
         query = query.where(PerformancePlan.user_id == user.id)
     plans = db.scalars(query.order_by(PerformancePlan.year.desc(), PerformancePlan.updated_at.desc(), PerformancePlan.id.desc())).all()
@@ -3693,6 +3903,7 @@ def performance_plan_summaries(db: Session, org_id: int, user: User) -> list[dic
             {
                 "id": plan.id,
                 "year": plan.year,
+                "cycle_label": plan.cycle_label or f"FY {plan.year}-{str(plan.year + 1)[-2:]}",
                 "title": plan.title,
                 "description": plan.description or "",
                 "status": plan.status,
@@ -3709,7 +3920,7 @@ def performance_plan_summaries(db: Session, org_id: int, user: User) -> list[dic
     return summaries
 
 
-def performance_plan_payload(plan: PerformancePlan, people_map: dict[int, User]) -> dict[str, Any]:
+def performance_plan_payload(db: Session, plan: PerformancePlan, people_map: dict[int, User]) -> dict[str, Any]:
     goal_weight_total = validate_plan_goal_weights(plan)
     goals_payload: list[dict[str, Any]] = []
     for goal in sorted(plan.goals, key=lambda item: (item.sort_order, item.id)):
@@ -3725,11 +3936,34 @@ def performance_plan_payload(plan: PerformancePlan, people_map: dict[int, User])
                     "id": kpi.id,
                     "title": kpi.title,
                     "description": kpi.description or "",
+                    "measurement_type": kpi.measurement_type or "checklist",
+                    "measurement_label": PERFORMANCE_MEASUREMENT_TYPES.get(kpi.measurement_type or "checklist", "Checklist / Milestones"),
+                    "unit": kpi.unit or "",
+                    "baseline_value": decimal_to_float(kpi.baseline_value) if kpi.baseline_value is not None else None,
+                    "target_value": decimal_to_float(kpi.target_value) if kpi.target_value is not None else None,
+                    "actual_value": decimal_to_float(kpi.actual_value) if kpi.actual_value is not None else None,
+                    "approved_value": decimal_to_float(kpi.approved_value) if kpi.approved_value is not None else None,
+                    "target_date": kpi.target_date.isoformat() if kpi.target_date else "",
+                    "target_date_label": kpi.target_date.strftime("%d %b %Y") if kpi.target_date else "",
+                    "measurement_frequency": kpi.measurement_frequency or "annual",
+                    "owner_update": kpi.owner_update or "",
                     "weightage": decimal_to_float(kpi.weightage),
                     "achievement_percent": achievement_percent,
                     "completed_items": completed_items,
                     "total_items": total_items,
                     "item_weight_percent": item_weight_percent,
+                    "evidence": [
+                        {
+                            "id": evidence.id,
+                            "task_id": evidence.task_id,
+                            "work_list_item_id": evidence.work_list_item_id,
+                            "external_url": evidence.external_url or "",
+                            "notes": evidence.notes or "",
+                            "created_by_name": people_map.get(evidence.created_by).full_name if people_map.get(evidence.created_by) else "Unknown",
+                            "created_at_label": format_local_datetime(evidence.created_at),
+                        }
+                        for evidence in sorted(kpi.evidence, key=lambda item: (item.created_at, item.id), reverse=True)
+                    ],
                     "items": [
                         {
                             "id": item.id,
@@ -3750,6 +3984,8 @@ def performance_plan_payload(plan: PerformancePlan, people_map: dict[int, User])
                 "id": goal.id,
                 "title": goal.title,
                 "description": goal.description or "",
+                "kra_type": goal.kra_type or "delivery_execution",
+                "kra_label": PERFORMANCE_KRA_TYPES.get(goal.kra_type or "delivery_execution", "Other"),
                 "weightage": decimal_to_float(goal.weightage),
                 "achievement_percent": calculate_goal_achievement_percent(goal),
                 "kpi_weight_total": decimal_to_float(kpi_weight_total),
@@ -3761,23 +3997,57 @@ def performance_plan_payload(plan: PerformancePlan, people_map: dict[int, User])
         "id": plan.id,
         "user_id": plan.user_id,
         "year": plan.year,
+        "cycle_label": plan.cycle_label or f"FY {plan.year}-{str(plan.year + 1)[-2:]}",
+        "cycle_start": plan.cycle_start.isoformat() if plan.cycle_start else "",
+        "cycle_end": plan.cycle_end.isoformat() if plan.cycle_end else "",
+        "cycle_period_label": (
+            f"{plan.cycle_start.strftime('%d %b %Y')} – {plan.cycle_end.strftime('%d %b %Y')}"
+            if plan.cycle_start and plan.cycle_end else str(plan.year)
+        ),
         "title": plan.title,
         "description": plan.description or "",
         "status": plan.status,
         "status_label": PERFORMANCE_PLAN_STATUSES.get(plan.status, plan.status.title()),
         "is_locked": plan_is_locked(plan),
+        "structure_locked": plan_structure_is_locked(plan),
+        "progress_locked": plan_progress_is_locked(plan),
+        "reviewer_id": plan.reviewer_id,
+        "reviewer_name": people_map.get(plan.reviewer_id).full_name if plan.reviewer_id and people_map.get(plan.reviewer_id) else "",
+        "self_assessment": plan.self_assessment or "",
+        "reviewer_assessment": plan.reviewer_assessment or "",
+        "final_rating": decimal_to_float(plan.final_rating) if plan.final_rating is not None else None,
         "owner_name": people_map.get(plan.user_id).full_name if people_map.get(plan.user_id) else "Unknown",
         "achievement_percent": calculate_plan_achievement_percent(plan),
         "goal_weight_total": decimal_to_float(goal_weight_total),
         "weights_valid": weight_total_is_valid(goal_weight_total),
         "goals": goals_payload,
+        "comments": [
+            {
+                "id": comment.id,
+                "type": comment.comment_type,
+                "body": comment.body,
+                "author_name": people_map.get(comment.author_id).full_name if people_map.get(comment.author_id) else "Unknown",
+                "created_at_label": format_local_datetime(comment.created_at),
+            }
+            for comment in sorted(plan.comments, key=lambda item: (item.created_at, item.id), reverse=True)
+        ],
+        "events": [
+            {
+                "id": event.id,
+                "type": event.event_type.replace("_", " ").title(),
+                "details": event.details or "",
+                "actor_name": people_map.get(event.actor_id).full_name if people_map.get(event.actor_id) else "Unknown",
+                "created_at_label": format_local_datetime(event.created_at),
+            }
+            for event in sorted(plan.events, key=lambda item: (item.created_at, item.id), reverse=True)
+        ],
     }
 
 
 def scoped_team_dashboard_payload(db: Session, org: Organization, members: list[User]) -> dict[str, Any]:
     today = date.today()
     month_start = today.replace(day=1)
-    current_year = today.year
+    current_year = today.year if today.month >= 4 else today.year - 1
     plan_rows = db.scalars(
         performance_plan_query(org.id).where(
             PerformancePlan.year == current_year,
@@ -3828,6 +4098,8 @@ def scoped_team_dashboard_payload(db: Session, org: Organization, members: list[
                 "open_tasks": open_tasks,
                 "closed_tasks": closed_tasks,
                 "goal_progress": calculate_plan_achievement_percent(plan) if plan else 0.0,
+                "goal_status": PERFORMANCE_PLAN_STATUSES.get(plan.status, plan.status.title()) if plan else "No plan",
+                "goal_cycle": (plan.cycle_label or f"FY {plan.year}-{str(plan.year + 1)[-2:]}") if plan else "",
                 "has_plan": bool(plan),
             }
         )
@@ -4386,12 +4658,18 @@ def goals_page(
     summaries = performance_plan_summaries(db, org.id, user)
     selected_plan = performance_plan_for_access(db, org.id, user, plan_id or (summaries[0]["id"] if summaries else None))
     people = org_people(db, org.id) if user.role == Role.ADMIN else managed_people(db, org.id, user)
-    people_map = {person.id: person for person in people}
+    all_people = org_people(db, org.id)
+    people_map = {person.id: person for person in all_people}
     if selected_plan and selected_plan.user_id not in people_map:
         owner = db.get(User, selected_plan.user_id)
         if owner:
             people_map[owner.id] = owner
-    selected_plan_payload = performance_plan_payload(selected_plan, people_map) if selected_plan else None
+    selected_plan_payload = performance_plan_payload(db, selected_plan, people_map) if selected_plan else None
+    if selected_plan_payload:
+        selected_plan_payload["can_manage_structure"] = can_manage_plan_structure(db, user, selected_plan)
+        selected_plan_payload["can_update_progress"] = can_update_plan_progress(db, user, selected_plan)
+        selected_plan_payload["can_review"] = can_review_plan(db, user, selected_plan)
+    cycle_start, cycle_end, cycle_label = financial_cycle_for_year(date.today().year if date.today().month >= 4 else date.today().year - 1)
     return templates.TemplateResponse(
         "goals.html",
         {
@@ -4401,7 +4679,37 @@ def goals_page(
             "plans": summaries,
             "selected_plan": selected_plan_payload,
             "people": people,
-            "current_year": date.today().year,
+            "reviewers": [person for person in all_people if person.role in {Role.ADMIN, Role.MANAGER}],
+            "current_year": cycle_start.year,
+            "default_cycle_start": cycle_start.isoformat(),
+            "default_cycle_end": cycle_end.isoformat(),
+            "default_cycle_label": cycle_label,
+            "kra_types": PERFORMANCE_KRA_TYPES,
+            "measurement_types": PERFORMANCE_MEASUREMENT_TYPES,
+        },
+    )
+
+
+@app.get("/{org_slug}/goals/plans/{plan_id}/report", response_class=HTMLResponse)
+def performance_plan_report_page(
+    request: Request,
+    org_slug: str,
+    plan_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan = performance_plan_for_access(db, org.id, user, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Performance plan not found")
+    people_map = {person.id: person for person in org_people(db, org.id)}
+    return templates.TemplateResponse(
+        "goal_report.html",
+        {
+            "request": request,
+            "org": org,
+            "user": user,
+            "plan": performance_plan_payload(db, plan, people_map),
         },
     )
 
@@ -4413,6 +4721,10 @@ def create_performance_plan_page(
     year: int = Form(...),
     title: str = Form(...),
     description: str = Form(""),
+    cycle_label: str = Form(""),
+    cycle_start: str = Form(""),
+    cycle_end: str = Form(""),
+    reviewer_id: int | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4423,6 +4735,16 @@ def create_performance_plan_page(
         raise HTTPException(status_code=404, detail="Employee not found")
     if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, owner.id):
         raise HTTPException(status_code=403, detail="You can only create plans for direct reports")
+    parsed_start = parse_optional_date(cycle_start)
+    parsed_end = parse_optional_date(cycle_end)
+    default_start, default_end, default_label = financial_cycle_for_year(year)
+    parsed_start = parsed_start or default_start
+    parsed_end = parsed_end or default_end
+    if parsed_end < parsed_start:
+        raise HTTPException(status_code=400, detail="Cycle end must be after cycle start")
+    reviewer = db.scalar(select(User).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True))) if reviewer_id else None
+    if reviewer_id and (not reviewer or reviewer.role not in {Role.ADMIN, Role.MANAGER}):
+        raise HTTPException(status_code=400, detail="Select a valid reviewer")
     existing = db.scalar(
         select(PerformancePlan).where(
             PerformancePlan.org_id == org.id,
@@ -4439,12 +4761,18 @@ def create_performance_plan_page(
         org_id=org.id,
         user_id=owner.id,
         year=year,
+        cycle_label=(cycle_label.strip()[:40] or default_label),
+        cycle_start=parsed_start,
+        cycle_end=parsed_end,
         title=normalized_title,
         description=description.strip(),
         status=PERFORMANCE_PLAN_STATUS_DRAFT,
         created_by=user.id,
+        reviewer_id=reviewer.id if reviewer else user.id,
     )
     db.add(plan)
+    db.flush()
+    record_performance_event(db, plan, user, "plan_created", f"Assigned to {owner.full_name}")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -4455,21 +4783,38 @@ def update_performance_plan_page(
     plan_id: int,
     title: str = Form(...),
     description: str = Form(""),
+    cycle_label: str = Form(""),
+    cycle_start: str = Form(""),
+    cycle_end: str = Form(""),
+    reviewer_id: int | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
-    if plan_is_locked(plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot edit this plan")
+    if plan_structure_is_locked(plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
     normalized_title = title.strip()[:200]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="Plan title is required")
     plan.title = normalized_title
     plan.description = description.strip()
+    parsed_start = parse_optional_date(cycle_start) or plan.cycle_start
+    parsed_end = parse_optional_date(cycle_end) or plan.cycle_end
+    if parsed_start and parsed_end and parsed_end < parsed_start:
+        raise HTTPException(status_code=400, detail="Cycle end must be after cycle start")
+    reviewer = db.scalar(select(User).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True))) if reviewer_id else None
+    if reviewer_id and (not reviewer or reviewer.role not in {Role.ADMIN, Role.MANAGER}):
+        raise HTTPException(status_code=400, detail="Select a valid reviewer")
+    plan.cycle_label = cycle_label.strip()[:40] or plan.cycle_label
+    plan.cycle_start = parsed_start
+    plan.cycle_end = parsed_end
+    plan.reviewer_id = reviewer.id if reviewer else plan.reviewer_id
+    record_performance_event(db, plan, user, "plan_updated")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -4482,16 +4827,17 @@ def finalize_performance_plan_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
-    if not weight_total_is_valid(validate_plan_goal_weights(plan)):
-        raise HTTPException(status_code=400, detail="Goal weights must total 100 before finalizing")
-    for goal in plan.goals:
-        if not weight_total_is_valid(validate_goal_kpi_weights(goal)):
-            raise HTTPException(status_code=400, detail=f'KPI weights for goal "{goal.title}" must total 100 before finalizing')
-    plan.status = PERFORMANCE_PLAN_STATUS_FINALIZED
+    if not can_manage_plan_structure(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot activate this plan")
+    if plan.status != PERFORMANCE_PLAN_STATUS_DRAFT:
+        raise HTTPException(status_code=400, detail="Only draft plans can be activated")
+    validate_plan_for_activation(plan)
+    plan.status = PERFORMANCE_PLAN_STATUS_ACTIVE
+    plan.activated_at = datetime.utcnow()
+    record_performance_event(db, plan, user, "plan_activated")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -4504,11 +4850,116 @@ def reopen_performance_plan_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin_or_manager(user)
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
+    if not can_manage_plan_structure(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot reopen this plan")
+    if plan.status not in {PERFORMANCE_PLAN_STATUS_ACTIVE, PERFORMANCE_PLAN_STATUS_CLOSED, "finalized"}:
+        raise HTTPException(status_code=400, detail="This plan cannot be reopened from its current status")
     plan.status = PERFORMANCE_PLAN_STATUS_DRAFT
+    plan.closed_at = None
+    record_performance_event(db, plan, user, "plan_reopened", "Reopened for amendment")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/plans/{plan_id}/submit")
+def submit_performance_plan_page(
+    org_slug: str,
+    plan_id: int,
+    self_assessment: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan = performance_plan_for_access(db, org.id, user, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Performance plan not found")
+    if plan.user_id != user.id and user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Only the plan owner can submit this review")
+    if plan.status != PERFORMANCE_PLAN_STATUS_ACTIVE:
+        raise HTTPException(status_code=400, detail="Only active plans can be submitted")
+    normalized = self_assessment.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Self-assessment is required")
+    plan.self_assessment = normalized
+    plan.status = PERFORMANCE_PLAN_STATUS_SUBMITTED
+    plan.submitted_at = datetime.utcnow()
+    record_performance_event(db, plan, user, "submitted_for_review")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/plans/{plan_id}/start-review")
+def start_performance_review_page(
+    org_slug: str,
+    plan_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan = performance_plan_for_access(db, org.id, user, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Performance plan not found")
+    if not can_review_plan(db, user, plan):
+        raise HTTPException(status_code=403, detail="You are not the reviewer for this plan")
+    if plan.status != PERFORMANCE_PLAN_STATUS_SUBMITTED:
+        raise HTTPException(status_code=400, detail="The plan has not been submitted")
+    plan.status = PERFORMANCE_PLAN_STATUS_UNDER_REVIEW
+    record_performance_event(db, plan, user, "review_started")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/plans/{plan_id}/complete-review")
+def complete_performance_review_page(
+    org_slug: str,
+    plan_id: int,
+    reviewer_assessment: str = Form(...),
+    final_rating: Decimal = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan = performance_plan_for_access(db, org.id, user, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Performance plan not found")
+    if not can_review_plan(db, user, plan):
+        raise HTTPException(status_code=403, detail="You are not the reviewer for this plan")
+    if plan.status != PERFORMANCE_PLAN_STATUS_UNDER_REVIEW:
+        raise HTTPException(status_code=400, detail="Start the review before completing it")
+    if not reviewer_assessment.strip():
+        raise HTTPException(status_code=400, detail="Reviewer assessment is required")
+    if final_rating < 0 or final_rating > 5:
+        raise HTTPException(status_code=400, detail="Final rating must be between 0 and 5")
+    plan.reviewer_assessment = reviewer_assessment.strip()
+    plan.final_rating = final_rating
+    plan.status = PERFORMANCE_PLAN_STATUS_REVIEWED
+    plan.reviewed_at = datetime.utcnow()
+    record_performance_event(db, plan, user, "review_completed", f"Rating: {final_rating}")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/plans/{plan_id}/close")
+def close_performance_plan_page(
+    org_slug: str,
+    plan_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan = performance_plan_for_access(db, org.id, user, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Performance plan not found")
+    if not can_review_plan(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot close this plan")
+    if plan.status != PERFORMANCE_PLAN_STATUS_REVIEWED:
+        raise HTTPException(status_code=400, detail="Complete the review before closing")
+    plan.status = PERFORMANCE_PLAN_STATUS_CLOSED
+    plan.closed_at = datetime.utcnow()
+    record_performance_event(db, plan, user, "plan_closed")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -4519,6 +4970,7 @@ def create_performance_goal_page(
     plan_id: int,
     title: str = Form(...),
     description: str = Form(""),
+    kra_type: str = Form("delivery_execution"),
     weightage: Decimal = Form(...),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4528,20 +4980,25 @@ def create_performance_goal_page(
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
-    if plan_is_locked(plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot manage this plan")
+    if plan_structure_is_locked(plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
+    if kra_type not in PERFORMANCE_KRA_TYPES:
+        raise HTTPException(status_code=400, detail="Select a valid KRA type")
     normalized_title = title.strip()[:200]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="Goal title is required")
-    db.add(
-        PerformanceGoal(
+    goal = PerformanceGoal(
             performance_plan_id=plan.id,
             title=normalized_title,
             description=description.strip(),
-            weightage=weightage,
+            kra_type=kra_type,
+            weightage=performance_weight(weightage, "Goal weight"),
             sort_order=next_performance_goal_sort_order(plan),
         )
-    )
+    db.add(goal)
+    record_performance_event(db, plan, user, "goal_created", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -4552,6 +5009,7 @@ def update_performance_goal_page(
     goal_id: int,
     title: str = Form(...),
     description: str = Form(""),
+    kra_type: str = Form("delivery_execution"),
     weightage: Decimal = Form(...),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4566,16 +5024,20 @@ def update_performance_goal_page(
     )
     if not goal:
         raise HTTPException(status_code=404, detail="Performance goal not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only manage goals for direct reports")
-    if plan_is_locked(goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot manage this plan")
+    if plan_structure_is_locked(goal.plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
+    if kra_type not in PERFORMANCE_KRA_TYPES:
+        raise HTTPException(status_code=400, detail="Select a valid KRA type")
     normalized_title = title.strip()[:200]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="Goal title is required")
     goal.title = normalized_title
     goal.description = description.strip()
-    goal.weightage = weightage
+    goal.kra_type = kra_type
+    goal.weightage = performance_weight(weightage, "Goal weight")
+    record_performance_event(db, goal.plan, user, "goal_updated", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={goal.performance_plan_id}", status_code=303)
 
@@ -4597,11 +5059,12 @@ def delete_performance_goal_page(
     )
     if not goal:
         raise HTTPException(status_code=404, detail="Performance goal not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only manage goals for direct reports")
-    if plan_is_locked(goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot manage this plan")
+    if plan_structure_is_locked(goal.plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
     plan_id = goal.performance_plan_id
+    record_performance_event(db, goal.plan, user, "goal_deleted", goal.title)
     db.delete(goal)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan_id}", status_code=303)
@@ -4613,6 +5076,12 @@ def create_performance_kpi_page(
     goal_id: int,
     title: str = Form(...),
     description: str = Form(""),
+    measurement_type: str = Form("checklist"),
+    unit: str = Form(""),
+    baseline_value: str = Form(""),
+    target_value: str = Form(""),
+    target_date: str = Form(""),
+    measurement_frequency: str = Form("annual"),
     weightage: Decimal = Form(...),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4627,22 +5096,30 @@ def create_performance_kpi_page(
     )
     if not goal:
         raise HTTPException(status_code=404, detail="Performance goal not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only manage goals for direct reports")
-    if plan_is_locked(goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot manage this plan")
+    if plan_structure_is_locked(goal.plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
+    if measurement_type not in PERFORMANCE_MEASUREMENT_TYPES:
+        raise HTTPException(status_code=400, detail="Select a valid measurement type")
     normalized_title = title.strip()[:200]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="KPI title is required")
-    db.add(
-        PerformanceKPI(
+    kpi = PerformanceKPI(
             performance_goal_id=goal.id,
             title=normalized_title,
             description=description.strip(),
-            weightage=weightage,
+            measurement_type=measurement_type,
+            unit=unit.strip()[:40],
+            baseline_value=optional_decimal(baseline_value, "Baseline"),
+            target_value=optional_decimal(target_value, "Target"),
+            target_date=parse_optional_date(target_date),
+            measurement_frequency=measurement_frequency.strip()[:30] or "annual",
+            weightage=performance_weight(weightage, "KPI weight"),
             sort_order=next_performance_kpi_sort_order(goal),
         )
-    )
+    db.add(kpi)
+    record_performance_event(db, goal.plan, user, "kpi_created", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={goal.performance_plan_id}", status_code=303)
 
@@ -4653,6 +5130,12 @@ def update_performance_kpi_page(
     kpi_id: int,
     title: str = Form(...),
     description: str = Form(""),
+    measurement_type: str = Form("checklist"),
+    unit: str = Form(""),
+    baseline_value: str = Form(""),
+    target_value: str = Form(""),
+    target_date: str = Form(""),
+    measurement_frequency: str = Form("annual"),
     weightage: Decimal = Form(...),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4668,16 +5151,25 @@ def update_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, kpi.goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only manage KPIs for direct reports")
-    if plan_is_locked(kpi.goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, kpi.goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot manage this plan")
+    if plan_structure_is_locked(kpi.goal.plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
+    if measurement_type not in PERFORMANCE_MEASUREMENT_TYPES:
+        raise HTTPException(status_code=400, detail="Select a valid measurement type")
     normalized_title = title.strip()[:200]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="KPI title is required")
     kpi.title = normalized_title
     kpi.description = description.strip()
-    kpi.weightage = weightage
+    kpi.measurement_type = measurement_type
+    kpi.unit = unit.strip()[:40]
+    kpi.baseline_value = optional_decimal(baseline_value, "Baseline")
+    kpi.target_value = optional_decimal(target_value, "Target")
+    kpi.target_date = parse_optional_date(target_date)
+    kpi.measurement_frequency = measurement_frequency.strip()[:30] or "annual"
+    kpi.weightage = performance_weight(weightage, "KPI weight")
+    record_performance_event(db, kpi.goal.plan, user, "kpi_updated", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={kpi.goal.plan.id}", status_code=303)
 
@@ -4700,11 +5192,12 @@ def delete_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, kpi.goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only manage KPIs for direct reports")
-    if plan_is_locked(kpi.goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_manage_plan_structure(db, user, kpi.goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot manage this plan")
+    if plan_structure_is_locked(kpi.goal.plan):
+        raise HTTPException(status_code=400, detail="Only draft plans can be edited")
     plan_id = kpi.goal.plan.id
+    record_performance_event(db, kpi.goal.plan, user, "kpi_deleted", kpi.title)
     db.delete(kpi)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan_id}", status_code=303)
@@ -4732,24 +5225,22 @@ def create_performance_kpi_item_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, kpi.goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only add KPI items for direct reports")
-    if user.role not in {Role.ADMIN, Role.MANAGER} and kpi.goal.plan.user_id != user.id:
-        raise HTTPException(status_code=403, detail="You can only add KPI items to your own plan")
-    if plan_is_locked(kpi.goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if (kpi.measurement_type or "checklist") != "checklist":
+        raise HTTPException(status_code=400, detail="Items are only available for checklist KPIs")
+    if not can_update_plan_progress(db, user, kpi.goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot update this plan")
     normalized_title = title.strip()[:300]
     if not normalized_title:
         raise HTTPException(status_code=400, detail="KPI item title is required")
-    db.add(
-        PerformanceKPIItem(
+    item = PerformanceKPIItem(
             performance_kpi_id=kpi.id,
             title=normalized_title,
             notes=notes.strip(),
             created_by=user.id,
             sort_order=next_performance_kpi_item_sort_order(kpi),
         )
-    )
+    db.add(item)
+    record_performance_event(db, kpi.goal.plan, user, "checklist_item_added", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={kpi.goal.plan.id}", status_code=303)
 
@@ -4778,8 +5269,6 @@ def update_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
-    if plan_is_locked(item.kpi.goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     if not can_manage_performance_item(db, user, item.kpi.goal.plan, item):
         raise HTTPException(status_code=403, detail="You cannot edit this KPI item")
     normalized_title = title.strip()[:300]
@@ -4787,6 +5276,7 @@ def update_performance_kpi_item_page(
         raise HTTPException(status_code=400, detail="KPI item title is required")
     item.title = normalized_title
     item.notes = notes.strip()
+    record_performance_event(db, item.kpi.goal.plan, user, "checklist_item_updated", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={item.kpi.goal.plan.id}", status_code=303)
 
@@ -4813,11 +5303,10 @@ def delete_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
-    if plan_is_locked(item.kpi.goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
     if not can_manage_performance_item(db, user, item.kpi.goal.plan, item):
         raise HTTPException(status_code=403, detail="You cannot delete this KPI item")
     plan_id = item.kpi.goal.plan.id
+    record_performance_event(db, item.kpi.goal.plan, user, "checklist_item_deleted", item.title)
     db.delete(item)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan_id}", status_code=303)
@@ -4831,7 +5320,6 @@ def toggle_performance_kpi_item_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin_or_manager(user)
     item = db.scalar(
         select(PerformanceKPIItem)
         .options(
@@ -4846,15 +5334,219 @@ def toggle_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, item.kpi.goal.plan.user_id):
-        raise HTTPException(status_code=403, detail="You can only complete KPI items for direct reports")
-    if plan_is_locked(item.kpi.goal.plan):
-        raise HTTPException(status_code=400, detail="Finalized plans cannot be edited")
+    if not can_update_plan_progress(db, user, item.kpi.goal.plan):
+        raise HTTPException(status_code=403, detail="You cannot update this plan")
     item.is_completed = not item.is_completed
     item.completed_at = datetime.utcnow() if item.is_completed else None
     item.completed_by = user.id if item.is_completed else None
+    record_performance_event(
+        db,
+        item.kpi.goal.plan,
+        user,
+        "checklist_item_completed" if item.is_completed else "checklist_item_reopened",
+        item.title,
+    )
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={item.kpi.goal.plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/kpis/{kpi_id}/progress")
+def update_performance_kpi_progress_page(
+    org_slug: str,
+    kpi_id: int,
+    actual_value: str = Form(""),
+    owner_update: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    kpi = db.scalar(
+        select(PerformanceKPI)
+        .options(selectinload(PerformanceKPI.goal).selectinload(PerformanceGoal.plan))
+        .join(PerformanceGoal, PerformanceKPI.performance_goal_id == PerformanceGoal.id)
+        .join(PerformancePlan, PerformanceGoal.performance_plan_id == PerformancePlan.id)
+        .where(PerformanceKPI.id == kpi_id, PerformancePlan.org_id == org.id)
+    )
+    if not kpi:
+        raise HTTPException(status_code=404, detail="Performance KPI not found")
+    plan = kpi.goal.plan
+    if not can_update_plan_progress(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot update this plan")
+    if (kpi.measurement_type or "checklist") == "checklist":
+        raise HTTPException(status_code=400, detail="Use the checklist items to update this KPI")
+    value = optional_decimal(actual_value, "Actual value")
+    if value is None:
+        raise HTTPException(status_code=400, detail="Actual value is required")
+    kpi.actual_value = value
+    kpi.owner_update = owner_update.strip()
+    record_performance_event(db, plan, user, "kpi_progress_updated", kpi.title)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/kpis/{kpi_id}/approve")
+def approve_performance_kpi_page(
+    org_slug: str,
+    kpi_id: int,
+    approved_value: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    kpi = db.scalar(
+        select(PerformanceKPI)
+        .options(selectinload(PerformanceKPI.goal).selectinload(PerformanceGoal.plan))
+        .join(PerformanceGoal, PerformanceKPI.performance_goal_id == PerformanceGoal.id)
+        .join(PerformancePlan, PerformanceGoal.performance_plan_id == PerformancePlan.id)
+        .where(PerformanceKPI.id == kpi_id, PerformancePlan.org_id == org.id)
+    )
+    if not kpi:
+        raise HTTPException(status_code=404, detail="Performance KPI not found")
+    plan = kpi.goal.plan
+    if not can_review_plan(db, user, plan) or plan.status != PERFORMANCE_PLAN_STATUS_UNDER_REVIEW:
+        raise HTTPException(status_code=403, detail="KPI approval is only available to the active reviewer")
+    if (kpi.measurement_type or "checklist") == "checklist":
+        raise HTTPException(status_code=400, detail="Checklist achievement is calculated from its items")
+    value = optional_decimal(approved_value, "Approved value")
+    if value is None:
+        raise HTTPException(status_code=400, detail="Approved value is required")
+    kpi.approved_value = value
+    record_performance_event(db, plan, user, "kpi_value_approved", kpi.title)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/kpis/{kpi_id}/evidence")
+def add_performance_evidence_page(
+    org_slug: str,
+    kpi_id: int,
+    task_code: str = Form(""),
+    work_list_item_id: int | None = Form(None),
+    external_url: str = Form(""),
+    notes: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    kpi = db.scalar(
+        select(PerformanceKPI)
+        .options(selectinload(PerformanceKPI.goal).selectinload(PerformanceGoal.plan))
+        .join(PerformanceGoal, PerformanceKPI.performance_goal_id == PerformanceGoal.id)
+        .join(PerformancePlan, PerformanceGoal.performance_plan_id == PerformancePlan.id)
+        .where(PerformanceKPI.id == kpi_id, PerformancePlan.org_id == org.id)
+    )
+    if not kpi:
+        raise HTTPException(status_code=404, detail="Performance KPI not found")
+    plan = kpi.goal.plan
+    if not can_update_plan_progress(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot add evidence to this plan")
+    normalized_url = external_url.strip()[:1000]
+    if normalized_url and not re.match(r"^https?://", normalized_url, re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="Evidence link must start with http:// or https://")
+    task = None
+    if task_code.strip():
+        task = db.scalar(select(Task).where(Task.org_id == org.id, Task.task_id == task_code.strip()))
+        if not task:
+            raise HTTPException(status_code=400, detail="Task code was not found")
+        if user.role != Role.ADMIN and task.assigned_to != plan.user_id:
+            raise HTTPException(status_code=403, detail="Evidence tasks must belong to the plan owner")
+    work_list_item = None
+    if work_list_item_id:
+        work_list_item = db.scalar(
+            select(WorkListItem)
+            .join(WorkList, WorkListItem.work_list_id == WorkList.id)
+            .where(WorkListItem.id == work_list_item_id, WorkList.org_id == org.id)
+        )
+        if not work_list_item:
+            raise HTTPException(status_code=400, detail="Work-list item was not found")
+        work_list = db.get(WorkList, work_list_item.work_list_id)
+        is_member = db.scalar(
+            select(WorkListMember.id).where(
+                WorkListMember.work_list_id == work_list.id,
+                WorkListMember.user_id == user.id,
+            )
+        )
+        if user.role != Role.ADMIN and work_list.owner_user_id not in {user.id, plan.user_id} and not is_member:
+            raise HTTPException(status_code=403, detail="You cannot link that work-list item")
+    if not task and not work_list_item and not normalized_url and not notes.strip():
+        raise HTTPException(status_code=400, detail="Add a task, link, or evidence note")
+    db.add(
+        PerformanceEvidence(
+            performance_kpi_id=kpi.id,
+            task_id=task.id if task else None,
+            work_list_item_id=work_list_item.id if work_list_item else None,
+            external_url=normalized_url,
+            notes=notes.strip(),
+            created_by=user.id,
+        )
+    )
+    record_performance_event(db, plan, user, "evidence_added", kpi.title)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/evidence/{evidence_id}/delete")
+def delete_performance_evidence_page(
+    org_slug: str,
+    evidence_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    evidence = db.scalar(
+        select(PerformanceEvidence)
+        .options(
+            selectinload(PerformanceEvidence.kpi)
+            .selectinload(PerformanceKPI.goal)
+            .selectinload(PerformanceGoal.plan)
+        )
+        .join(PerformanceKPI, PerformanceEvidence.performance_kpi_id == PerformanceKPI.id)
+        .join(PerformanceGoal, PerformanceKPI.performance_goal_id == PerformanceGoal.id)
+        .join(PerformancePlan, PerformanceGoal.performance_plan_id == PerformancePlan.id)
+        .where(PerformanceEvidence.id == evidence_id, PerformancePlan.org_id == org.id)
+    )
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    plan = evidence.kpi.goal.plan
+    if not can_update_plan_progress(db, user, plan):
+        raise HTTPException(status_code=403, detail="You cannot remove this evidence")
+    if user.role == Role.EMPLOYEE and evidence.created_by != user.id:
+        raise HTTPException(status_code=403, detail="You can only remove evidence you added")
+    record_performance_event(db, plan, user, "evidence_deleted", evidence.kpi.title)
+    db.delete(evidence)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+@app.post("/{org_slug}/goals/plans/{plan_id}/comments")
+def add_performance_comment_page(
+    org_slug: str,
+    plan_id: int,
+    body: str = Form(...),
+    comment_type: str = Form("comment"),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    plan = performance_plan_for_access(db, org.id, user, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Performance plan not found")
+    normalized = body.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Comment is required")
+    if comment_type not in {"comment", "check_in", "feedback"}:
+        comment_type = "comment"
+    db.add(
+        PerformanceComment(
+            performance_plan_id=plan.id,
+            author_id=user.id,
+            comment_type=comment_type,
+            body=normalized,
+        )
+    )
+    record_performance_event(db, plan, user, "comment_added", comment_type.replace("_", " "))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
 
 @app.get("/{org_slug}/lists", response_class=HTMLResponse)
@@ -7479,12 +8171,34 @@ def monthly_report_page(
         people = [viewer]
     previous_month = (month_start - timedelta(days=1)).replace(day=1)
     next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    financial_year = month_start.year if month_start.month >= 4 else month_start.year - 1
+    goal_plan = db.scalar(
+        performance_plan_query(org.id).where(
+            PerformancePlan.user_id == target.id,
+            PerformancePlan.year == financial_year,
+        )
+    )
+    goal_summary = {
+        "id": goal_plan.id,
+        "cycle": goal_plan.cycle_label or f"FY {financial_year}-{str(financial_year + 1)[-2:]}",
+        "status": PERFORMANCE_PLAN_STATUSES.get(goal_plan.status, goal_plan.status.title()),
+        "achievement": calculate_plan_achievement_percent(goal_plan),
+        "goals": [
+            {
+                "title": goal.title,
+                "kra": PERFORMANCE_KRA_TYPES.get(goal.kra_type or "delivery_execution", "Other"),
+                "achievement": calculate_goal_achievement_percent(goal),
+            }
+            for goal in sorted(goal_plan.goals, key=lambda item: (item.sort_order, item.id))
+        ],
+    } if goal_plan else None
     can_comment = target.id != viewer.id and (viewer.role == Role.ADMIN or can_manage_user_scope(db, org.id, viewer, target.id))
     return templates.TemplateResponse("monthly_report.html", {
         "request": request, "org": org, "user": viewer, "target": target, "people": people,
         "month_start": month_start, "previous_month": previous_month, "next_month": next_month,
         "current_month": local_today().replace(day=1),
         "facts": facts, "report": report, "can_comment": can_comment,
+        "goal_summary": goal_summary,
         "rating_history": [{"month": item.month_start.strftime("%b %Y"), "rating": float(item.rating)} for item in history],
         "generated": bool(generated), "error": error or "", "ai_configured": bool(settings.openai_api_key.strip()),
     })

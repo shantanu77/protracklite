@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ plan.cycle_label }} · {{ plan.owner_name }}</p>
+    <h1>{{ plan.title }}</h1>
+    <p>{{ plan.cycle_period_label }} · {{ plan.status_label }}{% if plan.reviewer_name %} · Reviewer: {{ plan.reviewer_name }}{% endif %}</p>
+  </div>
+  <div class="goal-inline-actions">
+    <a class="button ghost" href="/{{ org.slug }}/goals?plan_id={{ plan.id }}">Back to Plan</a>
+    <button type="button" onclick="window.print()">Print Report</button>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="stats compact-stats">
+    <div class="stat"><span>Weighted achievement</span><strong>{{ "%.2f"|format(plan.achievement_percent) }}%</strong></div>
+    <div class="stat"><span>Goals</span><strong>{{ plan.goals|length }}</strong></div>
+    <div class="stat"><span>Status</span><strong>{{ plan.status_label }}</strong></div>
+    <div class="stat"><span>Final rating</span><strong>{{ plan.final_rating if plan.final_rating is not none else "—" }}{% if plan.final_rating is not none %}/5{% endif %}</strong></div>
+  </div>
+  <div class="list-progress-bar large"><span style="width: {{ plan.achievement_percent }}%;"></span></div>
+</section>
+
+{% for goal in plan.goals %}
+<section class="panel">
+  <div class="goal-block-head">
+    <div><p class="eyebrow">{{ goal.kra_label }} · {{ "%.2f"|format(goal.weightage) }}% weight</p><h2>{{ goal.title }}</h2><p>{{ goal.description }}</p></div>
+    <div class="goal-score"><strong>{{ "%.2f"|format(goal.achievement_percent) }}%</strong><small>achieved</small></div>
+  </div>
+  {% for kpi in goal.kpis %}
+  <article class="card">
+    <div class="goal-kpi-head">
+      <div><p class="eyebrow">{{ kpi.measurement_label }} · {{ "%.2f"|format(kpi.weightage) }}% weight</p><h3>{{ kpi.title }}</h3><p>{{ kpi.description }}</p></div>
+      <div class="goal-score"><strong>{{ "%.2f"|format(kpi.achievement_percent) }}%</strong><small>achievement</small></div>
+    </div>
+    {% if kpi.measurement_type == "checklist" %}
+      <p>{{ kpi.completed_items }} of {{ kpi.total_items }} milestones complete</p>
+    {% else %}
+      <p>Baseline: {{ kpi.baseline_value if kpi.baseline_value is not none else "—" }} · Target: {{ kpi.target_value if kpi.target_value is not none else "—" }} · Actual: {{ kpi.actual_value if kpi.actual_value is not none else "—" }} · Approved: {{ kpi.approved_value if kpi.approved_value is not none else "—" }} {{ kpi.unit }}</p>
+    {% endif %}
+    {% if kpi.owner_update %}<p><strong>Owner update:</strong> {{ kpi.owner_update }}</p>{% endif %}
+    <small>{{ kpi.evidence|length }} evidence record{{ "s" if kpi.evidence|length != 1 else "" }}</small>
+  </article>
+  {% endfor %}
+</section>
+{% endfor %}
+
+<div class="grid">
+  <section class="panel"><h2>Self-Assessment</h2><p>{{ plan.self_assessment or "Not submitted." }}</p></section>
+  <section class="panel"><h2>Reviewer Assessment</h2><p>{{ plan.reviewer_assessment or "Not completed." }}</p></section>
+</div>
+
+<section class="panel">
+  <h2>Communication Record</h2>
+  {% for comment in plan.comments %}<div class="monthly-evidence-row"><strong>{{ comment.type|replace('_', ' ')|title }} · {{ comment.author_name }}</strong><span>{{ comment.created_at_label }}</span></div><p>{{ comment.body }}</p>{% else %}<p class="empty">No recorded check-ins.</p>{% endfor %}
+</section>
+{% endblock %}

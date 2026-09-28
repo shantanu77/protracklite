@@ -77,6 +77,17 @@
   <section class="panel"><span class="eyebrow">Leave</span><strong>{{ facts.effort.leave_days }}</strong><small>day-equivalents · {{ facts.effort.holiday_days }} holidays</small></section>
 </div>
 
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">Financial-year goals</p><h2>{% if goal_summary %}{{ goal_summary.cycle }} progress{% else %}No goal plan assigned{% endif %}</h2></div>
+    {% if goal_summary %}<div class="monthly-rating"><strong>{{ "%.1f"|format(goal_summary.achievement) }}%</strong><span>{{ goal_summary.status }}</span></div>{% endif %}
+  </div>
+  {% if goal_summary %}
+    {% for goal in goal_summary.goals %}<div class="monthly-evidence-row"><strong>{{ goal.kra }} · {{ goal.title }}</strong><span>{{ "%.1f"|format(goal.achievement) }}%</span></div>{% endfor %}
+    <p><a class="button ghost small" href="/{{ org.slug }}/goals?plan_id={{ goal_summary.id }}">Open goal plan</a></p>
+  {% else %}<p class="empty">No performance plan exists for this financial year.</p>{% endif %}
+</section>
+
 <div class="grid monthly-detail-grid">
   <section class="panel">
     <h2>Delivered results</h2>
