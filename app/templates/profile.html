@@ -54,7 +54,7 @@
     <div>
       <p class="eyebrow">Zoho attendance</p>
       <h2>Login, Logout &amp; Work Mode</h2>
-      <p>First check-in and last check-out for the current month. Approved Work From Home entries are counted as remote days.</p>
+      <p>First check-in and last check-out for the current month. Zoho Web and Mobile punches count as remote; Access Terminal punches count as office.</p>
     </div>
     <span class="profile-local-data-note">{{ zoho_attendance.range_label }}</span>
   </div>
@@ -62,8 +62,8 @@
     {{ zoho_attendance.message }}
   </div>
   <div class="profile-attendance-stats">
-    <article><span>Work from office</span><strong>{{ "%g"|format(zoho_attendance.office_days) }}</strong><small>Days with Zoho attendance</small></article>
-    <article><span>Work from home</span><strong>{{ "%g"|format(zoho_attendance.remote_days) }}</strong><small>Approved remote days</small></article>
+    <article><span>Work from office</span><strong>{{ "%g"|format(zoho_attendance.office_days) }}</strong><small>Access Terminal days</small></article>
+    <article><span>Work from home / remote</span><strong>{{ "%g"|format(zoho_attendance.remote_days) }}</strong><small>Zoho Web or Mobile days</small></article>
     <article><span>Total work days</span><strong>{{ "%g"|format(zoho_attendance.total_days) }}</strong><small>Office plus remote</small></article>
   </div>
   <div class="profile-leave-table-wrap">
@@ -75,7 +75,7 @@
           <td><strong>{{ row.date_label }}</strong></td>
           <td>{{ row.first_in_label }}</td>
           <td>{{ row.last_out_label }}{% if row.is_open %}<small>Open attendance entry</small>{% endif %}</td>
-          <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span></td>
+          <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="4" class="empty">No Zoho attendance is available for this month.</td></tr>

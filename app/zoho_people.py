@@ -374,6 +374,16 @@ def _attendance_rows(payload: object) -> list[dict[str, object]]:
     return rows
 
 
+def _punch_work_mode(source: object) -> str:
+    """Mirror Zoho's terminal-vs-remote attendance distinction."""
+    normalized = str(source or "").strip().casefold()
+    if normalized in {"web", "mobile", "remote", "work from home", "wfh"}:
+        return "remote"
+    if normalized in {"access terminal", "biometric", "kiosk", "office"}:
+        return "office"
+    return ""
+
+
 def fetch_zoho_attendance_entries(
     *,
     employee_zoho_id: str,
@@ -438,15 +448,29 @@ def fetch_zoho_attendance_entries(
                     "attendance_date": attendance_date,
                     "first_in": None,
                     "last_out": None,
+                    "first_in_source": "",
+                    "first_in_location": "",
+                    "last_out_source": "",
+                    "last_out_location": "",
                     "punch_count": 0,
                 },
             )
             if first_in and (day["first_in"] is None or first_in < day["first_in"]):
                 day["first_in"] = first_in
+                day["first_in_source"] = str(punch_in.get("source") or "").strip()
+                day["first_in_location"] = str(punch_in.get("location") or "").strip()
             if last_out and (day["last_out"] is None or last_out > day["last_out"]):
                 day["last_out"] = last_out
+                day["last_out_source"] = str(punch_out.get("source") or "").strip()
+                day["last_out_location"] = str(punch_out.get("location") or "").strip()
             if first_in or last_out:
                 day["punch_count"] = int(day["punch_count"]) + 1
+
+        for day in days.values():
+            source = day["first_in_source"] or day["last_out_source"]
+            day["work_mode"] = _punch_work_mode(source)
+            day["attendance_source"] = source
+            day["attendance_location"] = day["first_in_location"] or day["last_out_location"]
 
         return ZohoAttendanceResult(
             status="synced",

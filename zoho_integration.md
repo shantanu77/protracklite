@@ -116,22 +116,16 @@ For each date, ProTrack:
 - selects the latest punch-out as `Last logout`
 - shows an open-entry warning when a punch-in has no punch-out
 
-Work-mode counts use these rules:
+Work-mode counts mirror the signals used by the Zoho attendance application:
 
-- an approved Zoho leave record matching
-  `ZOHO_WORK_FROM_HOME_LEAVE_TYPE_ID` is counted as a remote day; name matching
-  for `Work From Home` or `Remote` remains as a compatibility fallback
-- an attendance day without such an approved remote record is counted as a
-  work-from-office day
-- a full remote record takes precedence if both a remote approval and
-  attendance punches exist for the same date
-- half-day remote records retain their fractional leave count; a day with
-  attendance and half-day remote approval is shown as hybrid and contributes
-  `0.5` to each count
-
-This classification deliberately uses the approved Work From Home leave record
-instead of guessing from punch source or location. Zoho's V3 attendance-entry
-response does not guarantee that office/remote location labels are present.
+- a first login from `Access Terminal` is counted as work from office
+- a first login from `Web` or `Mobile` is counted as remote/work from home
+- configured WFH leave is used only when an attendance entry has no usable
+  punch-source classification
+- an approved WFH date without an attendance punch is not counted as a worked
+  day
+- the geographic location and punch source returned by Zoho are shown beside
+  the daily classification for transparency
 
 The India endpoint validates the employee email parameter as `employee_email_id` (despite some published Zoho examples using `employee_mail_id`). A production probe with a deliberately nonexistent employee is used to validate request structure without creating a real leave.
 

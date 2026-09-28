@@ -128,8 +128,8 @@ class ZohoPeopleReadTests(unittest.TestCase):
                                 "entry_id": "one",
                                 "origin_day": "21-Sep-2026",
                                 "employee": {"zoho_id": "244130000000123001"},
-                                "punch_in": {"punch": "21-Sep-2026 09:12"},
-                                "punch_out": {"punch": "21-Sep-2026 13:00"},
+                                "punch_in": {"punch": "21-Sep-2026 09:12", "source": "Mobile", "location": "Delhi"},
+                                "punch_out": {"punch": "21-Sep-2026 13:00", "source": "Mobile", "location": "Delhi"},
                                 "is_break": False,
                             },
                             {
@@ -164,6 +164,9 @@ class ZohoPeopleReadTests(unittest.TestCase):
         self.assertEqual(len(result.entries), 1)
         self.assertEqual(result.entries[0]["first_in"], datetime(2026, 9, 21, 9, 12))
         self.assertEqual(result.entries[0]["last_out"], datetime(2026, 9, 21, 18, 35))
+        self.assertEqual(result.entries[0]["work_mode"], "remote")
+        self.assertEqual(result.entries[0]["attendance_source"], "Mobile")
+        self.assertEqual(result.entries[0]["attendance_location"], "Delhi")
         self.assertEqual(mock_get.call_args.kwargs["params"]["employee_zoho_id"], "244130000000123001")
 
     @patch("app.zoho_people.get_settings")

@@ -8752,19 +8752,32 @@ def zoho_profile_attendance_feed(
         for day, count in remote_dates.items()
         if period_start <= day <= today and float(count) > 0
     }
-    all_dates = sorted(set(attendance_by_date) | set(current_remote_dates), reverse=True)
+    all_dates = sorted(attendance_by_date, reverse=True)
     rows = []
     office_days = 0.0
+    remote_days = 0.0
     for attendance_date in all_dates:
         entry = attendance_by_date.get(attendance_date, {})
-        remote_count = current_remote_dates.get(attendance_date, 0.0)
+        attendance_mode = str(entry.get("work_mode") or "").strip().lower()
+        approved_remote_count = current_remote_dates.get(attendance_date, 0.0)
         first_in = entry.get("first_in")
         last_out = entry.get("last_out")
-        is_remote = remote_count > 0
         has_attendance = bool(first_in or last_out)
-        office_count = max(1.0 - min(remote_count, 1.0), 0.0) if has_attendance else 0.0
+        if attendance_mode == "remote":
+            remote_count = 1.0 if has_attendance else 0.0
+            office_count = 0.0
+        elif attendance_mode == "office":
+            remote_count = 0.0
+            office_count = 1.0 if has_attendance else 0.0
+        else:
+            remote_count = min(approved_remote_count, 1.0) if has_attendance else 0.0
+            office_count = max(1.0 - remote_count, 0.0) if has_attendance else 0.0
         office_days += office_count
+        remote_days += remote_count
+        is_remote = remote_count > 0
         is_hybrid = is_remote and office_count > 0
+        attendance_location = str(entry.get("attendance_location") or "").strip()
+        attendance_source = str(entry.get("attendance_source") or "").strip()
         rows.append(
             {
                 "date": attendance_date,
@@ -8772,17 +8785,18 @@ def zoho_profile_attendance_feed(
                 "first_in_label": first_in.strftime("%I:%M %p") if first_in else "—",
                 "last_out_label": last_out.strftime("%I:%M %p") if last_out else "—",
                 "mode": "hybrid" if is_hybrid else ("remote" if is_remote else "office"),
-                "mode_label": "Hybrid" if is_hybrid else ("Work from home" if is_remote else "Office"),
+                "mode_label": "Hybrid" if is_hybrid else ("Remote" if is_remote else "Office"),
+                "attendance_location": attendance_location,
+                "attendance_source": attendance_source,
                 "is_open": bool(first_in and not last_out),
             }
         )
-    remote_days = round(sum(current_remote_dates.values()), 2)
     return {
         "status": "synced",
         "message": "Attendance loaded directly from Zoho People.",
         "range_label": range_label,
         "office_days": office_days,
-        "remote_days": remote_days,
+        "remote_days": round(remote_days, 2),
         "total_days": round(office_days + remote_days, 2),
         "rows": rows,
     }
