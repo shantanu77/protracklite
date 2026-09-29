@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Manager</p>
+    <h1>Team Leaves</h1>
+    <p>Review a team member's leave and attendance for one month.</p>
+  </div>
+</section>
+
+<section class="panel team-leaves-filter">
+  <form method="get" action="/{{ org.slug }}/manager/team-leaves">
+    <label>Team member
+      <select name="member_id" required>
+        <option value="">Select a team member</option>
+        {% for member in members %}
+        <option value="{{ member.id }}" {% if selected_member and selected_member.id == member.id %}selected{% endif %}>{{ member.full_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Month <input type="month" name="month" value="{{ month_value }}" required></label>
+    <button type="submit">View month</button>
+  </form>
+  {% if not members %}<p class="empty">No active team members are available.</p>{% endif %}
+</section>
+
+{% if selected_member and feed %}
+<section class="panel profile-attendance-panel">
+  <div class="profile-leaves-head">
+    <div>
+      <p class="eyebrow">{{ selected_member.full_name }}</p>
+      <h2>{{ month_label }} summary</h2>
+      <p>Zoho People leave and attendance for the selected month.</p>
+    </div>
+  </div>
+  <div class="team-leaves-summary">
+    <article><span>Approved leave</span><strong>{{ "%g"|format(feed.approved_days) if feed.leave_status == 'synced' else '—' }}</strong><small>Days in this month</small></article>
+    <article><span>Pending leave</span><strong>{{ "%g"|format(feed.pending_days) if feed.leave_status == 'synced' else '—' }}</strong><small>Days awaiting approval</small></article>
+    <article><span>Office</span><strong>{{ "%g"|format(feed.attendance.office_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Worked days</small></article>
+    <article><span>Remote</span><strong>{{ "%g"|format(feed.attendance.remote_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Worked days</small></article>
+    <article><span>Total worked</span><strong>{{ "%g"|format(feed.attendance.total_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Office plus remote</small></article>
+  </div>
+  {% if feed.attendance %}
+  <div class="profile-zoho-status{% if feed.attendance.status != 'synced' %} is-error{% endif %}">{{ feed.attendance.message }}</div>
+  <div class="profile-leave-table-wrap">
+    <table class="profile-leave-table profile-attendance-table">
+      <thead><tr><th>Date</th><th>First login</th><th>Last logout</th><th>Work mode</th></tr></thead>
+      <tbody>
+        {% for row in feed.attendance.rows %}
+        <tr>
+          <td><strong>{{ row.date_label }}</strong></td>
+          <td>{{ row.first_in_label }}</td>
+          <td>{{ row.last_out_label }}{% if row.is_open %}<small>Open attendance entry</small>{% endif %}</td>
+          <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">No attendance entries for this month.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="empty">Attendance will appear when this month begins.</p>{% endif %}
+</section>
+
+<section class="panel profile-leaves-panel">
+  <div class="profile-leaves-head">
+    <div><p class="eyebrow">Time off</p><h2>Leave requests</h2><p>Requests overlapping {{ month_label }}.</p></div>
+    <a class="button secondary small" href="{{ zoho_portal_url }}" target="_blank" rel="noopener noreferrer">Open Zoho approvals ↗</a>
+  </div>
+  <div class="profile-zoho-status{% if feed.leave_status != 'synced' %} is-error{% endif %}">{{ feed.leave_message }}</div>
+  <div class="profile-leave-table-wrap">
+    <table class="profile-leave-table">
+      <thead><tr><th>Dates</th><th>Type</th><th>Days this month</th><th>Reason</th><th>Zoho status</th><th></th></tr></thead>
+      <tbody>
+        {% for leave in feed.leaves %}
+        <tr>
+          <td><strong>{{ leave.date_label }}</strong></td>
+          <td>{{ leave.leave_type }}<small>{{ leave.duration }}</small></td>
+          <td>{{ "%g"|format(leave.month_days) }}</td>
+          <td>{{ leave.reason or "—" }}</td>
+          <td><span class="profile-leave-sync is-{{ leave.status_class }}">{{ leave.status }}</span></td>
+          <td>{% if leave.status_class == 'pending' %}<a class="button ghost small" href="{{ zoho_portal_url }}" target="_blank" rel="noopener noreferrer">Approve in Zoho ↗</a>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">{{ "No leave requests for this month." if feed.leave_status == "synced" else "Leave requests are unavailable." }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="form-helper">Zoho approvals are completed in Zoho People under Home → My Space → Overview → Approvals. Return here and view the month again to see the updated status.</p>
+</section>
+{% endif %}
+{% endblock %}

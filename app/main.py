@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import smtplib
+from calendar import monthrange
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
@@ -8820,6 +8821,90 @@ def zoho_profile_attendance_feed(
     }
 
 
+def team_member_month_feed(db: Session, member: User, month_start: date, month_end: date, today: date) -> dict[str, Any]:
+    """Load one scoped team member's Zoho leave and attendance for a calendar month."""
+    if not member.zoho_employee_id.strip():
+        directory = fetch_zoho_employee_ids(employee_emails=[member.email])
+        if directory.status == "synced":
+            member.zoho_employee_id = dict(directory.employee_ids).get(member.email.strip().lower(), "")
+            if member.zoho_employee_id:
+                db.commit()
+        if not member.zoho_employee_id.strip():
+            message = directory.error or "This employee could not be matched to Zoho People."
+            return {
+                "leave_status": "failed", "leave_message": message, "leaves": [],
+                "approved_days": 0.0, "pending_days": 0.0, "attendance": None,
+            }
+
+    leave_result = fetch_zoho_leave_requests(
+        employee_zoho_ids=[member.zoho_employee_id], from_date=month_start, to_date=month_end,
+    )
+    leaves: list[dict[str, Any]] = []
+    approved_days = 0.0
+    pending_days = 0.0
+    remote_dates: dict[date, float] = {}
+    if leave_result.status == "synced":
+        settings = get_settings()
+        for raw in leave_result.leaves:
+            start_date = raw["start_date"]
+            end_date = raw["end_date"]
+            if end_date < month_start or start_date > month_end:
+                continue
+            day_counts = [(day, float(count)) for day, count in raw.get("day_counts", ()) if month_start <= day <= month_end]
+            if day_counts:
+                month_days = sum(count for _, count in day_counts)
+            else:
+                span = max((end_date - start_date).days + 1, 1)
+                overlap = (min(end_date, month_end) - max(start_date, month_start)).days + 1
+                month_days = float(raw.get("leave_days") or 0) * overlap / span
+            status = str(raw.get("approval_status") or "Unknown").strip()
+            if status.casefold() == "approved":
+                approved_days += month_days
+            elif status.casefold() == "pending":
+                pending_days += month_days
+            leave_type = str(raw.get("leave_type_name") or "Leave").strip()
+            is_remote = (
+                str(raw.get("leave_type_id") or "") == settings.zoho_work_from_home_leave_type_id.strip()
+                if settings.zoho_work_from_home_leave_type_id.strip() else False
+            ) or "work from home" in leave_type.casefold() or "remote" in leave_type.casefold()
+            if status.casefold() == "approved" and is_remote:
+                remote_day_counts = day_counts
+                if not remote_day_counts:
+                    daily_count = float(raw.get("leave_days") or 0) / max((end_date - start_date).days + 1, 1)
+                    remote_day_counts = [
+                        (start_date + timedelta(days=offset), daily_count)
+                        for offset in range((end_date - start_date).days + 1)
+                        if month_start <= start_date + timedelta(days=offset) <= month_end
+                    ]
+                for day, count in remote_day_counts:
+                    remote_dates[day] = max(remote_dates.get(day, 0.0), count)
+            leaves.append({
+                "zoho_leave_id": str(raw.get("zoho_leave_id") or ""),
+                "start_date": start_date,
+                "end_date": end_date,
+                "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date:%d %b %Y} – {end_date:%d %b %Y}",
+                "leave_type": leave_type,
+                "duration": str(raw.get("duration_label") or ""),
+                "month_days": round(month_days, 2),
+                "reason": str(raw.get("reason") or ""),
+                "status": status,
+                "status_class": re.sub(r"[^a-z0-9]+", "-", status.casefold()).strip("-"),
+            })
+        leaves.sort(key=lambda item: (item["start_date"], item["zoho_leave_id"]), reverse=True)
+
+    attendance = None
+    if month_start <= today:
+        attendance = zoho_profile_attendance_feed(member, min(month_end, today), remote_dates)
+    return {
+        "leave_status": leave_result.status,
+        "leave_message": "Leave loaded from Zoho People." if leave_result.status == "synced" else (leave_result.error or "Unable to load leave from Zoho People."),
+        "leaves": leaves,
+        "approved_days": round(approved_days, 2),
+        "pending_days": round(pending_days, 2),
+        "attendance": attendance,
+    }
+
+
 def leave_request_entries(db: Session, user_id: int, request_key: str) -> list[Leave]:
     if request_key.startswith("legacy-"):
         try:
@@ -9492,6 +9577,46 @@ def manager_dashboard_page(request: Request, org_user: tuple[Organization, User]
             "user": user,
             "summary": payload["summary"],
             "rows": payload["rows"],
+        },
+    )
+
+
+@app.get("/{org_slug}/manager/team-leaves", response_class=HTMLResponse)
+def manager_team_leaves_page(
+    request: Request,
+    member_id: int | None = None,
+    month: str = "",
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    people = reporting_tree_people(db, org.id, user)
+    members = [item["user"] for item in people]
+    today = local_today()
+    month_value = month or today.strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month_value):
+        raise HTTPException(status_code=400, detail="Select a valid month")
+    try:
+        month_start = date.fromisoformat(f"{month_value}-01")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Select a valid month") from exc
+    month_end = month_start.replace(day=monthrange(month_start.year, month_start.month)[1])
+    selected_member = None
+    feed = None
+    if member_id is not None:
+        selected_member = next((person for person in members if person.id == member_id), None)
+        if selected_member is None:
+            raise HTTPException(status_code=404, detail="Team member not found")
+        feed = team_member_month_feed(db, selected_member, month_start, month_end, today)
+    return templates.TemplateResponse(
+        "manager_team_leaves.html",
+        {
+            "request": request, "org": org, "user": user,
+            "members": members, "selected_member": selected_member,
+            "month_value": month_value, "month_label": month_start.strftime("%B %Y"),
+            "feed": feed,
+            "zoho_portal_url": get_settings().zoho_portal_url.strip() or get_settings().zoho_people_url.rstrip("/"),
         },
     )
 

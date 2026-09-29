@@ -111,6 +111,13 @@ attendance entries API after the employee presses **Refresh from Zoho**. Opening
 Profile shows local leave data and does not call Zoho. The refresh button loads
 attendance, leave requests, and the leave balance.
 
+Managers and admins can select a reportee and month in **Manager → Team Leaves**.
+The page loads only that member's Zoho attendance and leave, then summarizes
+office days, remote days, approved leave days, and pending leave days. Team
+membership is checked against ProTrack's reporting tree. Pending requests link
+to the Zoho People approval screen because Zoho's published leave API documents
+reading and editing requests, but no leave approval operation.
+
 For each date, ProTrack:
 
 - ignores entries identified by Zoho as breaks

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     zoho_read_refresh_token: str = ""
     zoho_accounts_url: str = "https://accounts.zoho.in"
     zoho_people_url: str = "https://people.zoho.in"
+    zoho_portal_url: str = "https://people.zoho.in/solulever/zp"
     zoho_earned_leave_type_id: str = ""
     zoho_unpaid_leave_type_id: str = ""
     zoho_work_from_home_leave_type_id: str = ""
