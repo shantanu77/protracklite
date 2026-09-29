@@ -4208,6 +4208,7 @@ def logout_action(org_slug: str):
 @app.get("/{org_slug}/profile", response_class=HTMLResponse)
 def profile_page(
     request: Request,
+    refresh_zoho: bool = False,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4217,8 +4218,24 @@ def profile_page(
     current_year = today.year
     leave_requests = profile_leave_requests(db, user.id)
     team_leave_requests = team_profile_leave_requests(db, org.id, team_people)
-    zoho_feed = zoho_profile_leave_feed(db, user, team_people, today)
-    attendance = zoho_profile_attendance_feed(user, today, zoho_feed.get("remote_dates", {}))
+    zoho_feed = {
+        "status": "pending",
+        "message": "Showing locally synchronized leave. Press Refresh from Zoho to load current Zoho data.",
+        "range_label": f"01 Jan {today.year} – 31 Dec {today.year + 1}",
+        "remote_dates": {},
+    }
+    attendance = {
+        "status": "pending",
+        "message": "Press Refresh from Zoho to load attendance.",
+        "range_label": f"{today.replace(day=1).strftime('%d %b %Y')} – {today.strftime('%d %b %Y')}",
+        "office_days": 0.0,
+        "remote_days": 0.0,
+        "total_days": 0.0,
+        "rows": [],
+    }
+    if refresh_zoho:
+        zoho_feed = zoho_profile_leave_feed(db, user, team_people, today)
+        attendance = zoho_profile_attendance_feed(user, today, zoho_feed.get("remote_dates", {}))
     if zoho_feed["status"] == "synced":
         leave_requests = zoho_feed["mine"]
         team_leave_requests = zoho_feed["team"]
@@ -4235,6 +4252,7 @@ def profile_page(
             "zoho_leave_feed_message": zoho_feed["message"],
             "zoho_leave_feed_range": zoho_feed["range_label"],
             "zoho_attendance": attendance,
+            "refresh_zoho": refresh_zoho,
             "leave_year": current_year,
             "leave_default_date": today.isoformat(),
             "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),

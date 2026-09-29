@@ -171,6 +171,43 @@ class ZohoPeopleReadTests(unittest.TestCase):
 
     @patch("app.zoho_people.get_settings")
     @patch("app.zoho_people._access_token", return_value=("access-token", ""))
+    @patch("app.zoho_people.httpx.get")
+    def test_terminal_logout_makes_mixed_punch_day_office(self, mock_get, _mock_token, mock_settings):
+        mock_settings.return_value = SimpleNamespace(zoho_people_url="https://people.zoho.in")
+        mock_get.return_value = zoho_response({
+            "status": "success",
+            "data": [
+                {
+                    "entry_id": "one",
+                    "origin_day": "28-Sep-2026",
+                    "employee": {"zoho_id": "employee-1"},
+                    "punch_in": {"punch": "28-Sep-2026 09:00", "source": "Web"},
+                    "punch_out": {"punch": "28-Sep-2026 12:00", "source": "Web"},
+                },
+                {
+                    "entry_id": "two",
+                    "origin_day": "28-Sep-2026",
+                    "employee": {"zoho_id": "employee-1"},
+                    "punch_in": {"punch": "28-Sep-2026 13:00", "source": "Mobile"},
+                    "punch_out": {"punch": "28-Sep-2026 18:00", "source": "Access Terminal - Gate 1", "location": "Office"},
+                },
+            ],
+        })
+
+        result = fetch_zoho_attendance_entries(
+            employee_zoho_id="employee-1",
+            from_date=date(2026, 9, 28),
+            to_date=date(2026, 9, 28),
+        )
+
+        self.assertEqual(result.entries[0]["work_mode"], "office")
+        self.assertEqual(result.entries[0]["attendance_source"], "Access Terminal - Gate 1")
+        self.assertEqual(result.entries[0]["attendance_location"], "Office")
+        self.assertEqual(result.entries[0]["first_in"], datetime(2026, 9, 28, 9, 0))
+        self.assertEqual(result.entries[0]["last_out"], datetime(2026, 9, 28, 18, 0))
+
+    @patch("app.zoho_people.get_settings")
+    @patch("app.zoho_people._access_token", return_value=("access-token", ""))
     @patch("app.zoho_people.httpx.request")
     def test_leave_edit_uses_required_zoho_employee_id(self, mock_request, _mock_token, mock_settings):
         mock_settings.return_value = SimpleNamespace(

@@ -107,7 +107,9 @@ the rest of the integration.
 ## Attendance behavior
 
 The Profile page displays current-month attendance from the Zoho People V3
-attendance entries API.
+attendance entries API after the employee presses **Refresh from Zoho**. Opening
+Profile shows local leave data and does not call Zoho. The refresh button loads
+attendance, leave requests, and the leave balance.
 
 For each date, ProTrack:
 
@@ -118,8 +120,8 @@ For each date, ProTrack:
 
 Work-mode counts mirror the signals used by the Zoho attendance application:
 
-- a first login from `Access Terminal` is counted as work from office
-- a first login from `Web` or `Mobile` is counted as remote/work from home
+- any login or logout from a terminal during a day is counted as work from office
+- `Web` or `Mobile` punches without a terminal punch count as remote/work from home
 - configured WFH leave is used only when an attendance entry has no usable
   punch-source classification
 - an approved WFH date without an attendance punch is not counted as a worked

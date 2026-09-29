@@ -6,6 +6,9 @@
     <h1>Profile</h1>
     <p>Manage the photo shown beside your updates, comments, and shared work.</p>
   </div>
+  <form method="get" action="/{{ org.slug }}/profile">
+    <button type="submit" name="refresh_zoho" value="true" class="button secondary">↻ Refresh from Zoho</button>
+  </form>
 </section>
 
 <section class="panel profile-panel">
@@ -54,7 +57,7 @@
     <div>
       <p class="eyebrow">Zoho attendance</p>
       <h2>Login, Logout &amp; Work Mode</h2>
-      <p>First check-in and last check-out for the current month. Zoho Web and Mobile punches count as remote; Access Terminal punches count as office.</p>
+      <p>First check-in and last check-out for the current month. Any terminal punch counts the day as office.</p>
     </div>
     <span class="profile-local-data-note">{{ zoho_attendance.range_label }}</span>
   </div>
@@ -78,7 +81,7 @@
           <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="empty">No Zoho attendance is available for this month.</td></tr>
+        <tr><td colspan="4" class="empty">{{ "Press Refresh from Zoho to load attendance." if zoho_attendance.status == "pending" else "No Zoho attendance is available for this month." }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -93,7 +96,7 @@
       <p>All leave requests recorded through ProTrack. Future requests can be edited or cancelled.</p>
     </div>
     <div class="profile-leaves-actions">
-      <button type="button" class="button secondary small" data-zoho-balance-refresh>↻ Refresh from Zoho</button>
+      <button type="button" class="button secondary small" data-zoho-balance-refresh>↻ Refresh balance</button>
       <button type="button" class="button small" data-profile-leave-add>+ Apply Leave</button>
     </div>
   </div>
@@ -107,7 +110,7 @@
     <article><span>Availed / booked</span><strong data-zoho-availed>—</strong><small>Zoho People</small></article>
     <article class="is-balance"><span>Remaining</span><strong data-zoho-remaining>—</strong><small>Zoho People</small></article>
   </div>
-  <div class="profile-zoho-status" data-zoho-balance-status>Refreshing Zoho leave balance…</div>
+  <div class="profile-zoho-status" data-zoho-balance-status>Press Refresh balance to load the current Zoho leave balance.</div>
   <div class="profile-zoho-types" data-zoho-leave-types hidden></div>
 
   <div class="profile-leave-table-wrap">
@@ -339,7 +342,7 @@
         balanceStatus.textContent = error.message || "Unable to refresh Zoho balance.";
       } finally {
         refreshButton.disabled = false;
-        refreshButton.textContent = "↻ Refresh from Zoho";
+        refreshButton.textContent = "↻ Refresh balance";
       }
     };
 
@@ -473,7 +476,10 @@
       });
     });
     refreshButton?.addEventListener("click", refreshZohoBalance);
-    refreshZohoBalance();
+    {% if refresh_zoho %}refreshZohoBalance();{% endif %}
   })();
 </script>
+{% if refresh_zoho %}
+<script>window.history.replaceState(null, "", "/{{ org.slug }}/profile");</script>
+{% endif %}
 {% endblock %}

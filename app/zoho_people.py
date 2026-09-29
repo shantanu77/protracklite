@@ -377,6 +377,8 @@ def _attendance_rows(payload: object) -> list[dict[str, object]]:
 def _punch_work_mode(source: object) -> str:
     """Mirror Zoho's terminal-vs-remote attendance distinction."""
     normalized = str(source or "").strip().casefold()
+    if "terminal" in normalized:
+        return "office"
     if normalized in {"web", "mobile", "remote", "work from home", "wfh"}:
         return "remote"
     if normalized in {"access terminal", "biometric", "kiosk", "office"}:
@@ -452,9 +454,16 @@ def fetch_zoho_attendance_entries(
                     "first_in_location": "",
                     "last_out_source": "",
                     "last_out_location": "",
+                    "office_source": "",
+                    "office_location": "",
                     "punch_count": 0,
                 },
             )
+            for punch, punch_time in ((punch_in, first_in), (punch_out, last_out)):
+                source = str(punch.get("source") or "").strip()
+                if punch_time and _punch_work_mode(source) == "office":
+                    day["office_source"] = source
+                    day["office_location"] = str(punch.get("location") or "").strip()
             if first_in and (day["first_in"] is None or first_in < day["first_in"]):
                 day["first_in"] = first_in
                 day["first_in_source"] = str(punch_in.get("source") or "").strip()
@@ -467,10 +476,10 @@ def fetch_zoho_attendance_entries(
                 day["punch_count"] = int(day["punch_count"]) + 1
 
         for day in days.values():
-            source = day["first_in_source"] or day["last_out_source"]
-            day["work_mode"] = _punch_work_mode(source)
+            source = day["office_source"] or day["first_in_source"] or day["last_out_source"]
+            day["work_mode"] = "office" if day["office_source"] else _punch_work_mode(source)
             day["attendance_source"] = source
-            day["attendance_location"] = day["first_in_location"] or day["last_out_location"]
+            day["attendance_location"] = day["office_location"] or day["first_in_location"] or day["last_out_location"]
 
         return ZohoAttendanceResult(
             status="synced",
