@@ -38,7 +38,7 @@
     <article><span>Pending leave</span><strong>{{ "%g"|format(feed.pending_days) if feed.leave_status == 'synced' else '—' }}</strong><small>Days awaiting approval</small></article>
     <article><span>Office</span><strong>{{ "%g"|format(feed.attendance.office_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Worked days</small></article>
     <article><span>Remote</span><strong>{{ "%g"|format(feed.attendance.remote_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Worked days</small></article>
-    <article><span>Total worked</span><strong>{{ "%g"|format(feed.attendance.total_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Office plus remote</small></article>
+    <article><span>Total worked</span><strong>{% if feed.attendance and feed.attendance.status == 'synced' %}{{ "%g"|format(feed.attendance.total_days) }} / {{ working_day_count }}{% else %}—{% endif %}</strong><small>Worked / working days in range</small></article>
   </div>
   {% if feed.attendance %}
   <div class="profile-zoho-status{% if feed.attendance.status != 'synced' %} is-error{% endif %}">{{ feed.attendance.message }}</div>

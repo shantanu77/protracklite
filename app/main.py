@@ -9604,18 +9604,22 @@ def manager_team_leaves_page(
     month_end = month_start.replace(day=monthrange(month_start.year, month_start.month)[1])
     selected_member = None
     feed = None
+    working_day_count = None
     if member_id is not None:
         selected_member = next((person for person in members if person.id == member_id), None)
         if selected_member is None:
             raise HTTPException(status_code=404, detail="Team member not found")
         feed = team_member_month_feed(db, selected_member, month_start, month_end, today)
+        if month_start <= today:
+            working_dates, _ = leave_working_dates(db, org.id, month_start, min(month_end, today))
+            working_day_count = len(working_dates)
     return templates.TemplateResponse(
         "manager_team_leaves.html",
         {
             "request": request, "org": org, "user": user,
             "members": members, "selected_member": selected_member,
             "month_value": month_value, "month_label": month_start.strftime("%B %Y"),
-            "feed": feed,
+            "feed": feed, "working_day_count": working_day_count,
             "zoho_portal_url": get_settings().zoho_portal_url.strip() or get_settings().zoho_people_url.rstrip("/"),
         },
     )
