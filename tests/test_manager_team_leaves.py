@@ -50,7 +50,10 @@ class ManagerTeamLeavesTests(unittest.TestCase):
             patch("app.main.reporting_tree_people", return_value=[{"user": self.member}]),
             patch("app.main.local_today", return_value=date(2026, 9, 29)),
             patch("app.main.team_member_month_feed", return_value={
-                "attendance": {"status": "synced", "total_days": 17},
+                "attendance": {
+                    "status": "synced", "office_days": 12, "remote_days": 5,
+                    "total_days": 17, "rows": [], "message": "Loaded",
+                },
             }),
             patch("app.main.templates.TemplateResponse") as render,
         ):
