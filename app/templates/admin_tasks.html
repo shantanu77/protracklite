@@ -104,14 +104,6 @@
             {% endfor %}
           </select>
         </label>
-        <label>Color
-          <select name="color">
-            <option value="">All</option>
-            {% for color, label in task_color_choices %}
-            <option value="{{ color }}" {% if selected_color == color %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
         <label>Page Size
           <select name="page_size">
             {% for size in [10, 25, 50, 100] %}
@@ -143,7 +135,6 @@
         <tr>
           <td>
             <div class="task-card-headline">
-              <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color }}" aria-label="Task color"></button>
               <span>{{ task.task_id }}</span>
             </div>
           </td>

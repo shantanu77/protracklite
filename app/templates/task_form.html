@@ -136,25 +136,12 @@
         data-detail-target="manage-task-detail-{{ loop.index }}"
         data-task-status="{{ task.status }}"
         data-task-code="{{ task.task_id }}"
-        data-task-color="{{ task.task_color }}"
-        data-task-color-label="{{ task.task_color_label }}"
         data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}"
         data-task-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ task.project_code ~ ' ' ~ task.project_name ~ ' ' ~ task.activity_type_name ~ ' ' ~ task.tags_text ~ ' ' ~ task.status)|lower }}"
       >
         <td>
           <div class="dashboard-task-table-main">
             <div class="task-card-headline">
-              <span
-                class="task-color-trigger"
-                data-task-color-trigger
-                data-task-code="{{ task.task_id }}"
-                data-task-color="{{ task.task_color }}"
-                data-task-color-label="{{ task.task_color_label }}"
-                style="--task-color: {{ task.task_color }}; background: {{ task.task_color }}; background-color: {{ task.task_color }};"
-                role="button"
-                tabindex="0"
-                aria-label="Task color"
-              ></span>
               <span class="chip">{{ task.task_id }}</span>
               {% if task.task_id in created_task_ids %}
               <span class="badge success">New</span>
@@ -442,7 +429,6 @@
           <td>
             <div class="dashboard-task-table-main">
               <div class="task-card-headline">
-                <span class="task-color-trigger" data-task-color-trigger data-task-code="${escapeHtml(task.task_id)}" data-task-color="${escapeHtml(task.task_color)}" data-task-color-label="${escapeHtml(task.task_color_label)}" style="--task-color: ${escapeHtml(task.task_color)}; background: ${escapeHtml(task.task_color)}; background-color: ${escapeHtml(task.task_color)};" role="button" tabindex="0" aria-label="Task color"></span>
                 <span class="chip">${escapeHtml(task.task_id)}</span>
                 ${isNewlyCreated ? '<span class="badge success">New</span>' : ""}
                 ${task.is_shared ? '<span class="badge muted">Shared</span>' : ""}
@@ -584,7 +570,7 @@
     function bindRowExpanders(scope) {
       scope.querySelectorAll("[data-manage-task-row]").forEach((row) => {
         row.addEventListener("click", async (event) => {
-          if (event.target.closest("button, a, input, textarea, select, label, form, [data-task-color-trigger]")) {
+          if (event.target.closest("button, a, input, textarea, select, label, form")) {
             return;
           }
           const detailId = row.dataset.detailTarget;

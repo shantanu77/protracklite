@@ -26,7 +26,6 @@
           data-dashboard-task-row
           {% if sortable %}data-dashboard-sort-item draggable="true"{% endif %}
           data-task-code="{{ task.task_id }}"
-          data-task-color="{{ task.task_color }}"
           data-task-name="{{ task.name }}"
           data-task-status="{{ task.status }}"
           data-task-detail-target="{{ detail_id }}"
@@ -36,7 +35,6 @@
           <td>
             <div class="dashboard-task-table-main">
               <div class="task-card-headline">
-                <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
                 <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
               </div>
               <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -117,10 +115,9 @@
 {% macro dashboard_compact_cards(tasks, org, today, empty_text, show_week_booked=false) %}
   <div class="dashboard-card-list">
   {% for task in tasks %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.start_date or '') ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.start_date or '') ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -200,28 +197,6 @@
       <span class="sr-only">Search tasks</span>
       <input type="search" placeholder="Search tasks by keyword (3+ characters)" data-dashboard-search-input>
     </label>
-    <div class="dashboard-color-filter" data-dashboard-color-filter-wrap>
-      <input type="hidden" value="" data-dashboard-color-filter>
-      <button type="button" class="dashboard-color-filter-button" data-dashboard-color-button aria-expanded="false">
-        <span class="dashboard-color-filter-display">
-          <span class="dashboard-color-filter-swatch is-empty" data-dashboard-color-current-swatch></span>
-          <span data-dashboard-color-current-label>All colors</span>
-        </span>
-        <span class="dashboard-color-filter-caret" aria-hidden="true">▾</span>
-      </button>
-      <div class="dashboard-color-filter-menu" data-dashboard-color-menu hidden>
-        <button type="button" class="dashboard-color-filter-option is-active" data-dashboard-color-option data-color="" data-label="All colors">
-          <span class="dashboard-color-filter-swatch is-empty"></span>
-          <span>All colors</span>
-        </button>
-        {% for color, label in task_color_choices %}
-        <button type="button" class="dashboard-color-filter-option" data-dashboard-color-option data-color="{{ color }}" data-label="{{ label }}">
-          <span class="dashboard-color-filter-swatch" style="--task-color: {{ color }};"></span>
-          <span>{{ label }}</span>
-        </button>
-        {% endfor %}
-      </div>
-    </div>
     <p class="dashboard-search-hint" data-dashboard-search-hint>Search starts at 3 characters.</p>
   </div>
 </section>
@@ -292,10 +267,9 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.week %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-dashboard-week-task data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status_label ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -370,10 +344,9 @@
     </div>
     <div class="dashboard-card-list" data-dashboard-sort-list data-sort-url="/{{ org.slug }}/dashboard/today-order">
     {% for task in groups.today %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}" data-dashboard-sort-item>
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card sortable-task-card" draggable="true" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}" data-dashboard-sort-item>
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -428,10 +401,9 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.overdue %}
-    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card late danger dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.end_date or '') ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -485,10 +457,9 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.pending %}
-    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card {{ task.deadline_tone }} dashboard-task-card" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' ' ~ task.deadline_label ~ ' ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -542,10 +513,9 @@
     </div>
     <div class="dashboard-card-list">
     {% for task in groups.completed %}
-    <div class="task-card deadline-card upcoming dashboard-task-card dashboard-task-card-completed" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-color="{{ task.task_color }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
+    <div class="task-card deadline-card upcoming dashboard-task-card dashboard-task-card-completed" data-dashboard-task-card data-task-code="{{ task.task_id }}" data-task-name="{{ task.name }}" data-task-status="{{ task.status }}" data-task-has-logs="{{ 'true' if (task.logged_hours or 0) > 0 else 'false' }}" data-dashboard-search="{{ (task.task_id ~ ' ' ~ task.name ~ ' ' ~ (task.description or '') ~ ' ' ~ task.status ~ ' completed ' ~ (task.stalled_reason or '') ~ ' ' ~ (task.tags_text or ''))|lower|e }}">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip" data-dashboard-highlight>{{ task.task_id }}</span>
         </div>
         <strong data-dashboard-highlight>{{ task.name }}</strong>
@@ -1180,13 +1150,6 @@
   (() => {
     const weekEmptyState = document.querySelector("[data-dashboard-week-empty]");
     const dashboardSearchInput = document.querySelector("[data-dashboard-search-input]");
-    const dashboardColorFilter = document.querySelector("[data-dashboard-color-filter]");
-    const dashboardColorFilterWrap = document.querySelector("[data-dashboard-color-filter-wrap]");
-    const dashboardColorButton = document.querySelector("[data-dashboard-color-button]");
-    const dashboardColorMenu = document.querySelector("[data-dashboard-color-menu]");
-    const dashboardColorCurrentSwatch = document.querySelector("[data-dashboard-color-current-swatch]");
-    const dashboardColorCurrentLabel = document.querySelector("[data-dashboard-color-current-label]");
-    const dashboardColorOptions = Array.from(document.querySelectorAll("[data-dashboard-color-option]"));
     const dashboardSearchHint = document.querySelector("[data-dashboard-search-hint]");
     const taskCards = Array.from(document.querySelectorAll("[data-dashboard-task-card]"));
     const taskLogCache = new Map();
@@ -1204,47 +1167,6 @@
     function getActiveSearchTerm() {
       const rawValue = (dashboardSearchInput?.value || "").trim();
       return rawValue.length >= 3 ? rawValue.toLowerCase() : "";
-    }
-
-    function getActiveColorFilter() {
-      return (dashboardColorFilter?.value || "").trim().toLowerCase();
-    }
-
-    function setDashboardColorFilter(color, label) {
-      if (!dashboardColorFilter) {
-        return;
-      }
-      dashboardColorFilter.value = color || "";
-      if (dashboardColorCurrentLabel) {
-        dashboardColorCurrentLabel.textContent = label || "All colors";
-      }
-      if (dashboardColorCurrentSwatch) {
-        dashboardColorCurrentSwatch.classList.toggle("is-empty", !color);
-        if (color) {
-          dashboardColorCurrentSwatch.style.setProperty("--task-color", color);
-        } else {
-          dashboardColorCurrentSwatch.style.removeProperty("--task-color");
-        }
-      }
-      dashboardColorOptions.forEach((option) => {
-        option.classList.toggle("is-active", (option.dataset.color || "") === (color || ""));
-      });
-    }
-
-    function closeDashboardColorMenu() {
-      if (!dashboardColorMenu || !dashboardColorButton) {
-        return;
-      }
-      dashboardColorMenu.hidden = true;
-      dashboardColorButton.setAttribute("aria-expanded", "false");
-    }
-
-    function openDashboardColorMenu() {
-      if (!dashboardColorMenu || !dashboardColorButton) {
-        return;
-      }
-      dashboardColorMenu.hidden = false;
-      dashboardColorButton.setAttribute("aria-expanded", "true");
     }
 
     function getCombinedSearchText(taskCard) {
@@ -1488,13 +1410,11 @@
 
     function syncWeekCompletedVisibility() {
       const searchTerm = getActiveSearchTerm();
-      const colorFilter = getActiveColorFilter();
       let visibleTaskCount = 0;
       taskCards.forEach((taskCard) => {
         const matchesSearch = !searchTerm || getCombinedSearchText(taskCard).includes(searchTerm);
-        const matchesColor = !colorFilter || (taskCard.dataset.taskColor || "").toLowerCase() === colorFilter;
         const isWeekTask = taskCard.hasAttribute("data-dashboard-week-task");
-        const shouldShow = matchesSearch && matchesColor;
+        const shouldShow = matchesSearch;
         taskCard.style.display = shouldShow ? "" : "none";
         if (shouldShow && isWeekTask) {
           visibleTaskCount += 1;
@@ -1505,8 +1425,7 @@
         let visibleRows = 0;
         rows.forEach((row) => {
           const matchesSearch = !searchTerm || (row.dataset.dashboardSearch || "").includes(searchTerm);
-          const matchesColor = !colorFilter || (row.dataset.taskColor || "").toLowerCase() === colorFilter;
-          const shouldShow = matchesSearch && matchesColor;
+          const shouldShow = matchesSearch;
           row.hidden = !shouldShow;
           const detailId = row.dataset.taskDetailTarget;
           const detailRow = detailId ? document.getElementById(detailId) : null;
@@ -1529,13 +1448,11 @@
       if (dashboardSearchHint) {
         const rawLength = (dashboardSearchInput?.value || "").trim().length;
         if (!rawLength) {
-          dashboardSearchHint.textContent = colorFilter ? "Filtering by color." : "Enter 3 or more characters.";
+          dashboardSearchHint.textContent = "Enter 3 or more characters.";
         } else if (rawLength < 3) {
           dashboardSearchHint.textContent = "Keep typing. Search starts at 3 characters.";
         } else {
-          dashboardSearchHint.textContent = colorFilter
-            ? `Filtering by "${dashboardSearchInput.value.trim()}" and selected color.`
-            : `Filtering by "${dashboardSearchInput.value.trim()}".`;
+          dashboardSearchHint.textContent = `Filtering by "${dashboardSearchInput.value.trim()}".`;
         }
       }
       applyHighlights(searchTerm);
@@ -1553,7 +1470,7 @@
 
     document.querySelectorAll("[data-dashboard-task-row]").forEach((row) => {
       row.addEventListener("click", (event) => {
-        if (event.target.closest("button, a, input, textarea, select, label, form, [data-task-color-trigger]")) {
+        if (event.target.closest("button, a, input, textarea, select, label, form")) {
           return;
         }
         toggleTableRowLogs(row);
@@ -1589,34 +1506,6 @@
       ensureLogsLoadedForSearch();
       syncWeekCompletedVisibility();
     });
-    dashboardColorFilter?.addEventListener("change", syncWeekCompletedVisibility);
-    dashboardColorButton?.addEventListener("click", () => {
-      if (dashboardColorMenu?.hidden) {
-        openDashboardColorMenu();
-      } else {
-        closeDashboardColorMenu();
-      }
-    });
-    dashboardColorOptions.forEach((option) => {
-      option.addEventListener("click", () => {
-        setDashboardColorFilter(option.dataset.color || "", option.dataset.label || "All colors");
-        closeDashboardColorMenu();
-        syncWeekCompletedVisibility();
-      });
-    });
-    document.addEventListener("click", (event) => {
-      if (!dashboardColorFilterWrap || dashboardColorFilterWrap.contains(event.target)) {
-        return;
-      }
-      closeDashboardColorMenu();
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        closeDashboardColorMenu();
-      }
-    });
-    setDashboardColorFilter(dashboardColorFilter?.value || "", "All colors");
-    document.addEventListener("task-color-updated", syncWeekCompletedVisibility);
     syncWeekCompletedVisibility();
   })();
 </script>

@@ -167,7 +167,6 @@
     <div class="today-task-head">
       <div class="dashboard-task-main">
         <div class="task-card-headline">
-          <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
           <span class="chip">{{ task.task_id }}</span>
         </div>
         <strong>{{ task.name }}</strong>
@@ -217,7 +216,6 @@
   <article class="task-card deadline-card due dashboard-task-card today-action-card">
     <div class="today-action-card-head">
       <div class="task-card-headline">
-        <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
         <span class="chip">{{ task.task_id }}</span>
         <span class="badge {{ task.status_tone }}">{{ task.status_icon }} {{ task.status_label|title }}</span>
       </div>
@@ -319,7 +317,6 @@
           <td>
             <div class="dashboard-task-table-main">
               <div class="task-card-headline">
-                <button type="button" class="task-color-trigger" data-task-color-trigger data-task-code="{{ task.task_id }}" data-task-color="{{ task.task_color }}" data-task-color-label="{{ task.task_color_label }}" aria-label="Task color {{ task.task_color_label }}"></button>
                 <span class="chip">{{ task.task_id }}</span>
               </div>
               <strong>{{ task.name }}</strong>
@@ -462,7 +459,7 @@
 
     rows.forEach((row) => {
       row.addEventListener("click", (event) => {
-        if (event.target.closest("button, a, input, textarea, select, label, form, [data-task-color-trigger]")) return;
+        if (event.target.closest("button, a, input, textarea, select, label, form")) return;
         toggleRow(row);
       });
       row.addEventListener("keydown", (event) => {

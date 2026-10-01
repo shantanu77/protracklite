@@ -201,7 +201,6 @@ class Task(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     activity_type_id: Mapped[int] = mapped_column(ForeignKey("activity_types.id"))
     status: Mapped[TaskStatus] = mapped_column(SqlEnum(TaskStatus), default=TaskStatus.NOT_STARTED)
-    task_color: Mapped[str] = mapped_column(String(7), default="#22c55e")
     tags_text: Mapped[str] = mapped_column(String(1000), default="")
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
     shared_status: Mapped[str] = mapped_column(String(30), default="")
