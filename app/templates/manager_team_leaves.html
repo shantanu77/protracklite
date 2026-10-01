@@ -41,26 +41,34 @@
       <h2>{{ month_label }} summary</h2>
       <p>Zoho People leave and attendance for the selected month.</p>
     </div>
+    {% if feed.attendance and feed.attendance.status == 'synced' %}
+    <div class="profile-leaves-actions">
+      <a class="button secondary small" href="/{{ org.slug }}/manager/team-leaves/attendance.csv?member_id={{ selected_member.id }}&month={{ month_value }}">Download attendance CSV</a>
+      <button type="button" class="button small" data-regularization-open {% if not feed.attendance.missing_days %}disabled{% endif %}>Regularize attendance</button>
+    </div>
+    {% endif %}
   </div>
+  {% if regularized %}<div class="alert">{{ regularized }} attendance day{{ '' if regularized == 1 else 's' }} regularized in Zoho.</div>{% endif %}
+  {% if regularization_error %}<div class="alert is-error">Some days could not be regularized: {{ regularization_error }}</div>{% endif %}
   <div class="team-leaves-summary">
     <article><span>Approved leave</span><strong>{{ "%g"|format(feed.approved_days) if feed.leave_status == 'synced' else '—' }}</strong><small>Days in this month</small></article>
     <article><span>Pending leave</span><strong>{{ "%g"|format(feed.pending_days) if feed.leave_status == 'synced' else '—' }}</strong><small>Days awaiting approval</small></article>
     <article><span>Office</span><strong>{{ "%g"|format(feed.attendance.office_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Worked days</small></article>
     <article><span>Remote</span><strong>{{ "%g"|format(feed.attendance.remote_days) if feed.attendance and feed.attendance.status == 'synced' else '—' }}</strong><small>Worked days</small></article>
-    <article><span>Total worked</span><strong>{% if feed.attendance and feed.attendance.status == 'synced' %}{{ "%g"|format(feed.attendance.total_days) }} / {{ working_day_count }}{% else %}—{% endif %}</strong><small>Worked / working days in range</small></article>
+    <article><span>Total worked</span><strong>{% if feed.attendance and feed.attendance.status == 'synced' %}{{ "%g"|format(feed.attendance.total_days) }} / {{ working_day_count }}{% else %}—{% endif %}</strong><small>Worked / working days {{ 'in the full month' if month_value != today_month else 'through today' }}</small></article>
   </div>
   {% if feed.attendance %}
-  <div class="profile-zoho-status{% if feed.attendance.status != 'synced' %} is-error{% endif %}">{{ feed.attendance.message }}</div>
+  <div class="profile-zoho-status{% if feed.attendance.status != 'synced' %} is-error{% endif %}">{{ feed.attendance.message }}{% if feed.attendance.status == 'synced' %} Missing working days are shown in red.{% endif %}</div>
   <div class="profile-leave-table-wrap">
     <table class="profile-leave-table profile-attendance-table">
       <thead><tr><th>Date</th><th>First login</th><th>Last logout</th><th>Work mode</th></tr></thead>
       <tbody>
         {% for row in feed.attendance.rows %}
-        <tr>
+        <tr{% if row.mode == 'missing' %} class="attendance-missing-row"{% endif %}>
           <td><strong>{{ row.date_label }}</strong></td>
           <td>{{ row.first_in_label }}</td>
           <td>{{ row.last_out_label }}{% if row.is_open %}<small>Open attendance entry</small>{% endif %}</td>
-          <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% endif %}</td>
+          <td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% elif row.mode == 'missing' and row.request %}<small>{{ row.request.status|title }} regularization</small>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="4" class="empty">No attendance entries for this month.</td></tr>
@@ -68,22 +76,6 @@
       </tbody>
     </table>
   </div>
-  {% if feed.attendance.status == 'synced' %}
-  <details class="profile-regularization">
-    <summary class="button secondary small">Regularize attendance</summary>
-    <p>Select an unmarked working day. The default entry is 10:00 AM to 7:00 PM, remote.</p>
-    {% if feed.attendance.missing_days %}
-    <form method="post" action="/{{ org.slug }}/manager/team-leaves/regularize" class="regularization-form">
-      <input type="hidden" name="member_id" value="{{ selected_member.id }}">
-      <label>Unmarked day<select name="attendance_date" required>{% for missing in feed.attendance.missing_days %}<option value="{{ missing.date.isoformat() }}">{{ missing.label }}{% if missing.request and missing.request.status == 'pending' %} · Request pending{% endif %}</option>{% endfor %}</select></label>
-      <label>Login<input type="time" name="start_time" value="10:00" required></label>
-      <label>Logout<input type="time" name="end_time" value="19:00" required></label>
-      <label>Location<select name="location"><option value="remote">Remote</option><option value="office">Office</option></select></label>
-      <button type="submit">Regularize in Zoho</button>
-    </form>
-    {% else %}<p class="empty">No past working days are missing attendance.</p>{% endif %}
-  </details>
-  {% endif %}
   {% else %}<p class="empty">Attendance will appear when this month begins.</p>{% endif %}
 </section>
 
@@ -104,7 +96,7 @@
           <td>{{ "%g"|format(leave.month_days) }}</td>
           <td>{{ leave.reason or "—" }}</td>
           <td><span class="profile-leave-sync is-{{ leave.status_class }}">{{ leave.status }}</span></td>
-          <td>{% if leave.status_class == 'pending' %}<a class="button ghost small" href="{{ zoho_portal_url }}" target="_blank" rel="noopener noreferrer">Approve in Zoho ↗</a>{% endif %}</td>
+          <td>{% if leave.status_class == 'pending' %}<button type="button" class="button ghost small" data-leave-review data-leave-date="{{ leave.date_label }}" data-leave-type="{{ leave.leave_type }}" data-leave-duration="{{ leave.duration }}" data-leave-days="{{ '%g'|format(leave.month_days) }}" data-leave-reason="{{ leave.reason }}">Review approval</button>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="6" class="empty">{{ "No leave requests for this month." if feed.leave_status == "synced" else "Leave requests are unavailable." }}</td></tr>
@@ -112,7 +104,63 @@
       </tbody>
     </table>
   </div>
-  <p class="form-helper">Zoho approvals are completed in Zoho People under Home → My Space → Overview → Approvals. Return here and view the month again to see the updated status.</p>
+  <p class="form-helper">Approve leave in Zoho People under Home → My Space → Overview → Approvals. Return here and view the month again to see the updated status.</p>
 </section>
+{% if feed.attendance and feed.attendance.status == 'synced' %}
+<div class="modal-backdrop" aria-hidden="true" data-regularization-modal>
+  <div class="modal-card wide manager-attendance-modal" role="dialog" aria-modal="true" aria-labelledby="regularization-title">
+    <div class="modal-head"><div><h2 id="regularization-title">Regularize attendance</h2><p>{{ selected_member.full_name }} · {{ month_label }}</p></div><button type="button" class="modal-close" aria-label="Close" data-modal-close>×</button></div>
+    <form method="post" action="/{{ org.slug }}/manager/team-leaves/regularize" data-regularization-form>
+      <input type="hidden" name="member_id" value="{{ selected_member.id }}"><input type="hidden" name="month" value="{{ month_value }}">
+      <p>Select the past working days to regularize. The times and location apply to every selected day.</p>
+      <label class="regularization-select-all"><input type="checkbox" data-select-all> Select all missing days</label>
+      <div class="regularization-day-list">
+        {% for missing in feed.attendance.missing_days %}
+        <label class="regularization-day"><input type="checkbox" name="attendance_dates" value="{{ missing.date.isoformat() }}" data-regularization-day><span>{{ missing.label }}</span>{% if missing.request and missing.request.status == 'pending' %}<small>Employee requested approval</small>{% endif %}</label>
+        {% endfor %}
+      </div>
+      <div class="regularization-form">
+        <label>Login<input type="time" name="start_time" value="10:00" required></label>
+        <label>Logout<input type="time" name="end_time" value="19:00" required></label>
+        <label>Location<select name="location"><option value="remote">Remote</option><option value="office">Local / office</option></select></label>
+      </div>
+      <div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Cancel</button><button type="submit" data-regularization-submit disabled>Regularize selected days</button></div>
+    </form>
+  </div>
+</div>
 {% endif %}
+<div class="modal-backdrop" aria-hidden="true" data-leave-review-modal>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-review-title">
+    <div class="modal-head"><div><h2 id="leave-review-title">Review leave request</h2><p>{{ selected_member.full_name }}</p></div><button type="button" class="modal-close" aria-label="Close" data-modal-close>×</button></div>
+    <dl class="leave-review-details"><div><dt>Dates</dt><dd data-review-date></dd></div><div><dt>Type</dt><dd data-review-type></dd></div><div><dt>Duration</dt><dd data-review-duration></dd></div><div><dt>Days this month</dt><dd data-review-days></dd></div><div><dt>Reason</dt><dd data-review-reason></dd></div></dl>
+    <p class="form-helper">Zoho People handles the approval. This page cannot change the Zoho approval status.</p>
+    <div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Close</button><a class="button" href="{{ zoho_portal_url }}" target="_blank" rel="noopener noreferrer">Approve in Zoho ↗</a></div>
+  </div>
+</div>
+{% endif %}
+<script>
+(() => {
+  const open = (modal) => { if (!modal) return; modal.classList.add('is-open'); modal.setAttribute('aria-hidden', 'false'); modal.querySelector('[data-modal-close]')?.focus(); };
+  const close = (modal) => { if (!modal) return; modal.classList.remove('is-open'); modal.setAttribute('aria-hidden', 'true'); };
+  const regularizationModal = document.querySelector('[data-regularization-modal]');
+  const leaveModal = document.querySelector('[data-leave-review-modal]');
+  document.querySelector('[data-regularization-open]')?.addEventListener('click', () => open(regularizationModal));
+  document.querySelectorAll('[data-leave-review]').forEach((button) => button.addEventListener('click', () => {
+    const values = { date: button.dataset.leaveDate, type: button.dataset.leaveType, duration: button.dataset.leaveDuration, days: button.dataset.leaveDays, reason: button.dataset.leaveReason || '—' };
+    Object.entries(values).forEach(([key, value]) => { const target = leaveModal?.querySelector(`[data-review-${key}]`); if (target) target.textContent = value; });
+    open(leaveModal);
+  }));
+  for (const modal of [regularizationModal, leaveModal]) {
+    modal?.querySelectorAll('[data-modal-close]').forEach((button) => button.addEventListener('click', () => close(modal)));
+    modal?.addEventListener('click', (event) => { if (event.target === modal) close(modal); });
+  }
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { close(regularizationModal); close(leaveModal); } });
+  const boxes = [...document.querySelectorAll('[data-regularization-day]')];
+  const all = document.querySelector('[data-select-all]');
+  const submit = document.querySelector('[data-regularization-submit]');
+  const update = () => { if (submit) submit.disabled = !boxes.some((box) => box.checked); if (all) all.checked = boxes.length > 0 && boxes.every((box) => box.checked); };
+  all?.addEventListener('change', () => { boxes.forEach((box) => { box.checked = all.checked; }); update(); });
+  boxes.forEach((box) => box.addEventListener('change', update));
+})();
+</script>
 {% endblock %}

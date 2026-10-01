@@ -505,6 +505,19 @@ textarea {
 .profile-work-mode.is-office { color: #166534; background: #dcfce7; }
 .profile-work-mode.is-remote { color: #1d4ed8; background: #dbeafe; }
 .profile-work-mode.is-hybrid { color: #92400e; background: #fef3c7; }
+.profile-work-mode.is-missing { color: #b91c1c; background: #fee2e2; }
+.attendance-missing-row { background: #fff1f2; color: #991b1b; }
+.attendance-missing-row td { border-bottom-color: #fecdd3; }
+.manager-attendance-modal { max-height: min(88vh, 800px); overflow: auto; }
+.regularization-day-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .5rem; max-height: 220px; overflow: auto; margin: .75rem 0 1rem; }
+.regularization-day, .regularization-select-all { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
+.regularization-day { padding: .65rem; border: 1px solid var(--line); border-radius: 10px; }
+.regularization-day small { color: var(--muted); }
+.manager-modal-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 1.25rem; }
+.leave-review-details { display: grid; gap: .6rem; margin: 1rem 0; }
+.leave-review-details div { display: grid; grid-template-columns: 7rem 1fr; gap: .5rem; }
+.leave-review-details dt { color: var(--muted); }
+.leave-review-details dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 720px) { .profile-attendance-stats { grid-template-columns: 1fr; } }
 
 .profile-leave-table-wrap {
