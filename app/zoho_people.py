@@ -51,6 +51,36 @@ class ZohoAttendanceResult:
     error: str = ""
 
 
+def add_zoho_attendance_entry(*, employee_zoho_id: str, day: date, start_time: str, end_time: str) -> ZohoLeaveResult:
+    """Add a manager approved attendance entry through Zoho People v3."""
+    token, error = _access_token("attendance")
+    if not token:
+        return ZohoLeaveResult(status="failed", error=error)
+    settings = get_settings()
+    try:
+        response = httpx.post(
+            f"{settings.zoho_people_url.rstrip('/')}/people/api/v3/attendance/entries",
+            headers={"Authorization": f"Zoho-oauthtoken {token}"},
+            data={
+                "punch_details": json.dumps([{
+                    "employee_id": employee_zoho_id,
+                    "punch_in": f"{day.isoformat()} {start_time}:00",
+                    "punch_out": f"{day.isoformat()} {end_time}:00",
+                }]),
+                "datetime_format": "yyyy-MM-dd HH:mm:ss",
+                "entries_timezone": settings.app_timezone,
+                "storage_timezone": settings.app_timezone,
+            },
+            timeout=30.0,
+        )
+        payload = response.json()
+        if not response.is_success or payload.get("status") != "success" or payload.get("data", {}).get("success_count") != 1:
+            return ZohoLeaveResult(status="failed", error=str(payload.get("message") or "Zoho did not add the attendance entry"))
+        return ZohoLeaveResult(status="synced")
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        return ZohoLeaveResult(status="failed", error=f"Zoho attendance update failed: {exc}")
+
+
 def _date_label(value: date) -> str:
     return value.strftime("%d-%b-%Y")
 
@@ -61,7 +91,12 @@ def _token_failure_status(error: str) -> str:
 
 def _access_token(profile: str = "leave") -> tuple[str, str]:
     settings = get_settings()
-    if profile == "read":
+    if profile == "attendance":
+        client_id = settings.zoho_attendance_client_id or settings.zoho_client_id
+        client_secret = settings.zoho_attendance_client_secret or settings.zoho_client_secret
+        refresh_token = settings.zoho_attendance_refresh_token or settings.zoho_refresh_token
+        configuration_error = "Zoho attendance write integration is not configured"
+    elif profile == "read":
         client_id = settings.zoho_read_client_id
         client_secret = settings.zoho_read_client_secret
         refresh_token = settings.zoho_read_refresh_token

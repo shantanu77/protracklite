@@ -27,6 +27,9 @@ ZOHO_REFRESH_TOKEN=...
 ZOHO_READ_CLIENT_ID=...
 ZOHO_READ_CLIENT_SECRET=...
 ZOHO_READ_REFRESH_TOKEN=...
+ZOHO_ATTENDANCE_CLIENT_ID=...
+ZOHO_ATTENDANCE_CLIENT_SECRET=...
+ZOHO_ATTENDANCE_REFRESH_TOKEN=...
 ZOHO_ACCOUNTS_URL=https://accounts.zoho.in
 ZOHO_PEOPLE_URL=https://people.zoho.in
 ZOHO_WORK_FROM_HOME_LEAVE_TYPE_ID=24413000002552035
@@ -54,6 +57,14 @@ must include:
 because Zoho does not add scopes to an existing refresh token. The leave token
 continues to use `ZOHO_CLIENT_*` and `ZOHO_REFRESH_TOKEN`; Forms and Attendance
 use the `ZOHO_READ_*` variables.
+
+Manager attendance regularization writes entries through Zoho People v3. The
+optional `ZOHO_ATTENDANCE_*` credentials need `ZOHOPEOPLE.attendance.CREATE` or
+`ZOHOPEOPLE.attendance.ALL`. If they are unset, the leave credentials are used
+and must include that scope. Zoho v3's add-entry API accepts punch times but
+does not document a location parameter; ProTrack records and displays the
+manager's Remote/Office choice locally. Confirm the desired Zoho location
+handling before relying on it for Zoho-side location reports.
 
 Keep the refresh token only in the server environment. It must never be embedded in Profile HTML or browser JavaScript. If Zoho employee mapping or leave retrieval fails, Profile shows locally synchronized leave with a visible warning rather than exposing unrelated organization leave.
 

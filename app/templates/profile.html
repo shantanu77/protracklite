@@ -68,7 +68,22 @@
     <article><span>Work from office</span><strong>{{ "%g"|format(zoho_attendance.office_days) }}</strong><small>Access Terminal days</small></article>
     <article><span>Work from home / remote</span><strong>{{ "%g"|format(zoho_attendance.remote_days) }}</strong><small>Zoho Web or Mobile days</small></article>
     <article><span>Total work days</span><strong>{{ "%g"|format(zoho_attendance.total_days) }}</strong><small>Office plus remote</small></article>
+    <article><span>Total leave / unmarked days</span><strong>{{ "%g"|format(zoho_attendance.unmarked_count) if zoho_attendance.status == 'synced' else '—' }}</strong><small>{{ zoho_attendance.working_day_count if zoho_attendance.status == 'synced' else '—' }} working days this month − office − remote; includes future days</small></article>
   </div>
+  {% if zoho_attendance.status == 'synced' %}
+  <details class="profile-regularization">
+    <summary class="button secondary small">Regularize attendance</summary>
+    <p>Select a past working day with no attendance and send it to your manager for approval.</p>
+    {% for missing in zoho_attendance.missing_days %}
+    <form method="post" action="/{{ org.slug }}/profile/attendance/regularize" class="regularization-row">
+      <strong>{{ missing.label }}</strong>
+      {% if missing.request %}<span>{{ missing.request.status|title }}</span>{% else %}
+      <input type="hidden" name="attendance_date" value="{{ missing.date.isoformat() }}">
+      <button type="submit" class="button small">Send for approval</button>{% endif %}
+    </form>
+    {% else %}<p class="empty">No past working days are missing attendance.</p>{% endfor %}
+  </details>
+  {% endif %}
   <div class="profile-leave-table-wrap">
     <table class="profile-leave-table profile-attendance-table">
       <thead><tr><th>Date</th><th>First login</th><th>Last logout</th><th>Work mode</th></tr></thead>

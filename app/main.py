@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.capacity import build_capacity_payload
 from app.zoho_people import (
+    add_zoho_attendance_entry,
     cancel_zoho_leave,
     fetch_zoho_attendance_entries,
     fetch_zoho_employee_ids,
@@ -41,6 +42,7 @@ from app.zoho_people import (
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
 from app.models import (
+    AttendanceRegularization,
     ActivityType,
     Department,
     DevRelease,
@@ -4236,7 +4238,11 @@ def profile_page(
     }
     if refresh_zoho:
         zoho_feed = zoho_profile_leave_feed(db, user, team_people, today)
-        attendance = zoho_profile_attendance_feed(user, today, zoho_feed.get("remote_dates", {}))
+    attendance = zoho_profile_attendance_feed(user, today, zoho_feed.get("remote_dates", {}))
+    attendance = regularization_attendance_context(
+        db, org.id, user.id, attendance, today.replace(day=1),
+        today.replace(day=monthrange(today.year, today.month)[1]),
+    )
     if zoho_feed["status"] == "synced":
         leave_requests = zoho_feed["mine"]
         team_leave_requests = zoho_feed["team"]
@@ -8821,6 +8827,78 @@ def zoho_profile_attendance_feed(
     }
 
 
+def regularization_attendance_context(db: Session, org_id: int, user_id: int, attendance: dict[str, Any], start: date, end: date) -> dict[str, Any]:
+    """Show missing working days only when Zoho attendance was loaded successfully."""
+    if attendance.get("status") != "synced":
+        return attendance
+    working_dates, _ = leave_working_dates(db, org_id, start, end)
+    marked = {row["date"] for row in attendance["rows"] if row["first_in_label"] != "—" or row["last_out_label"] != "—"}
+    requests = db.scalars(select(AttendanceRegularization).where(
+        AttendanceRegularization.org_id == org_id, AttendanceRegularization.user_id == user_id,
+        AttendanceRegularization.attendance_date >= start, AttendanceRegularization.attendance_date <= end,
+    )).all()
+    request_by_day = {item.attendance_date: item for item in requests}
+    for row in attendance["rows"]:
+        request = request_by_day.get(row["date"])
+        if request and request.status == "approved" and "terminal" not in row["attendance_source"].casefold():
+            old_mode = row["mode"]
+            new_mode = request.location
+            if old_mode != new_mode and old_mode in {"office", "remote"}:
+                attendance[f"{old_mode}_days"] -= 1
+                attendance[f"{new_mode}_days"] += 1
+            row["mode"] = new_mode
+            row["mode_label"] = new_mode.title()
+            row["attendance_location"] = new_mode.title()
+    attendance["working_day_count"] = len(working_dates)
+    attendance["missing_days"] = [
+        {"date": day, "label": day.strftime("%a, %d %b"), "request": request_by_day.get(day)}
+        for day in working_dates if day not in marked and day < local_today()
+    ]
+    attendance["unmarked_count"] = max(len(working_dates) - attendance["total_days"], 0)
+    return attendance
+
+
+@app.post("/{org_slug}/profile/attendance/regularize")
+def request_attendance_regularization(
+    org_slug: str, attendance_date: date = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, user = org_user
+    today = local_today()
+    if attendance_date < today.replace(day=1) or attendance_date >= today:
+        raise HTTPException(status_code=400, detail="Select a past day in the current month")
+    working_dates, _ = leave_working_dates(db, org.id, attendance_date, attendance_date)
+    if not working_dates:
+        raise HTTPException(status_code=400, detail="Select a working day")
+    if not user.manager_id:
+        raise HTTPException(status_code=400, detail="No manager is assigned to your account")
+    manager = db.get(User, user.manager_id)
+    if not manager or manager.org_id != org.id or not manager.is_active:
+        raise HTTPException(status_code=400, detail="Your manager is unavailable")
+    current = zoho_profile_attendance_feed(user, today, {})
+    if current["status"] != "synced":
+        raise HTTPException(status_code=503, detail=current["message"])
+    if any(row["date"] == attendance_date and (row["first_in_label"] != "—" or row["last_out_label"] != "—") for row in current["rows"]):
+        raise HTTPException(status_code=409, detail="Attendance is already marked for this day")
+    existing = db.scalar(select(AttendanceRegularization).where(
+        AttendanceRegularization.org_id == org.id, AttendanceRegularization.user_id == user.id,
+        AttendanceRegularization.attendance_date == attendance_date,
+    ))
+    if existing and existing.status in {"pending", "approved"}:
+        raise HTTPException(status_code=409, detail="A regularization request already exists for this day")
+    if existing:
+        existing.status, existing.manager_id, existing.requested_at, existing.resolved_at = "pending", manager.id, datetime.utcnow(), None
+    else:
+        db.add(AttendanceRegularization(org_id=org.id, user_id=user.id, manager_id=manager.id, attendance_date=attendance_date))
+    db.commit()
+    try:
+        send_email(manager.email, f"Attendance regularization: {user.full_name}",
+                   f"{user.full_name} requests attendance regularization for {attendance_date:%d %b %Y}.\nReview: {app_base_url()}/{org.slug}/manager/team-leaves?member_id={user.id}&month={attendance_date:%Y-%m}")
+    except Exception as exc:
+        logger.warning("Attendance regularization email failed: %s", exc)
+    return RedirectResponse(url=f"/{org_slug}/profile?refresh_zoho=true", status_code=303)
+
+
 def team_member_month_feed(db: Session, member: User, month_start: date, month_end: date, today: date) -> dict[str, Any]:
     """Load one scoped team member's Zoho leave and attendance for a calendar month."""
     if not member.zoho_employee_id.strip():
@@ -9605,11 +9683,19 @@ def manager_team_leaves_page(
     selected_member = None
     feed = None
     working_day_count = None
+    pending_requests = db.scalars(select(AttendanceRegularization).where(
+        AttendanceRegularization.org_id == org.id, AttendanceRegularization.manager_id == user.id,
+        AttendanceRegularization.status == "pending",
+    ).order_by(AttendanceRegularization.requested_at.desc())).all()
+    request_people = {person.id: person for person in members}
     if member_id is not None:
         selected_member = next((person for person in members if person.id == member_id), None)
         if selected_member is None:
             raise HTTPException(status_code=404, detail="Team member not found")
         feed = team_member_month_feed(db, selected_member, month_start, month_end, today)
+        if feed["attendance"]:
+            feed["attendance"] = regularization_attendance_context(
+                db, org.id, selected_member.id, feed["attendance"], month_start, min(month_end, today))
         if month_start <= today:
             working_dates, _ = leave_working_dates(db, org.id, month_start, min(month_end, today))
             working_day_count = len(working_dates)
@@ -9620,9 +9706,59 @@ def manager_team_leaves_page(
             "members": members, "selected_member": selected_member,
             "month_value": month_value, "month_label": month_start.strftime("%B %Y"),
             "feed": feed, "working_day_count": working_day_count,
+            "pending_requests": [item for item in pending_requests if item.user_id in request_people],
+            "request_people": request_people,
             "zoho_portal_url": get_settings().zoho_portal_url.strip() or get_settings().zoho_people_url.rstrip("/"),
         },
     )
+
+
+@app.post("/{org_slug}/manager/team-leaves/regularize")
+def manager_regularize_attendance(
+    org_slug: str, member_id: int = Form(...), attendance_date: date = Form(...),
+    start_time: str = Form("10:00"), end_time: str = Form("19:00"), location: str = Form("remote"),
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    must_be_admin_or_manager(manager)
+    members = {item["user"].id: item["user"] for item in reporting_tree_people(db, org.id, manager)}
+    member = members.get(member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    if location not in {"remote", "office"} or not re.fullmatch(r"\d{2}:\d{2}", start_time) or not re.fullmatch(r"\d{2}:\d{2}", end_time):
+        raise HTTPException(status_code=400, detail="Choose valid attendance times and location")
+    try:
+        start = datetime_time.fromisoformat(start_time)
+        end = datetime_time.fromisoformat(end_time)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Choose valid attendance times") from exc
+    if end <= start or attendance_date >= local_today():
+        raise HTTPException(status_code=400, detail="Select a past day and an end time after the start time")
+    working_dates, _ = leave_working_dates(db, org.id, attendance_date, attendance_date)
+    if not working_dates:
+        raise HTTPException(status_code=400, detail="Select a working day")
+    current = zoho_profile_attendance_feed(member, attendance_date, {})
+    if current["status"] != "synced":
+        raise HTTPException(status_code=503, detail=current["message"])
+    if any(row["date"] == attendance_date and (row["first_in_label"] != "—" or row["last_out_label"] != "—") for row in current["rows"]):
+        raise HTTPException(status_code=409, detail="Attendance is already marked for this day")
+    record = db.scalar(select(AttendanceRegularization).where(
+        AttendanceRegularization.org_id == org.id, AttendanceRegularization.user_id == member.id,
+        AttendanceRegularization.attendance_date == attendance_date,
+    ))
+    if record and record.status == "approved":
+        raise HTTPException(status_code=409, detail="This day was already regularized")
+    result = add_zoho_attendance_entry(employee_zoho_id=member.zoho_employee_id,
+                                       day=attendance_date, start_time=start_time, end_time=end_time)
+    if result.status != "synced":
+        raise HTTPException(status_code=502, detail=result.error or "Zoho could not add the attendance entry")
+    if record is None:
+        record = AttendanceRegularization(org_id=org.id, user_id=member.id, manager_id=manager.id, attendance_date=attendance_date)
+        db.add(record)
+    record.manager_id, record.start_time, record.end_time, record.location = manager.id, start_time, end_time, location
+    record.status, record.resolved_at = "approved", datetime.utcnow()
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/manager/team-leaves?member_id={member_id}&month={attendance_date:%Y-%m}", status_code=303)
 
 
 @app.get("/{org_slug}/manager/capacity", response_class=HTMLResponse)

@@ -496,6 +496,11 @@ textarea {
 .profile-attendance-stats span, .profile-attendance-stats small { display: block; color: var(--muted); }
 .profile-attendance-stats strong { display: block; margin: 0.2rem 0; font-size: 1.45rem; }
 .profile-attendance-table td small { display: block; margin-top: 0.2rem; color: #b45309; }
+.profile-regularization { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; }
+.profile-regularization summary { cursor: pointer; display: inline-block; }
+.regularization-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid var(--line); }
+.regularization-form { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin-top: 1rem; }
+.regularization-form label { display: grid; gap: .3rem; }
 .profile-work-mode { display: inline-flex; padding: 0.25rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 750; }
 .profile-work-mode.is-office { color: #166534; background: #dcfce7; }
 .profile-work-mode.is-remote { color: #1d4ed8; background: #dbeafe; }

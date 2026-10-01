@@ -8,6 +8,15 @@
   </div>
 </section>
 
+{% if pending_requests %}
+<section class="panel">
+  <h2>Attendance regularization requests ({{ pending_requests|length }})</h2>
+  {% for item in pending_requests %}
+  <p class="regularization-row"><span><strong>{{ request_people[item.user_id].full_name }}</strong> requested {{ item.attendance_date.strftime('%d %b %Y') }}</span><a class="button small" href="/{{ org.slug }}/manager/team-leaves?member_id={{ item.user_id }}&month={{ item.attendance_date.strftime('%Y-%m') }}">Review request</a></p>
+  {% endfor %}
+</section>
+{% endif %}
+
 <section class="panel team-leaves-filter">
   <form method="get" action="/{{ org.slug }}/manager/team-leaves">
     <label>Team member
@@ -59,6 +68,22 @@
       </tbody>
     </table>
   </div>
+  {% if feed.attendance.status == 'synced' %}
+  <details class="profile-regularization">
+    <summary class="button secondary small">Regularize attendance</summary>
+    <p>Select an unmarked working day. The default entry is 10:00 AM to 7:00 PM, remote.</p>
+    {% if feed.attendance.missing_days %}
+    <form method="post" action="/{{ org.slug }}/manager/team-leaves/regularize" class="regularization-form">
+      <input type="hidden" name="member_id" value="{{ selected_member.id }}">
+      <label>Unmarked day<select name="attendance_date" required>{% for missing in feed.attendance.missing_days %}<option value="{{ missing.date.isoformat() }}">{{ missing.label }}{% if missing.request and missing.request.status == 'pending' %} · Request pending{% endif %}</option>{% endfor %}</select></label>
+      <label>Login<input type="time" name="start_time" value="10:00" required></label>
+      <label>Logout<input type="time" name="end_time" value="19:00" required></label>
+      <label>Location<select name="location"><option value="remote">Remote</option><option value="office">Office</option></select></label>
+      <button type="submit">Regularize in Zoho</button>
+    </form>
+    {% else %}<p class="empty">No past working days are missing attendance.</p>{% endif %}
+  </details>
+  {% endif %}
   {% else %}<p class="empty">Attendance will appear when this month begins.</p>{% endif %}
 </section>
 

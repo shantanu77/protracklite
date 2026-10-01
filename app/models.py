@@ -124,6 +124,23 @@ class User(Base):
     department: Mapped[Department | None] = relationship(back_populates="users")
 
 
+class AttendanceRegularization(Base):
+    __tablename__ = "attendance_regularizations"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "attendance_date", name="uq_attendance_regularization_day"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    manager_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    attendance_date: Mapped[date] = mapped_column(Date, index=True)
+    start_time: Mapped[str] = mapped_column(String(5), default="10:00")
+    end_time: Mapped[str] = mapped_column(String(5), default="19:00")
+    location: Mapped[str] = mapped_column(String(30), default="remote")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Project(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("org_id", "code", name="uq_project_code_per_org"),)

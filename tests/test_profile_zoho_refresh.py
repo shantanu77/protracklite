@@ -11,7 +11,7 @@ from app.main import profile_page
 
 
 class ProfileZohoRefreshTests(unittest.TestCase):
-    def test_profile_uses_local_data_until_refresh_is_requested(self):
+    def test_profile_loads_attendance_and_uses_local_leave_until_refresh(self):
         org = SimpleNamespace(id=1, slug="test")
         user = SimpleNamespace(id=2)
         local_leave = {"year_leave_days": 1.0}
@@ -23,21 +23,23 @@ class ProfileZohoRefreshTests(unittest.TestCase):
             patch("app.main.org_people", return_value=[]),
             patch("app.main.user_avatar_emoji", return_value="🌸"),
             patch("app.main.zoho_profile_leave_feed") as leave_feed,
-            patch("app.main.zoho_profile_attendance_feed") as attendance_feed,
+            patch("app.main.zoho_profile_attendance_feed", return_value={"status": "synced"}) as attendance_feed,
+            patch("app.main.regularization_attendance_context", return_value={"status": "synced"}) as regularization_context,
             patch("app.main.templates.TemplateResponse") as render,
         ):
             profile_page(
                 request=SimpleNamespace(),
                 refresh_zoho=False,
                 org_user=(org, user),
-                db=SimpleNamespace(),
+                db=SimpleNamespace(scalars=lambda query: SimpleNamespace(all=lambda: [])),
             )
 
         leave_feed.assert_not_called()
-        attendance_feed.assert_not_called()
+        attendance_feed.assert_called_once()
+        regularization_context.assert_called_once()
         context = render.call_args.args[1]
         self.assertEqual(context["leave_requests"], [local_leave])
-        self.assertEqual(context["zoho_attendance"]["status"], "pending")
+        self.assertEqual(context["zoho_attendance"]["status"], "synced")
         self.assertEqual(context["zoho_leave_feed_status"], "pending")
 
     def test_refresh_loads_zoho_feeds(self):
@@ -56,13 +58,14 @@ class ProfileZohoRefreshTests(unittest.TestCase):
                 "mine": [zoho_leave], "team": [], "remote_dates": {},
             }) as leave_feed,
             patch("app.main.zoho_profile_attendance_feed", return_value={"status": "synced"}) as attendance_feed,
+            patch("app.main.regularization_attendance_context", return_value={"status": "synced"}),
             patch("app.main.templates.TemplateResponse") as render,
         ):
             profile_page(
                 request=SimpleNamespace(),
                 refresh_zoho=True,
                 org_user=(org, user),
-                db=SimpleNamespace(),
+                db=SimpleNamespace(scalars=lambda query: SimpleNamespace(all=lambda: [])),
             )
 
         leave_feed.assert_called_once()
