@@ -12,6 +12,7 @@ from app.zoho_people import (
     cancel_zoho_leave,
     fetch_zoho_attendance_entries,
     fetch_zoho_employee_ids,
+    fetch_zoho_employee_codes,
     fetch_zoho_leave_requests,
     sync_zoho_leave,
 )
@@ -26,6 +27,17 @@ def zoho_response(payload: dict, status_code: int = 200) -> httpx.Response:
 
 
 class ZohoPeopleReadTests(unittest.TestCase):
+    @patch("app.zoho_people._access_token", return_value=("access-token", ""))
+    @patch("app.zoho_people.httpx.get")
+    def test_attendance_code_is_distinct_from_internal_record_id(self, mock_get, _mock_token):
+        mock_get.return_value = zoho_response({"response": {"status": 0, "result": [
+            {"24413000002777017": [{"EmailID": "priya@example.com", "EmployeeID": "105",
+                                   "Zoho_ID": "24413000002777017"}]}]}})
+        codes = fetch_zoho_employee_codes(employee_emails=["PRIYA@example.com"])
+        self.assertEqual(dict(codes.employee_ids), {"priya@example.com": "105"})
+        ids = fetch_zoho_employee_ids(employee_emails=["priya@example.com"])
+        self.assertEqual(dict(ids.employee_ids), {"priya@example.com": "24413000002777017"})
+
     @patch("app.zoho_people._access_token", return_value=("access-token", ""))
     @patch("app.zoho_people.httpx.get")
     def test_employee_directory_maps_email_to_zoho_record_id(self, mock_get, _mock_token):

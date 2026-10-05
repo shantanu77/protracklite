@@ -51,7 +51,7 @@ class ZohoAttendanceResult:
     error: str = ""
 
 
-def add_zoho_attendance_entry(*, employee_email: str, day: date, start_time: str, end_time: str) -> ZohoLeaveResult:
+def add_zoho_attendance_entry(*, employee_code: str, day: date, start_time: str, end_time: str) -> ZohoLeaveResult:
     """Add a manager approved attendance entry through Zoho People v3."""
     token, error = _access_token("attendance")
     if not token:
@@ -63,7 +63,7 @@ def add_zoho_attendance_entry(*, employee_email: str, day: date, start_time: str
             headers={"Authorization": f"Zoho-oauthtoken {token}"},
             data={
                 "punch_details": json.dumps([{
-                    "employee_mail_id": employee_email,
+                    "employee_id": employee_code,
                     "punch_in": f"{day.isoformat()} {start_time}:00",
                     "punch_out": f"{day.isoformat()} {end_time}:00",
                 }]),
@@ -317,6 +317,15 @@ def _employee_rows(payload: object) -> list[tuple[str, dict[str, object]]]:
 
 
 def fetch_zoho_employee_ids(*, employee_emails: Iterable[str]) -> ZohoEmployeeDirectoryResult:
+    return _fetch_zoho_employee_identifiers(employee_emails=employee_emails, use_employee_code=False)
+
+
+def fetch_zoho_employee_codes(*, employee_emails: Iterable[str]) -> ZohoEmployeeDirectoryResult:
+    """Resolve attendance employee codes, distinct from Zoho record IDs."""
+    return _fetch_zoho_employee_identifiers(employee_emails=employee_emails, use_employee_code=True)
+
+
+def _fetch_zoho_employee_identifiers(*, employee_emails: Iterable[str], use_employee_code: bool) -> ZohoEmployeeDirectoryResult:
     requested = {str(email).strip().lower() for email in employee_emails if str(email).strip()}
     if not requested:
         return ZohoEmployeeDirectoryResult(status="synced")
@@ -356,8 +365,9 @@ def fetch_zoho_employee_ids(*, employee_emails: Iterable[str]) -> ZohoEmployeeDi
                     or record_id
                     or ""
                 ).strip()
-                if email in requested and zoho_id:
-                    matches[email] = zoho_id
+                identifier = str(record.get("EmployeeID") or "").strip() if use_employee_code else zoho_id
+                if email in requested and identifier:
+                    matches[email] = identifier
             if requested.issubset(matches) or len(rows) < page_size:
                 break
             start_index += page_size

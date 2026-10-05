@@ -134,6 +134,7 @@ class ManagerTeamLeavesTests(unittest.TestCase):
             patch("app.main.reporting_tree_people", return_value=[{"user": self.member}]),
             patch("app.main.local_today", return_value=date(2026, 10, 1)),
             patch("app.main.zoho_profile_attendance_feed", return_value={"status": "synced", "rows": []}),
+            patch("app.main.fetch_zoho_employee_codes", return_value=SimpleNamespace(status="synced", employee_ids=((self.member.email.lower(), "105"),))),
             patch("app.main.add_zoho_attendance_entry", return_value=SimpleNamespace(status="synced")) as add,
         ):
             response = manager_regularize_attendance(
@@ -143,6 +144,7 @@ class ManagerTeamLeavesTests(unittest.TestCase):
                 org_user=(self.org, self.member), db=self.db,
             )
         self.assertEqual(add.call_count, 2)
+        self.assertEqual(add.call_args.kwargs["employee_code"], "105")
         self.assertIn("regularized=2", response.headers["location"])
         records = self.db.scalars(select(AttendanceRegularization).order_by(AttendanceRegularization.attendance_date)).all()
         self.assertEqual([record.status for record in records], ["approved", "approved"])

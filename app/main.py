@@ -37,6 +37,7 @@ from app.zoho_people import (
     cancel_zoho_leave,
     fetch_zoho_attendance_entries,
     fetch_zoho_employee_ids,
+    fetch_zoho_employee_codes,
     fetch_zoho_leave_balance,
     fetch_zoho_leave_requests,
     sync_zoho_leave,
@@ -9756,10 +9757,14 @@ def manager_regularize_attendance(
     by_day = {record.attendance_date: record for record in records}
     if any(record.status == "approved" for record in records):
         raise HTTPException(status_code=409, detail="A selected day was already regularized")
+    directory = fetch_zoho_employee_codes(employee_emails=[member.email])
+    employee_code = dict(directory.employee_ids).get(member.email.strip().lower(), "")
+    if directory.status != "synced" or not employee_code:
+        raise HTTPException(status_code=503, detail=directory.error or "The employee code could not be found in Zoho People")
     completed = 0
     errors = []
     for day in selected:
-        result = add_zoho_attendance_entry(employee_email=member.email,
+        result = add_zoho_attendance_entry(employee_code=employee_code,
                                            day=day, start_time=start_time, end_time=end_time)
         if result.status != "synced":
             errors.append(f"{day:%d %b}: {result.error or 'Zoho rejected the entry'}")
