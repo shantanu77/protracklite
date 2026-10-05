@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.capacity import build_capacity_payload
+from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
 from app.zoho_people import (
     add_zoho_attendance_entry,
     cancel_zoho_leave,
@@ -118,6 +119,7 @@ app.mount("/user-content", StaticFiles(directory=str(USER_CONTENT_ROOT)), name="
 templates = Jinja2Templates(directory="app/templates")
 STYLESHEET_VERSION = hashlib.sha256(Path("app/static/styles.css").read_bytes()).hexdigest()[:12]
 templates.env.globals["stylesheet_version"] = STYLESHEET_VERSION
+templates.env.globals["dashboard_asset_version"] = hashlib.sha256(Path("app/static/dashboard.css").read_bytes() + Path("app/static/dashboard.js").read_bytes()).hexdigest()[:12]
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
 
@@ -1938,6 +1940,7 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
         "shared_status": task.shared_status or "",
         "shared_status_label": shared_status_label(task),
         "created_by": task.created_by,
+        "dashboard_rank": task.dashboard_rank,
         "assigned_to": task.assigned_to,
         "tags": tags,
         "tags_text": ", ".join(tags),
@@ -2703,7 +2706,8 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
 
 
 def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, Any]:
-    monday, sunday = current_week_bounds()
+    today = local_today()
+    monday, sunday = current_week_bounds(today)
     week_logged_rows = db.execute(
         select(TimeLog.task_id, func.coalesce(func.sum(TimeLog.hours), 0))
             .join(Task, TimeLog.task_id == Task.id)
@@ -2740,11 +2744,9 @@ def dashboard_payload(db: Session, org: Organization, user: User) -> dict[str, A
             Task.closed_at <= datetime.combine(sunday, datetime.max.time()),
         )
         .order_by(Task.closed_at.desc())
-        .limit(12)
     ).all()
 
     groups = {"planned_week": [], "today": [], "week": [], "overdue": [], "pending": [], "all_unclosed": [], "completed": []}
-    today = date.today()
     for task in tasks:
         summary = dashboard_task_summary(task, today)
         summary["booked_this_week_hours"] = round(week_hours_by_task_id.get(task.id, 0.0), 2)
@@ -4372,8 +4374,8 @@ def dashboard(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    week_start, week_end = current_week_bounds()
     today = local_today()
+    week_start, week_end = current_week_bounds(today)
     groups = dashboard_payload(db, org, user)
     week_days = week_allocation_summary(db, org.id, user.id, week_start, week_end)
     for day in week_days:
@@ -4382,6 +4384,7 @@ def dashboard(
             and day["base_status"] not in {"weekend", "holiday"}
             and day["status"] != "leave"
         )
+    employee_dashboard = build_employee_dashboard(db, org, user, groups, week_days, today)
     effort_task_candidates = [
         {
             "task_id": task["task_id"],
@@ -4407,6 +4410,7 @@ def dashboard(
             "org": org,
             "user": user,
             "groups": groups,
+            "work_dashboard": employee_dashboard,
             "today": today,
             "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
             "week_start": week_start,
@@ -4427,6 +4431,40 @@ def dashboard(
             "whats_new_announcement": pending_whats_new_announcement(db, user, org.slug),
         },
     )
+
+
+@app.get("/{org_slug}/dashboard/attendance")
+def dashboard_attendance(
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, user = org_user
+    today = local_today()
+    week_start, week_end = current_week_bounds(today)
+    def load_sources():
+        attendance = zoho_profile_attendance_feed(user, today, {})
+        leaves = fetch_zoho_leave_requests(
+            employee_zoho_ids=[user.zoho_employee_id],
+            from_date=min(today.replace(day=1), week_start), to_date=max(today, week_end),
+        ) if attendance["status"] == "synced" else None
+        if leaves is None:
+            from app.zoho_people import ZohoLeaveListResult
+            leaves = ZohoLeaveListResult(status="failed")
+        return attendance, leaves
+    attendance, leaves, synced_at = source_cache.get((org.id, user.id, user.zoho_employee_id, today), load_sources)
+    attendance = regularization_attendance_context(db, org.id, user.id, attendance, today.replace(day=1), today)
+    result = personal_attendance_summary(db, org, user, attendance, leaves, today, synced_at,
+                                        settings.zoho_work_from_home_leave_type_id)
+    return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/{org_slug}/dashboard/attendance/regularize")
+def dashboard_request_regularization(
+    org_slug: str, attendance_date: date = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    request_attendance_regularization(org_slug=org_slug, attendance_date=attendance_date, org_user=org_user, db=db)
+    source_cache.invalidate(org_user[0].id, org_user[1].id)
+    return JSONResponse({"status": "pending"}, headers={"Cache-Control": "private, no-store"})
 
 
 @app.post("/{org_slug}/dashboard/day-log")
@@ -4456,7 +4494,7 @@ async def dashboard_add_day_log(
     valid_dates = {
         day["date"]
         for day in week_allocation_summary(db, org.id, user.id, week_start, week_end)
-        if day["date"] < today and day["base_status"] not in {"weekend", "holiday"} and day["status"] != "leave"
+        if day["date"] < today and day["base_status"] not in {"weekend", "holiday"} and day["leave_type"] != "full"
     }
     if log_date not in valid_dates:
         return RedirectResponse(
@@ -6756,6 +6794,26 @@ def stall_task_page(
     return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
 
 
+@app.post("/{org_slug}/tasks/{task_code}/resume")
+def resume_task_page(
+    org_slug: str, task_code: str, redirect_to: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, user = org_user
+    task = db.scalar(select(Task).where(Task.org_id == org.id, Task.task_id == task_code, Task.is_archived.is_(False)))
+    if not task or not can_log_task(db, task, user):
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status != TaskStatus.STALLED:
+        raise HTTPException(status_code=409, detail="Only a blocked task can be resumed")
+    task.status = TaskStatus.STARTED
+    task.stalled_reason = ""
+    if task.is_shared:
+        task.shared_status = SharedTaskStatus.IN_PROGRESS.value
+    add_task_event(db, task, user, "Confirmed the blocker was resolved and resumed work.")
+    db.commit()
+    return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/dashboard"), status_code=303)
+
+
 @app.post("/{org_slug}/tasks/{task_code}/unarchive")
 def unarchive_task_page(org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
@@ -6893,6 +6951,10 @@ def add_time_log_page(
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
     if not task or not can_log_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
+    if not hours.is_finite() or hours <= 0:
+        raise HTTPException(status_code=400, detail="Hours must be greater than zero")
+    if log_date > local_today():
+        raise HTTPException(status_code=400, detail="Effort cannot be logged for a future date")
     normalized_notes = normalize_time_log_notes(notes)
     db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log_date, hours=hours, notes=normalized_notes))
     db.flush()
@@ -8837,6 +8899,11 @@ def request_attendance_regularization(
         raise HTTPException(status_code=503, detail=current["message"])
     if any(row["date"] == attendance_date and (row["first_in_label"] != "—" or row["last_out_label"] != "—") for row in current["rows"]):
         raise HTTPException(status_code=409, detail="Attendance is already marked for this day")
+    leaves = fetch_zoho_leave_requests(employee_zoho_ids=[user.zoho_employee_id], from_date=attendance_date, to_date=attendance_date)
+    if leaves.status != "synced":
+        raise HTTPException(status_code=503, detail="Unable to confirm leave status. Please try again after Zoho is available.")
+    if approved_absence_counts(leaves, user.zoho_employee_id, settings.zoho_work_from_home_leave_type_id).get(attendance_date, 0) >= 1:
+        raise HTTPException(status_code=409, detail="Approved full-day leave is already recorded for this day")
     existing = db.scalar(select(AttendanceRegularization).where(
         AttendanceRegularization.org_id == org.id, AttendanceRegularization.user_id == user.id,
         AttendanceRegularization.attendance_date == attendance_date,
@@ -9372,6 +9439,7 @@ def api_add_leave(payload: dict, org_user: tuple[Organization, User] = Depends(g
         leave.zoho_sync_error = zoho_result.error[:255]
         leave.zoho_synced_at = datetime.utcnow() if zoho_result.status == "synced" else None
     db.commit()
+    source_cache.invalidate(org.id, user.id)
     affected_tasks = affected_leave_tasks(db, org.id, user.id, start_date, end_date)
     notified_count = notify_leave_submission(
         db,
@@ -9779,6 +9847,8 @@ def manager_regularize_attendance(
         record.status, record.resolved_at = "approved", datetime.utcnow()
         db.commit()
         completed += 1
+    if completed:
+        source_cache.invalidate(org.id, member.id)
     params = {"member_id": member_id, "month": month, "regularized": completed}
     if errors:
         params["regularization_error"] = "; ".join(errors)[:500]

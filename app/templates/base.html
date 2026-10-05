@@ -8,8 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css?v={{ stylesheet_version }}">
+  {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebar-inner">
@@ -961,6 +962,10 @@
       }
     }
 
+    document.querySelectorAll("[data-quick-task-open]").forEach((button) => {
+      button.addEventListener("click", openQuickTaskModal);
+    });
+
     function shouldIgnoreQuickTaskShortcut(target) {
       if (!(target instanceof Element)) {
         return false;
@@ -1028,6 +1033,7 @@
         }
 
         const taskCode = result.task_id || "";
+        document.dispatchEvent(new CustomEvent("task-created", { detail: { task_id: taskCode } }));
         setQuickTaskFeedback(
           `Created <a href="/{{ org.slug }}/tasks/${taskCode}"><strong>${taskCode}</strong></a>. You can keep adding more tasks.`,
           "success"

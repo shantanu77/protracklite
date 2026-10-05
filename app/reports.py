@@ -339,7 +339,7 @@ def week_allocation_summary(
     settings: OrgSettings | None = None,
 ) -> list[dict]:
     settings = settings or db.scalar(select(OrgSettings).where(OrgSettings.org_id == org_id))
-    weekend_days = set((settings.weekend_days if settings else [5, 6]) or [5, 6])
+    weekend_days = set(settings.weekend_days if settings and settings.weekend_days is not None else [5, 6])
     leaves = load_leave_map(db, user_id, from_date, to_date)
     holidays = load_holiday_map(db, org_id, from_date, to_date)
 
