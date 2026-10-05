@@ -126,6 +126,20 @@ class ZohoPeopleReadTests(unittest.TestCase):
     @patch("app.zoho_people.get_settings")
     @patch("app.zoho_people._access_token", return_value=("access-token", ""))
     @patch("app.zoho_people.httpx.get")
+    def test_half_day_reads_capitalized_session(self, mock_get, _mock_token, mock_settings):
+        mock_settings.return_value = SimpleNamespace(zoho_people_url="https://people.zoho.in")
+        mock_get.return_value = zoho_response({"status": "success", "data": [{
+            "from_date": "24-Sep-2026", "to_date": "24-Sep-2026", "approval_status": "APPROVED",
+            "employee": {"zoho_id": "employee-1"}, "leave_type": {"name": "Earned Leave"},
+            "days": {"24-Sep-2026": {"leave_count": "0.5", "Session": 1}}
+        }]})
+        result=fetch_zoho_leave_requests(employee_zoho_ids=["employee-1"],from_date=date(2026,9,1),to_date=date(2026,9,30))
+        self.assertEqual(result.leaves[0]["duration_label"],"Half day (AM)")
+        self.assertEqual(result.leaves[0]["day_sessions"],((date(2026,9,24),1),))
+
+    @patch("app.zoho_people.get_settings")
+    @patch("app.zoho_people._access_token", return_value=("access-token", ""))
+    @patch("app.zoho_people.httpx.get")
     def test_attendance_reduces_daily_entries_to_first_login_and_last_logout(
         self, mock_get, _mock_token, mock_settings
     ):

@@ -53,5 +53,18 @@
       button.textContent = 'Sync with Zoho';
     }
   });
+  const dialog = document.querySelector('[data-capacity-leave-dialog]');
+  let leaveTrigger;
+  document.querySelectorAll('[data-capacity-leave]').forEach(mark => mark.addEventListener('click', () => {
+    const data = JSON.parse(mark.dataset.capacityLeave);
+    ['employee', 'range', 'duration', 'shown', 'approval'].forEach(key => {
+      dialog.querySelector(`[data-capacity-leave-${key}]`).textContent = data[key] || 'Not available';
+    });
+    dialog.querySelector('[data-capacity-leave-type]').textContent = `${data.icon} ${data.type}`;
+    leaveTrigger = mark;
+    dialog.showModal();
+  }));
+  dialog.querySelector('[data-capacity-leave-close]').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => leaveTrigger?.focus());
   if (button.disabled) poll();
 })();

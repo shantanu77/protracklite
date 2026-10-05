@@ -8167,3 +8167,17 @@ code {
   .capacity-page .capacity-view-form { width: 100%; }
   .capacity-page .capacity-view-form select { flex: 1; min-width: 0; }
 }
+.capacity-page button.capacity-status-bar { min-height: 0; margin: 0; box-shadow: none; cursor: pointer; line-height: 22px; display: block; font-size: .64rem; transform: none; }
+.capacity-page button.capacity-status-bar:hover { filter: brightness(.96); transform: none; }
+.capacity-page button.capacity-status-bar:focus-visible { outline: 2px solid #334155; outline-offset: 1px; }
+.capacity-page .capacity-status-bar.is-half-day, .capacity-page .capacity-legend i.is-half-day { background: #e0e7ff; color: #3730a3; border-style: dashed; }
+.capacity-leave-dialog { width: min(480px, calc(100vw - 32px)); padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; color: #1e293b; box-shadow: 0 24px 70px #0f172a33; }
+.capacity-leave-dialog::backdrop { background: #0f172a66; }
+.capacity-leave-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.capacity-leave-dialog h2 { font-size: 1.25rem; margin: 0; }
+.capacity-leave-dialog header button { padding: 5px 12px; }
+.capacity-leave-person { font-weight: 700; margin: 18px 0; }
+.capacity-leave-dialog dl { margin: 0; }
+.capacity-leave-dialog dl div { padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
+.capacity-leave-dialog dt { color: #64748b; font-size: .75rem; margin-bottom: 5px; }
+.capacity-leave-dialog dd { margin: 0; font-weight: 600; }

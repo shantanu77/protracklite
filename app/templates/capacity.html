@@ -91,7 +91,9 @@
           <div class="capacity-timeline-row">
             {% for segment in row.segments %}
             {% if segment.status not in ['holiday', 'weekend', 'available', 'unknown'] %}
-            <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-left: {{ segment.left_percent }}%; --segment-width: {{ segment.width_percent }}%;" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ {"planned": "Leave", "unplanned": "Sick"}[segment.status] }}</span></div>
+            <button type="button" class="capacity-status-bar is-{{ segment.status }}{% if segment.is_half_day %} is-half-day{% endif %}" style="--segment-left: {{ segment.left_percent }}%; --segment-width: {{ segment.width_percent }}%;" title="{{ row.user.full_name }} · {{ segment.title }}" aria-label="{{ row.user.full_name }} · {{ segment.title }}" data-capacity-leave='{{ {"employee": row.user.full_name, "type": segment.type, "icon": segment.icon, "range": segment.request_range_label, "duration": segment.request_duration_label, "shown": segment.range_label ~ " · " ~ segment.duration_label, "approval": segment.approval}|tojson|e }}'>
+              <span aria-hidden="true">{{ segment.icon }}</span> <span>{% if segment.is_half_day %}½{{ 'AM' if segment.session == 1 else 'PM' if segment.session == 2 else '' }}{% elif segment.span == 1 %}1d{% else %}{{ segment.duration_label }} · {{ segment.type }} · {{ segment.start_date.strftime('%d %b') }}–{{ segment.end_date.strftime('%d %b') }}{% endif %}</span>
+            </button>
             {% endif %}
             {% endfor %}
           </div>
@@ -107,12 +109,25 @@
   <div class="capacity-legend" aria-label="Capacity status legend">
     <span title="Planned Leave"><i class="is-planned"></i>Leave</span>
     <span title="Unplanned / Sick"><i class="is-unplanned"></i>Sick leave</span>
+    <span title="Half-day leave"><i class="is-half-day"></i>½ Half day (AM / PM)</span>
     <span title="Weekend"><i class="is-weekend"></i>Wknd</span>
     <span title="Public Holiday"><i class="is-holiday"></i>PH</span>
   </div>
-  <p class="capacity-timeline-note">Only leave and holidays are marked. Hover a leave mark for details. Blank working days have no leave recorded in the saved snapshot.</p>
+  <p class="capacity-timeline-note">Only leave and holidays are marked. Click or hover a leave mark for its full date range, duration, and type. Blank working days have no leave recorded in the saved snapshot.</p>
 </section>
 
+<dialog class="capacity-leave-dialog" data-capacity-leave-dialog aria-labelledby="capacity-leave-title">
+  <header><h2 id="capacity-leave-title">Leave details</h2><button type="button" class="secondary" data-capacity-leave-close aria-label="Close leave details">×</button></header>
+  <p class="capacity-leave-person" data-capacity-leave-employee></p>
+  <dl>
+    <div><dt>Leave type</dt><dd data-capacity-leave-type></dd></div>
+    <div><dt>Full request range</dt><dd data-capacity-leave-range></dd></div>
+    <div><dt>Leave duration</dt><dd data-capacity-leave-duration></dd></div>
+    <div><dt>Shown in this section</dt><dd data-capacity-leave-shown></dd></div>
+    <div><dt>Approval status</dt><dd data-capacity-leave-approval></dd></div>
+  </dl>
+  <p class="capacity-timeline-note">From the saved Zoho snapshot. Use Sync with Zoho to fetch changes.</p>
+</dialog>
 <script>
   (() => {
     const scroll = document.querySelector("[data-capacity-scroll]");

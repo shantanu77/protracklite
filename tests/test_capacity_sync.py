@@ -105,7 +105,7 @@ class CapacitySyncTests(unittest.TestCase):
         self.sync(leaves=[self.leave(leave_type_name='Work from home'), self.leave(approval_status='PENDING',day_counts=[(date(2026,10,8),.5)])])
         report=self.report();self.assertEqual(report['leave_entry_count'],1)
         segment=next(s for s in report['rows'][0]['segments'] if s['status']=='planned')
-        self.assertIn('PENDING',segment['title']);self.assertIn('0.5',segment['title'])
+        self.assertIn('PENDING',segment['title']);self.assertIn('½ day',segment['title'])
 
     def test_org_and_member_scope_do_not_leak(self):
         self.sync()
@@ -136,6 +136,37 @@ class CapacitySyncTests(unittest.TestCase):
             run_capacity_sync(self.org.id,START,END,stamp)
         self.db.expire_all()
         self.assertEqual(capacity_sync_status(self.db,self.org.id)['status'],'done')
+
+    def test_multi_day_leave_displays_complete_request_and_segment_duration(self):
+        dates=[date(2026,9,day) for day in [24,25,28,29,30]]
+        self.sync(leaves=[self.leave(start_date=dates[0],end_date=dates[-1],day_counts=[(day,1) for day in dates],leave_days=5)],
+                  start=date(2026,9,1),end=date(2026,9,30))
+        report=self.report(anchor=date(2026,9,1))
+        segments=[segment for segment in report['rows'][0]['segments'] if segment['status']=='planned']
+        self.assertEqual([segment['duration_label'] for segment in segments],['2 days','3 days'])
+        self.assertTrue(all(segment['request_duration_label']=='5 days' for segment in segments))
+        self.assertTrue(all(segment['request_range_label']=='24–30 Sep 2026' for segment in segments))
+        self.assertEqual(sum(segment['count'] for segment in segments),5)
+
+    def test_cross_month_request_keeps_full_range_and_total(self):
+        dates=[date(2026,9,day) for day in [24,25,28,29,30]]+[date(2026,10,1),date(2026,10,2)]
+        self.sync(leaves=[self.leave(start_date=dates[0],end_date=dates[-1],day_counts=[(day,1) for day in dates],leave_days=7)],
+                  start=date(2026,9,28),end=date(2026,10,4))
+        segment=next(segment for segment in self.report()['rows'][0]['segments'] if segment['status']=='planned')
+        self.assertEqual(segment['request_range_label'],'24 Sep 2026 – 02 Oct 2026')
+        self.assertEqual(segment['request_duration_label'],'7 days')
+        self.assertEqual(segment['duration_label'],'2 days')
+
+    def test_half_day_session_and_type_survive_snapshot_and_rendering(self):
+        self.sync(leaves=[self.leave(day_counts=[(date(2026,10,6),.5)],day_sessions=[(date(2026,10,6),1)],leave_days=.5,leave_type_name='Earned Leave')])
+        segment=next(segment for segment in self.report()['rows'][0]['segments'] if segment['status']=='planned')
+        self.assertTrue(segment['is_half_day']);self.assertEqual(segment['icon'],'🏖️')
+        self.assertEqual(segment['request_duration_label'],'½ day (AM)')
+        response=manager_capacity_page(request=SimpleNamespace(url=SimpleNamespace(path='/shared-capacity/manager/capacity')),
+            view='month',scope='org',anchor=START.isoformat(),org_user=(self.org,self.manager),db=self.db)
+        html=response.body.decode()
+        self.assertIn('is-half-day',html);self.assertIn('½AM',html)
+        self.assertIn('data-capacity-leave-dialog',html)
 
     def test_employee_cannot_trigger_manager_sync(self):
         with self.assertRaises(HTTPException) as exc:

@@ -44,6 +44,7 @@ def normalize_leave_days(leaves, people, start, end):
             continue
         if approval not in {'APPROVED', 'PENDING', 'PENDING APPROVAL', 'PENDING_APPROVAL', 'SUBMITTED', 'APPLIED'}:
             continue
+        sessions = dict(raw.get('day_sessions') or ())
         counts = raw.get('day_counts')
         if not counts:
             days = raw.get('day_dates')
@@ -59,13 +60,20 @@ def normalize_leave_days(leaves, people, start, end):
             if remote:
                 continue
             entry = {'user_id': user_id, 'date': day.isoformat(), 'count': min(float(count), 1),
-                     'planned': 'sick' not in name.casefold(), 'type': name, 'approval': approval}
+                     'planned': 'sick' not in name.casefold(), 'type': name, 'approval': approval,
+                     'session': sessions.get(day), 'request_start': raw['start_date'].isoformat(),
+                     'request_end': raw['end_date'].isoformat(), 'request_days': float(raw.get('leave_days') or sum(float(value) for _, value in counts))}
             if key not in entries:
                 entries[key] = entry
             else:
                 existing = entries[key]
                 existing['count'] = min(existing['count'] + entry['count'], 1)
                 existing['planned'] = existing['planned'] and entry['planned']
+                existing['session'] = None
+                if entry['type'] not in existing['type']:
+                    existing['type'] += ' + ' + entry['type']
+                existing['request_start'] = min(existing['request_start'], entry['request_start'])
+                existing['request_end'] = max(existing['request_end'], entry['request_end'])
     return sorted(entries.values(), key=lambda entry: (entry['user_id'], entry['date']))
 
 

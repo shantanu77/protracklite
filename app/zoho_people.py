@@ -617,7 +617,8 @@ def fetch_zoho_leave_requests(
                         except (TypeError, ValueError):
                             leave_count = 0.0
                         try:
-                            session = int(detail["session"]) if detail.get("session") is not None else None
+                            session_value = detail.get("session", detail.get("Session"))
+                            session = int(session_value) if session_value is not None else None
                         except (TypeError, ValueError):
                             session = None
                         day_values.append((leave_day, leave_count, session))
@@ -626,8 +627,8 @@ def fetch_zoho_leave_requests(
                     leave_days = float(max((end - start).days + 1, 1))
                 duration = "Full day"
                 if len(day_values) == 1 and day_values[0][1] == 0.5:
-                    duration = "Half day (AM)" if day_values[0][2] == 1 else "Half day (PM)"
-                elif len(day_values) > 1:
+                    duration = "Half day (AM)" if day_values[0][2] == 1 else ("Half day (PM)" if day_values[0][2] == 2 else "Half day")
+                elif len(day_values) > 1 or leave_days > 1:
                     duration = f"{leave_days:g} days"
                 records.append(
                     {
@@ -638,6 +639,7 @@ def fetch_zoho_leave_requests(
                         "end_date": end,
                         "day_dates": tuple(item[0] for item in day_values),
                         "day_counts": tuple((item[0], item[1]) for item in day_values),
+                        "day_sessions": tuple((item[0], item[2]) for item in day_values),
                         "leave_days": leave_days,
                         "duration_label": duration,
                         "leave_type_name": str(leave_type.get("name") or "Leave").strip(),

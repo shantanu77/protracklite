@@ -66,6 +66,24 @@ def date_range_label(start_date: date, end_date: date) -> str:
     return f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
 
 
+def leave_type_icon(name: str) -> str:
+    name = name.casefold()
+    if 'sick' in name or 'medical' in name: return '🤒'
+    if any(word in name for word in ['maternity', 'paternity', 'parental']): return '👶'
+    if 'bereavement' in name: return '🕯️'
+    if any(word in name for word in ['annual', 'earned', 'vacation']): return '🏖️'
+    if 'casual' in name: return '🌤️'
+    if 'compensatory' in name or 'comp off' in name: return '🔁'
+    return '📅'
+
+
+def leave_duration_label(count: float, session: int | None = None) -> str:
+    if count == .5:
+        return '½ day' + (' (AM)' if session == 1 else ' (PM)' if session == 2 else '')
+    if count == 1: return '1 day'
+    return f'{count:g} days'
+
+
 def _contiguous_segments(statuses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not statuses:
         return []
@@ -93,6 +111,28 @@ def _contiguous_segments(statuses: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "end_date": end_day,
             }
         )
+        if status in {'planned', 'unplanned'}:
+            segment = segments[-1]
+            items = statuses[segment_start:index]
+            first = items[0]
+            count = sum(item.get('count', 1) for item in items)
+            leave_name = first.get('type', 'Leave')
+            duration = leave_duration_label(count, first.get('session') if len(items) == 1 else None)
+            request_start = date.fromisoformat(first.get('request_start', start_day.isoformat()))
+            request_end = date.fromisoformat(first.get('request_end', end_day.isoformat()))
+            request_range = date_range_label(request_start, request_end)
+            request_days = first.get('request_days')
+            request_duration = leave_duration_label(request_days, first.get('session') if request_days == .5 else None) if request_days else duration
+            segment.update({'type': leave_name, 'icon': leave_type_icon(leave_name),
+                'is_half_day': count == .5 and len(items) == 1, 'session': first.get('session'),
+                'duration_label': duration, 'range_label': date_range_label(start_day, end_day),
+                'request_range_label': request_range, 'request_duration_label': request_duration,
+                'approval': first.get('approval', ''), 'count': count})
+            segment['title'] = f"{leave_name} · {request_range} · {request_duration}"
+            if request_start != start_day or request_end != end_day:
+                segment['title'] += f" · Shown here: {segment['range_label']} ({duration})"
+            if segment['approval']:
+                segment['title'] += f" · {segment['approval']}"
         segment_start = index
         current_key = next_key
     return segments
@@ -192,6 +232,7 @@ def build_capacity_payload(
     for member in members:
         statuses: list[dict[str, Any]] = []
         for day in days:
+            leave_info = {}
             holiday = holiday_map.get(day)
             leave = leave_map.get((member.id, day))
             saved_leave = zoho_leave_map.get((member.id, day))
@@ -210,7 +251,10 @@ def build_capacity_payload(
                 detail = day.strftime("%A")
             elif saved_leave:
                 status = 'planned' if saved_leave['planned'] else 'unplanned'
-                detail = f"{saved_leave['count']:g} day · {saved_leave['type']} · {saved_leave['approval']}"
+                leave_info = dict(saved_leave)
+                detail = " · ".join(str(saved_leave.get(key, "")) for key in ["type", "approval", "count", "session", "request_start", "request_end"])
+                if saved_leave["count"] < 1:
+                    detail += " · " + day.isoformat()
             elif zoho_snapshots is not None and (not snapshot or member.id not in snapshot.member_ids_json):
                 status = 'unknown'
                 detail = 'No saved Zoho data for this employee and month'
@@ -221,13 +265,16 @@ def build_capacity_payload(
                     LeaveType.HALF_AM: "Half day AM",
                     LeaveType.HALF_PM: "Half day PM",
                 }[leave.leave_type]
+                leave_info = {"count": .5 if leave.leave_type != LeaveType.FULL else 1,
+                              "session": 1 if leave.leave_type == LeaveType.HALF_AM else 2 if leave.leave_type == LeaveType.HALF_PM else None,
+                              "type": "Sick leave" if status == "unplanned" else "Leave"}
                 unavailable_by_day[day].append(member)
                 if status == "planned":
                     planned_dates.append(day)
             else:
                 status = "available"
                 detail = ""
-            statuses.append({"date": day, "status": status, "detail": detail})
+            statuses.append({**leave_info, "date": day, "status": status, "detail": detail})
         rows.append(
             {
                 "user": member,
