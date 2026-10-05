@@ -2,22 +2,8 @@
 .work-dashboard-page {
   --primary: #17645b;
   --primary-light: #267a6e;
-  --sidebar-bg: #142c32;
-  --sidebar-text: #d4dfdc;
-  --sidebar-muted: #a2b7b4;
-  --sidebar-surface: #ffffff12;
   background: #f5f5f0;
 }
-.work-dashboard-page .sidebar { border-color: #ffffff12; }
-.work-dashboard-page .sidebar .nav-link, .work-dashboard-page .sidebar .nav-sublink { color: #d4dfdc; }
-.work-dashboard-page .sidebar .nav-link.primary { color: white; }
-.work-dashboard-page .brand-name, .work-dashboard-page .brand-name .lite { color: white; }
-.work-dashboard-page .brand-mark { background: #dfecc6; color: #142c32; }
-.work-dashboard-page .sidebar-user, .work-dashboard-page .nav-link.primary { background: #ffffff0f; border-color: #ffffff16; color: white; }
-.work-dashboard-page .nav-link:hover, .work-dashboard-page .logout-btn:hover { background: #ffffff13; color: white; }
-.work-dashboard-page .sidebar-compose { background: #dfecc6; color: #142c32; }
-.work-dashboard-page .sidebar-compose kbd { color: #142c32; }
-.work-dashboard-page .nav-section-toggle, .work-dashboard-page .nav-section { color: #a9bdb7; }
 .work-dashboard-page .content { width: 100%; max-width: 1650px; padding: 0 34px 25px; }
 .work-dashboard { --wd-ink: #182d35; --wd-muted: #697a80; --wd-line: #e1e6e3; color: var(--wd-ink); font-size: 13px; }
 .work-dashboard button:hover { transform: none; }

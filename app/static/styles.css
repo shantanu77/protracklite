@@ -11,10 +11,10 @@
   --warning: #b7791f;
   --danger: #c2413b;
   --line: #d5dfe5;
-  --sidebar-bg: #f4f7f6;
-  --sidebar-surface: #e6efeb;
-  --sidebar-text: #19342e;
-  --sidebar-muted: rgba(25, 52, 46, 0.62);
+  --sidebar-bg: #142c32;
+  --sidebar-surface: #ffffff12;
+  --sidebar-text: #d4dfdc;
+  --sidebar-muted: #a2b7b4;
   --shadow: 0 18px 44px rgba(17, 24, 39, 0.08);
   --shadow-soft: 0 10px 24px rgba(17, 24, 39, 0.06);
   --sidebar-w: 252px;
@@ -8112,3 +8112,18 @@ code {
     font-size: 0.84rem;
   }
 }
+
+/* Shared navigation theme across every application page. */
+.sidebar { border-color: #ffffff12; }
+.sidebar .nav-link, .sidebar .nav-sublink { color: #d4dfdc; }
+.sidebar .nav-link.primary { color: white; }
+.sidebar .brand-name, .sidebar .brand-name .lite { color: white; }
+.sidebar .brand-mark { background: #dfecc6; color: #142c32; }
+.sidebar .sidebar-user, .sidebar .nav-link.primary { background: #ffffff0f; border-color: #ffffff16; color: white; }
+.sidebar .nav-link:hover, .sidebar .logout-btn:hover { background: #ffffff13; color: white; }
+.sidebar .sidebar-compose { background: #dfecc6; color: #142c32; }
+.sidebar .sidebar-compose kbd { color: #142c32; }
+.sidebar .nav-section-toggle, .sidebar .nav-section { color: #a9bdb7; }
+
+.sidebar .nav-sublink.active { background: #ffffff0f; color: white; }
+.sidebar .nav-sublink:hover { background: #ffffff13; color: white; }
