@@ -8127,3 +8127,43 @@ code {
 
 .sidebar .nav-sublink.active { background: #ffffff0f; color: white; }
 .sidebar .nav-sublink:hover { background: #ffffff13; color: white; }
+
+/* Leave and capacity: quiet rows, marks only for leave and holidays. */
+.capacity-page { --primary: #334155; --primary-light: #475569; }
+.capacity-page .capacity-page-head h1 { font-size: clamp(1.65rem, 3vw, 2.3rem); letter-spacing: -.04em; }
+.capacity-page .capacity-header-controls { flex-wrap: wrap; }
+.capacity-page .capacity-header-controls form { margin: 0; }
+.capacity-page .capacity-header-controls button[type=submit] { background: #263b55; color: white; border-color: #263b55; }
+.capacity-sync-panel { display: flex; justify-content: space-between; gap: 24px; padding: 18px 22px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 16px; }
+.capacity-sync-panel small, .capacity-sync-dates span { display: block; color: #64748b; font-size: .78rem; margin-top: 5px; }
+.capacity-sync-dates p { margin: 0 0 8px; }
+.capacity-sync-dates p:last-child { margin-bottom: 0; }
+.capacity-sync-dates strong { font-size: .82rem; }
+.capacity-sync-message { padding: 12px 18px; background: #eff6ff; color: #334155; border-radius: 8px; }
+.capacity-sync-message.is-error { background: #fff1f2; color: #9f1239; }
+.capacity-page .capacity-summary-card { background: #fff; border-color: #e2e8f0; box-shadow: none; }
+.capacity-page .capacity-summary-card strong { color: #263b55; }
+.capacity-page .capacity-card { box-shadow: none; border-color: #e2e8f0; }
+.capacity-page .capacity-alert.is-clear { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+.capacity-page .capacity-day-head.is-today { color: #1d4ed8; background: #eff6ff; }
+.capacity-page .capacity-status-bar { height: 26px; padding: 0 4px; text-align: center; border-radius: 6px; color: #334155; font-weight: 700; }
+.capacity-page .capacity-status-bar.is-planned, .capacity-page .capacity-legend i.is-planned { background: #fef3c7; color: #92400e; background-image: none; }
+.capacity-page .capacity-status-bar.is-unplanned, .capacity-page .capacity-legend i.is-unplanned { background: #ffe4e6; color: #9f1239; }
+.capacity-page .capacity-weekend-band { background: #f5f6f8; box-shadow: inset 1px 0 #edf0f3; }
+.capacity-page .capacity-holiday-band { background: #edf2f7; box-shadow: inset 1px 0 #dce3eb; }
+.capacity-page .capacity-legend i.is-holiday { background: #edf2f7; border-color: #dce3eb; }
+.capacity-page .capacity-legend { flex-wrap: wrap; }
+.capacity-timeline-note { text-align: center; font-size: .76rem; color: #64748b; margin: 12px 0 0; }
+@media (max-width: 720px) {
+  .capacity-sync-panel { flex-direction: column; gap: 14px; padding: 16px; }
+  .capacity-page .capacity-header-controls { width: 100%; }
+  .capacity-page .capacity-view-form { flex-wrap: wrap; }
+  .capacity-page .capacity-card-toolbar { align-items: flex-start; }
+}
+.capacity-page .capacity-view-form { display: flex; flex-direction: row; gap: 10px; width: auto; }
+.capacity-page .capacity-view-form select { width: auto; min-width: 155px; }
+.capacity-page .capacity-timeline-cta { background: white; color: #334155; border: 1px solid #dce3eb; box-shadow: none; }
+@media (max-width: 720px) {
+  .capacity-page .capacity-view-form { width: 100%; }
+  .capacity-page .capacity-view-form select { flex: 1; min-width: 0; }
+}

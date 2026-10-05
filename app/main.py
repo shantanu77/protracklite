@@ -21,7 +21,7 @@ from urllib.parse import urlencode
 
 import bleach
 import httpx
-from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -31,7 +31,8 @@ from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
-from app.capacity import build_capacity_payload
+from app.capacity import build_capacity_payload, capacity_period
+from app.capacity_sync import capacity_snapshots, capacity_sync_status, run_capacity_sync, start_capacity_sync
 from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
 from app.zoho_people import (
     add_zoho_attendance_entry,
@@ -9877,10 +9878,13 @@ def manager_capacity_page(
         anchor_date = date.fromisoformat(anchor) if anchor else local_today()
     except ValueError:
         anchor_date = local_today()
+    period_start, period_end, _, _ = capacity_period(view, anchor_date)
+    snapshots = capacity_snapshots(db, org.id, period_start, period_end)
     report = build_capacity_payload(
         db,
         org,
         members,
+        zoho_snapshots=snapshots,
         view=view,
         anchor=anchor_date,
         scope=normalized_scope,
@@ -9894,8 +9898,38 @@ def manager_capacity_page(
             "user": user,
             "report": report,
             "today": local_today(),
+            "sync_status": capacity_sync_status(db, org.id),
+            "sync_months": [{"label": date(year, month, 1).strftime("%B %Y"),
+                             "synced_at": format_local_datetime(snapshot.synced_at) if snapshot else "",
+                             "unmapped_count": sum(member.id not in snapshot.member_ids_json for member in members) if snapshot else 0}
+                            for (year, month), snapshot in snapshots.items()],
+            "sync_timezone": settings.app_timezone,
         },
     )
+
+
+@app.post("/{org_slug}/manager/capacity/sync", status_code=202)
+def manager_capacity_sync(background_tasks: BackgroundTasks, view: str = Form("month"), anchor: str = Form(""),
+                          org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    try:
+        anchor_date = date.fromisoformat(anchor) if anchor else local_today()
+    except ValueError:
+        raise HTTPException(400, "Invalid capacity date") from None
+    if not 2000 <= anchor_date.year <= 2100:
+        raise HTTPException(400, "Capacity year must be between 2000 and 2100")
+    start, end, _, _ = capacity_period(view, anchor_date)
+    stamp = start_capacity_sync(db, org.id)
+    background_tasks.add_task(run_capacity_sync, org.id, start, end, stamp)
+    return {"status": "running"}
+
+
+@app.get("/{org_slug}/manager/capacity/sync-status")
+def manager_capacity_sync_status(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    return JSONResponse(capacity_sync_status(db, org.id), headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/{org_slug}/admin/leaderboard", response_class=HTMLResponse)

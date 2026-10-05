@@ -631,3 +631,27 @@ class Holiday(Base):
     holiday_date: Mapped[date] = mapped_column(Date)
     name: Mapped[str] = mapped_column(String(150))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CapacityZohoSnapshot(Base):
+    """Shared organizational leave snapshot, independent of the viewing user."""
+    __tablename__ = "capacity_zoho_snapshots"
+    __table_args__ = (UniqueConstraint("org_id", "year", "month", name="uq_capacity_zoho_org_month"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    year: Mapped[int] = mapped_column()
+    month: Mapped[int] = mapped_column()
+    synced_at: Mapped[datetime] = mapped_column(DateTime)
+    member_ids_json: Mapped[list[int]] = mapped_column(JSON, default=list)
+    leave_days_json: Mapped[list[dict]] = mapped_column(JSON, default=list)
+
+
+class CapacityZohoSyncRun(Base):
+    __tablename__ = "capacity_zoho_sync_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="idle")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error: Mapped[str] = mapped_column(String(500), default="")

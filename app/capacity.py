@@ -22,6 +22,7 @@ STATUS_LABELS = {
     "unplanned": "UL/Sick",
     "holiday": "PH",
     "weekend": "Wknd",
+    "unknown": "Not synced",
 }
 
 
@@ -148,6 +149,7 @@ def build_capacity_payload(
     anchor: date | None = None,
     scope: str = "team",
     today: date | None = None,
+    zoho_snapshots: dict | None = None,
 ) -> dict[str, Any]:
     normalized_view = view if view in CAPACITY_VIEWS else "month"
     reference_date = anchor or date.today()
@@ -173,6 +175,16 @@ def build_capacity_payload(
         .order_by(Holiday.holiday_date.asc())
     ).all()
     holiday_map = {holiday.holiday_date: holiday for holiday in holidays}
+    zoho_leave_map = {}
+    if zoho_snapshots is not None:
+        for snapshot in zoho_snapshots.values():
+            if not snapshot:
+                continue
+            for entry in snapshot.leave_days_json:
+                day = date.fromisoformat(entry['date'])
+                if entry['user_id'] in member_ids and period_start <= day <= period_end:
+                    zoho_leave_map[(entry['user_id'], day)] = entry
+        leaves = list(zoho_leave_map.values())
 
     unavailable_by_day: dict[date, list[User]] = defaultdict(list)
     planned_dates: list[date] = []
@@ -182,12 +194,26 @@ def build_capacity_payload(
         for day in days:
             holiday = holiday_map.get(day)
             leave = leave_map.get((member.id, day))
+            saved_leave = zoho_leave_map.get((member.id, day))
+            snapshot = zoho_snapshots.get((day.year, day.month)) if zoho_snapshots is not None else None
+            if zoho_snapshots is not None:
+                leave = None  # The last saved Zoho snapshot is authoritative for this view.
+            if saved_leave and not holiday and day.weekday() not in {5, 6}:
+                unavailable_by_day[day].append(member)
+                if saved_leave['planned']:
+                    planned_dates.append(day)
             if holiday:
                 status = "holiday"
                 detail = holiday.name
             elif day.weekday() in {5, 6}:
                 status = "weekend"
                 detail = day.strftime("%A")
+            elif saved_leave:
+                status = 'planned' if saved_leave['planned'] else 'unplanned'
+                detail = f"{saved_leave['count']:g} day · {saved_leave['type']} · {saved_leave['approval']}"
+            elif zoho_snapshots is not None and (not snapshot or member.id not in snapshot.member_ids_json):
+                status = 'unknown'
+                detail = 'No saved Zoho data for this employee and month'
             elif leave:
                 status = "planned" if leave_is_planned(leave) else "unplanned"
                 detail = {

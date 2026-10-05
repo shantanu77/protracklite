@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% block body_class %}capacity-page{% endblock %}
 {% block content %}
 <section class="page-head capacity-page-head">
   <div>
-    <p class="eyebrow">Manager Planning</p>
-    <h1>TEAM AVAILABILITY &amp; CAPACITY PLANNING</h1>
-    <p>See planned availability, leave conflicts, and public holidays across your team or the organization.</p>
+    <p class="eyebrow">Shared organization view</p>
+    <h1>Leave &amp; capacity</h1>
+    <p>Review leave and public holidays across your team or organization. Ordinary working days stay blank; reloads use the last saved Zoho sync.</p>
   </div>
   <div class="capacity-header-controls">
     <form method="get" action="/{{ org.slug }}/manager/capacity" class="capacity-view-form">
@@ -19,9 +20,22 @@
       </select>
       <input type="hidden" name="anchor" value="{{ report.period_start.isoformat() }}">
     </form>
+    <form method="post" action="/{{ org.slug }}/manager/capacity/sync" data-capacity-sync-form>
+      <input type="hidden" name="view" value="{{ report.view }}">
+      <input type="hidden" name="anchor" value="{{ report.period_start.isoformat() }}">
+      <button type="submit" data-capacity-sync-button {% if sync_status.status == 'running' %}disabled{% endif %}>{{ 'Syncing…' if sync_status.status == 'running' else 'Sync with Zoho' }}</button>
+    </form>
     <a class="button capacity-timeline-cta" href="#capacity-timeline" data-capacity-view-timeline>View Timeline</a>
   </div>
 </section>
+
+<section class="capacity-sync-panel" aria-label="Shared Zoho sync information">
+  <div><strong>Saved Zoho snapshot</strong><small>Shared by everyone in {{ org.name }}. Sync refreshes all active employees for the displayed month{% if sync_months|length > 1 %}s{% endif %}.</small></div>
+  <div class="capacity-sync-dates">
+    {% for month in sync_months %}<p><strong>{{ month.label }}</strong><span>{{ 'Last synced ' ~ month.synced_at ~ ' (' ~ sync_timezone ~ ')' if month.synced_at else 'Not synced yet' }}</span>{% if month.unmapped_count %}<small>{{ month.unmapped_count }} employee{{ 's' if month.unmapped_count != 1 else '' }} could not be linked to Zoho; their days remain unconfirmed.</small>{% endif %}</p>{% endfor %}
+  </div>
+</section>
+<p class="capacity-sync-message{% if sync_status.status == 'failed' %} is-error{% endif %}" role="status" data-capacity-sync-message {% if sync_status.status not in ['running', 'failed'] %}hidden{% endif %}>{{ 'Organization sync is running. The last saved view stays available.' if sync_status.status == 'running' else sync_status.error }}</p>
 
 <section class="capacity-summary-grid" aria-label="Capacity summary">
   <article class="capacity-summary-card"><span>People in view</span><strong>{{ report.member_count }}</strong></article>
@@ -76,8 +90,8 @@
           {% for row in report.rows %}
           <div class="capacity-timeline-row">
             {% for segment in row.segments %}
-            {% if segment.status not in ['holiday', 'weekend'] %}
-            <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-left: {{ segment.left_percent }}%; --segment-width: {{ segment.width_percent }}%;" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ segment.title }}</span></div>
+            {% if segment.status not in ['holiday', 'weekend', 'available', 'unknown'] %}
+            <div class="capacity-status-bar is-{{ segment.status }}" style="--segment-left: {{ segment.left_percent }}%; --segment-width: {{ segment.width_percent }}%;" title="{{ row.user.full_name }} · {{ segment.title }}"><span>{{ {"planned": "Leave", "unplanned": "Sick"}[segment.status] }}</span></div>
             {% endif %}
             {% endfor %}
           </div>
@@ -91,12 +105,12 @@
   {% endif %}
 
   <div class="capacity-legend" aria-label="Capacity status legend">
-    <span title="Active / Available"><i class="is-available"></i>Avl</span>
-    <span title="Planned Leave"><i class="is-planned"></i>{{ report.planned_legend_label }}</span>
-    <span title="Unplanned / Sick"><i class="is-unplanned"></i>UL/Sick</span>
+    <span title="Planned Leave"><i class="is-planned"></i>Leave</span>
+    <span title="Unplanned / Sick"><i class="is-unplanned"></i>Sick leave</span>
     <span title="Weekend"><i class="is-weekend"></i>Wknd</span>
     <span title="Public Holiday"><i class="is-holiday"></i>PH</span>
   </div>
+  <p class="capacity-timeline-note">Only leave and holidays are marked. Hover a leave mark for details. Blank working days have no leave recorded in the saved snapshot.</p>
 </section>
 
 <script>
@@ -110,4 +124,5 @@
     });
   })();
 </script>
+<script src="/static/capacity.js?v={{ stylesheet_version }}"></script>
 {% endblock %}
