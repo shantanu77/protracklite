@@ -9759,7 +9759,7 @@ def manager_regularize_attendance(
     completed = 0
     errors = []
     for day in selected:
-        result = add_zoho_attendance_entry(employee_zoho_id=member.zoho_employee_id,
+        result = add_zoho_attendance_entry(employee_email=member.email,
                                            day=day, start_time=start_time, end_time=end_time)
         if result.status != "synced":
             errors.append(f"{day:%d %b}: {result.error or 'Zoho rejected the entry'}")

@@ -19,18 +19,30 @@ class ZohoAttendanceRegularizationTests(unittest.TestCase):
         post.return_value = SimpleNamespace(is_success=True, json=lambda: {
             "status": "success", "data": {"success_count": 0}, "message": "Skipped entry"
         })
-        result = add_zoho_attendance_entry(employee_zoho_id="HRM3", day=date(2026, 9, 2),
+        result = add_zoho_attendance_entry(employee_email="priya@example.com", day=date(2026, 9, 2),
                                            start_time="10:00", end_time="19:00")
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.error, "Skipped entry")
+        self.assertIn("no successful entries", result.error)
 
         post.return_value = SimpleNamespace(is_success=True, json=lambda: {
             "status": "success", "data": {"success_count": 1}
         })
-        result = add_zoho_attendance_entry(employee_zoho_id="HRM3", day=date(2026, 9, 2),
+        result = add_zoho_attendance_entry(employee_email="priya@example.com", day=date(2026, 9, 2),
                                            start_time="10:00", end_time="19:00")
         self.assertEqual(result.status, "synced")
-        self.assertIn("2026-09-02 10:00:00", post.call_args.kwargs["data"]["punch_details"])
+        import json
+        punch = json.loads(post.call_args.kwargs["data"]["punch_details"])[0]
+        self.assertEqual(punch["employee_mail_id"], "priya@example.com")
+        self.assertNotIn("employee_id", punch)
+        self.assertIn("2026-09-02 10:00:00", punch["punch_in"])
+        post.return_value = SimpleNamespace(is_success=True, json=lambda: {
+            "status": "success", "message": "Request processed successfully.",
+            "data": {"success_count": 0, "skipped_empolyee_info": ["24413000002777017"]}
+        })
+        result = add_zoho_attendance_entry(employee_email="priya@example.com", day=date(2026, 9, 2),
+                                          start_time="10:00", end_time="19:00")
+        self.assertEqual(result.status, "failed")
+        self.assertIn("Zoho skipped", result.error)
 
 
 if __name__ == "__main__":

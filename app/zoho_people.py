@@ -51,7 +51,7 @@ class ZohoAttendanceResult:
     error: str = ""
 
 
-def add_zoho_attendance_entry(*, employee_zoho_id: str, day: date, start_time: str, end_time: str) -> ZohoLeaveResult:
+def add_zoho_attendance_entry(*, employee_email: str, day: date, start_time: str, end_time: str) -> ZohoLeaveResult:
     """Add a manager approved attendance entry through Zoho People v3."""
     token, error = _access_token("attendance")
     if not token:
@@ -63,7 +63,7 @@ def add_zoho_attendance_entry(*, employee_zoho_id: str, day: date, start_time: s
             headers={"Authorization": f"Zoho-oauthtoken {token}"},
             data={
                 "punch_details": json.dumps([{
-                    "employee_id": employee_zoho_id,
+                    "employee_mail_id": employee_email,
                     "punch_in": f"{day.isoformat()} {start_time}:00",
                     "punch_out": f"{day.isoformat()} {end_time}:00",
                 }]),
@@ -74,8 +74,21 @@ def add_zoho_attendance_entry(*, employee_zoho_id: str, day: date, start_time: s
             timeout=30.0,
         )
         payload = response.json()
-        if not response.is_success or payload.get("status") != "success" or payload.get("data", {}).get("success_count") != 1:
-            return ZohoLeaveResult(status="failed", error=str(payload.get("message") or "Zoho did not add the attendance entry"))
+        if not isinstance(payload, dict):
+            return ZohoLeaveResult(status="failed", error="Zoho returned an invalid attendance response")
+        if not response.is_success or payload.get("status") != "success":
+            return ZohoLeaveResult(status="failed", error=str(payload.get("message") or "Zoho rejected the attendance entry"))
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return ZohoLeaveResult(status="failed", error="Zoho did not confirm that the attendance entry was added")
+        if str(data.get("success_count")) != "1":
+            if data.get("skipped_empolyee_info") or data.get("empty_employee_ids"):
+                message = "Zoho skipped the attendance entry: the employee could not be matched or was not eligible"
+            elif data.get("error_information"):
+                message = "Zoho did not add the attendance entry: " + str(data["error_information"])
+            else:
+                message = "Zoho did not add the attendance entry (no successful entries)"
+            return ZohoLeaveResult(status="failed", error=message)
         return ZohoLeaveResult(status="synced")
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         return ZohoLeaveResult(status="failed", error=f"Zoho attendance update failed: {exc}")
