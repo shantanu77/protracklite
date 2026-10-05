@@ -112,7 +112,7 @@
     <div class="modal-head"><div><h2 id="regularization-title">Regularize attendance</h2><p>{{ selected_member.full_name }} · {{ month_label }}</p></div><button type="button" class="modal-close" aria-label="Close" data-modal-close>×</button></div>
     <form method="post" action="/{{ org.slug }}/manager/team-leaves/regularize" data-regularization-form>
       <input type="hidden" name="member_id" value="{{ selected_member.id }}"><input type="hidden" name="month" value="{{ month_value }}">
-      <p>Select the past working days to regularize. The times and location apply to every selected day.</p>
+      <p>Select the past working days to regularize. The times apply to every selected day. Regularization is always remote work in Noida.</p>
       <label class="regularization-select-all"><input type="checkbox" data-select-all> Select all missing days</label>
       <div class="regularization-day-list">
         {% for missing in feed.attendance.missing_days %}
@@ -122,7 +122,7 @@
       <div class="regularization-form">
         <label>Login<input type="time" name="start_time" value="10:00" required></label>
         <label>Logout<input type="time" name="end_time" value="19:00" required></label>
-        <label>Location<select name="location"><option value="remote">Remote</option><option value="office">Local / office</option></select></label>
+        <label>Work mode / location<input type="text" value="Remote · Noida" readonly></label>
       </div>
       <div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Cancel</button><button type="submit" data-regularization-submit disabled>Regularize selected days</button></div>
     </form>

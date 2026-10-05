@@ -112,6 +112,28 @@ class ManagerTeamLeavesTests(unittest.TestCase):
                          [date(2026, 9, 8), date(2026, 9, 4), date(2026, 9, 3), date(2026, 9, 2)])
         self.assertEqual(result["unmarked_count"], 4)
 
+    def test_approved_regularization_overrides_terminal_as_remote_noida(self):
+        self.db.add(AttendanceRegularization(org_id=self.org.id, user_id=self.member.id,
+                    manager_id=self.member.id, attendance_date=date(2026, 9, 1), status="approved", location="remote"))
+        self.db.flush()
+        attendance = {"status": "synced", "office_days": 2.0, "remote_days": 0.0,
+                      "total_days": 2.0, "rows": [
+            {"date": day, "first_in_label": "10:00 AM", "last_out_label": "07:00 PM",
+             "mode": "office", "mode_label": "Office", "attendance_source": "Terminal",
+             "attendance_location": "Helsinki", "is_open": False}
+            for day in (date(2026, 9, 1), date(2026, 9, 2))]}
+        with patch("app.main.local_today", return_value=date(2026, 10, 1)):
+            result = regularization_attendance_context(self.db, self.org.id, self.member.id,
+                        attendance, date(2026, 9, 1), date(2026, 9, 2))
+            # Reapplying the context must not shift the totals a second time.
+            regularization_attendance_context(self.db, self.org.id, self.member.id,
+                        result, date(2026, 9, 1), date(2026, 9, 2))
+        self.assertEqual((result["office_days"], result["remote_days"], result["total_days"]), (1.0, 1.0, 2.0))
+        self.assertEqual(result["rows"][0]["mode"], "remote")
+        self.assertEqual(result["rows"][0]["attendance_location"], "Noida")
+        self.assertEqual(result["rows"][0]["attendance_source"], "Regularization")
+        self.assertEqual(result["rows"][1]["mode"], "office")
+
     def test_csv_export_contains_missing_days(self):
         with (
             patch("app.main.must_be_admin_or_manager"),
@@ -140,7 +162,7 @@ class ManagerTeamLeavesTests(unittest.TestCase):
             response = manager_regularize_attendance(
                 org_slug=self.org.slug, member_id=self.member.id, month="2026-09",
                 attendance_dates=[date(2026, 9, 2), date(2026, 9, 3)],
-                start_time="10:00", end_time="19:00", location="remote",
+                start_time="10:00", end_time="19:00", location="office",
                 org_user=(self.org, self.member), db=self.db,
             )
         self.assertEqual(add.call_count, 2)
@@ -148,6 +170,7 @@ class ManagerTeamLeavesTests(unittest.TestCase):
         self.assertIn("regularized=2", response.headers["location"])
         records = self.db.scalars(select(AttendanceRegularization).order_by(AttendanceRegularization.attendance_date)).all()
         self.assertEqual([record.status for record in records], ["approved", "approved"])
+        self.assertEqual([record.location for record in records], ["remote", "remote"])
 
 
 if __name__ == "__main__":

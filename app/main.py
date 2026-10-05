@@ -8755,6 +8755,8 @@ def zoho_profile_attendance_feed(
                 "date_label": attendance_date.strftime("%a, %d %b"),
                 "first_in_label": first_in.strftime("%I:%M %p") if first_in else "—",
                 "last_out_label": last_out.strftime("%I:%M %p") if last_out else "—",
+                "office_count": office_count,
+                "remote_count": remote_count,
                 "mode": "hybrid" if is_hybrid else ("remote" if is_remote else "office"),
                 "mode_label": "Hybrid" if is_hybrid else ("Remote" if is_remote else "Office"),
                 "attendance_location": attendance_location,
@@ -8786,15 +8788,14 @@ def regularization_attendance_context(db: Session, org_id: int, user_id: int, at
     request_by_day = {item.attendance_date: item for item in requests}
     for row in attendance["rows"]:
         request = request_by_day.get(row["date"])
-        if request and request.status == "approved" and "terminal" not in row["attendance_source"].casefold():
+        if request and request.status == "approved":
             old_mode = row["mode"]
-            new_mode = request.location
-            if old_mode != new_mode and old_mode in {"office", "remote"}:
-                attendance[f"{old_mode}_days"] -= 1
-                attendance[f"{new_mode}_days"] += 1
-            row["mode"] = new_mode
-            row["mode_label"] = new_mode.title()
-            row["attendance_location"] = new_mode.title()
+            old_office = row.get("office_count", 0.5 if old_mode == "hybrid" else (1.0 if old_mode == "office" else 0.0))
+            old_remote = row.get("remote_count", 0.5 if old_mode == "hybrid" else (1.0 if old_mode == "remote" else 0.0))
+            attendance["office_days"] = round(max(attendance["office_days"] - old_office, 0), 2)
+            attendance["remote_days"] = round(attendance["remote_days"] - old_remote + 1, 2)
+            row.update(mode="remote", mode_label="Remote", attendance_location="Noida",
+                       attendance_source="Regularization", office_count=0.0, remote_count=1.0)
     attendance["working_day_count"] = len(working_dates)
     attendance["missing_days"] = [
         {"date": day, "label": day.strftime("%a, %d %b"), "request": request_by_day.get(day)}
@@ -9726,8 +9727,9 @@ def manager_regularize_attendance(
     member = members.get(member_id)
     if member is None:
         raise HTTPException(status_code=404, detail="Team member not found")
-    if location not in {"remote", "office"} or not re.fullmatch(r"\d{2}:\d{2}", start_time) or not re.fullmatch(r"\d{2}:\d{2}", end_time):
-        raise HTTPException(status_code=400, detail="Choose valid attendance times and location")
+    location = "remote"
+    if not re.fullmatch(r"\d{2}:\d{2}", start_time) or not re.fullmatch(r"\d{2}:\d{2}", end_time):
+        raise HTTPException(status_code=400, detail="Choose valid attendance times")
     try:
         start = datetime_time.fromisoformat(start_time)
         end = datetime_time.fromisoformat(end_time)
