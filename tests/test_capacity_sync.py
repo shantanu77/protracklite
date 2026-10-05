@@ -129,6 +129,14 @@ class CapacitySyncTests(unittest.TestCase):
         self.assertEqual(capacity_sync_status(self.db,self.org.id)['status'],'failed')
         self.assertIsNotNone(capacity_snapshots(self.db,self.org.id,START,END)[(2026,10)])
 
+    def test_job_completion_handles_database_second_precision(self):
+        stamp=start_capacity_sync(self.db,self.org.id)
+        self.assertEqual(stamp.microsecond,0)
+        with patch('app.capacity_sync.sync_capacity_snapshots'):
+            run_capacity_sync(self.org.id,START,END,stamp)
+        self.db.expire_all()
+        self.assertEqual(capacity_sync_status(self.db,self.org.id)['status'],'done')
+
     def test_employee_cannot_trigger_manager_sync(self):
         with self.assertRaises(HTTPException) as exc:
             manager_capacity_sync(BackgroundTasks(),view='month',anchor=START.isoformat(),org_user=(self.org,self.employee),db=self.db)

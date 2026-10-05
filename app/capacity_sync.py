@@ -115,12 +115,13 @@ def start_capacity_sync(db, org_id):
         if not run:
             run = CapacityZohoSyncRun(org_id=org_id)
             db.add(run)
-        run.status, run.started_at, run.finished_at, run.error = 'running', datetime.utcnow(), None, ''
+        run.status, run.started_at, run.finished_at, run.error = 'running', datetime.utcnow().replace(microsecond=0), None, ''
         try:
             db.commit()
         except IntegrityError:
             db.rollback()
             raise HTTPException(409, "An organization sync is already starting. Please try again shortly.") from None
+        db.refresh(run)
         return run.started_at
 
 
