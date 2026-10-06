@@ -31,7 +31,7 @@ from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
-from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, PENDING_STATUSES
+from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, profile_saved_approvals, PENDING_STATUSES
 from app.capacity import build_capacity_payload, capacity_period
 from app.capacity_sync import capacity_snapshots, capacity_sync_status, run_capacity_sync, start_capacity_sync
 from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
@@ -8433,6 +8433,7 @@ def profile_leave_requests(db: Session, user_id: int) -> list[dict[str, Any]]:
         requests.append(
             {
                 "request_key": request_key,
+                "zoho_leave_id": first.zoho_leave_id,
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
                 "start_date_label": start_date.strftime("%d %b %Y"),
@@ -8452,6 +8453,10 @@ def profile_leave_requests(db: Session, user_id: int) -> list[dict[str, Any]]:
                 "created_at_label": first.created_at.strftime("%d %b %Y"),
             }
         )
+    requests = profile_saved_approvals(db, user_id, requests, today)
+    for item in requests:
+        if item.get("approval_time"):
+            item["approval_time"] = format_local_datetime(item["approval_time"])
     return sorted(requests, key=lambda item: (item["start_date"], item["request_key"]), reverse=True)
 
 
@@ -8549,6 +8554,18 @@ def team_profile_leave_requests(
                 "zoho_sync_status": first.zoho_sync_status,
             }
         )
+    index = {(item["person_id"], item["request_key"]): item for item in requests}
+    for person_id, scope in people_by_id.items():
+        for item in profile_leave_requests(db, person_id):
+            key = (person_id, item["request_key"])
+            if key in index:
+                existing = index[key]
+                for field in ["approval_status", "approval_source", "approval_time", "zoho_sync_status"]:
+                    if field in item:
+                        existing[field] = item[field]
+            else:
+                requests.append({**item, "person_id": person_id, "person_name": scope["user"].full_name,
+                    "report_depth": scope["depth"], "relationship_label": scope["relationship_label"]})
     return sorted(
         requests,
         key=lambda item: (item["start_date"], item["person_name"].lower(), item["request_key"]),

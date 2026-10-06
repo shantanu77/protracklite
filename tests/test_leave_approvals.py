@@ -13,7 +13,7 @@ from app.database import Base,SessionLocal,engine
 from app.models import Organization,User,Role,LeaveApproval,CapacityZohoSnapshot
 from app.zoho_people import ZohoLeaveListResult
 from app.leave_approvals import apply_local_leave_approvals,saved_leave_requests,overlay_capacity_approval,capacity_local_approvals
-from app.main import manager_approve_leave,team_member_month_feed,zoho_profile_leave_feed,manager_team_leaves_page
+from app.main import manager_approve_leave,team_member_month_feed,zoho_profile_leave_feed,manager_team_leaves_page,profile_leave_requests,team_profile_leave_requests
 from app.capacity_sync import normalize_leave_days
 from app.capacity import build_capacity_payload
 from app.employee_dashboard import approved_absence_counts
@@ -120,6 +120,15 @@ class LocalLeaveApprovalTests(unittest.TestCase):
         self.assertEqual(feed['approved_days'],2)
         self.assertEqual(feed['leaves'][0]['approval_source'],'ProTrack')
         self.assertIn('saved',feed['leave_message'])
+
+    def test_normal_profile_reload_shows_approval_without_zoho_refresh(self):
+        self.approve()
+        with patch('httpx.get',side_effect=AssertionError('Default profile must not call Zoho')):
+            own=profile_leave_requests(self.db,self.member.id)
+            team=team_profile_leave_requests(self.db,self.org.id,[{'user':self.member,'depth':1,'relationship_label':'Direct report'}])
+        self.assertEqual(len(own),1);self.assertEqual(len(team),1)
+        self.assertEqual(own[0]['approval_status'],'Approved')
+        self.assertEqual(team[0]['approval_source'],'ProTrack')
 
     def test_review_popup_approves_here_without_external_links(self):
         request=SimpleNamespace(url=SimpleNamespace(path='/approvals/manager/team-leaves'))

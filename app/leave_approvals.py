@@ -109,3 +109,26 @@ def saved_leave_requests(db, org_id, people, start, end, failed_result):
             raw['day_sessions'] = tuple((date.fromisoformat(day), session) for day, session in raw['day_sessions'])
         output.append(raw)
     return ZohoLeaveListResult(status='synced', leaves=tuple(output)) if output else failed_result
+
+
+def profile_saved_approvals(db, user_id, requests, today):
+    """Show saved approval decisions on the default profile without an external refresh."""
+    by_source = {item.get('zoho_leave_id'): item for item in requests if item.get('zoho_leave_id')}
+    for record in db.scalars(select(LeaveApproval).where(LeaveApproval.user_id == user_id)):
+        raw = record.request_json
+        first, last = date.fromisoformat(raw['start_date']), date.fromisoformat(raw['end_date'])
+        status = 'Approved' if locally_approved(record) else record.source_status.title()
+        item = by_source.get(record.zoho_leave_id)
+        if item is None:
+            counts = raw.get('day_counts') or []
+            year_days = sum(float(count) for day, count in counts if date.fromisoformat(day).year == today.year)
+            item = {'request_key': f'zoho-{record.zoho_leave_id}', 'start_date': first.isoformat(), 'end_date': last.isoformat(),
+                    'date_label': first.strftime('%d %b %Y') if first == last else f'{first:%d %b %Y} – {last:%d %b %Y}',
+                    'leave_type_label': raw.get('duration_label') or 'Leave', 'leave_category_label': raw.get('leave_type_name') or 'Leave',
+                    'reason': raw.get('reason') or '', 'backup_name': 'Not recorded', 'leave_days': float(raw.get('leave_days') or 0),
+                    'year_leave_days': year_days, 'can_modify': False, 'created_at_label': raw.get('date_of_request') or 'Not recorded'}
+            requests.append(item)
+        item.update(approval_status=status, zoho_sync_status=status.casefold().replace(' ', '-'),
+                    approval_source='ProTrack' if locally_approved(record) else 'Zoho',
+                    approval_time=record.approved_at)
+    return requests
