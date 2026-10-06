@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.leave_approvals import capacity_local_approvals, overlay_capacity_approval
 from app.models import Holiday, Leave, LeaveType, Organization, User
 from app.time_utils import local_datetime, local_today
 
@@ -217,10 +218,12 @@ def build_capacity_payload(
     holiday_map = {holiday.holiday_date: holiday for holiday in holidays}
     zoho_leave_map = {}
     if zoho_snapshots is not None:
+        local_decisions = capacity_local_approvals(db, org.id)
         for snapshot in zoho_snapshots.values():
             if not snapshot:
                 continue
             for entry in snapshot.leave_days_json:
+                entry = overlay_capacity_approval(entry, local_decisions)
                 day = date.fromisoformat(entry['date'])
                 if entry['user_id'] in member_ids and period_start <= day <= period_end:
                     zoho_leave_map[(entry['user_id'], day)] = entry

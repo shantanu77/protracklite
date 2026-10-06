@@ -82,12 +82,11 @@
 <section class="panel profile-leaves-panel">
   <div class="profile-leaves-head">
     <div><p class="eyebrow">Time off</p><h2>Leave requests</h2><p>Requests overlapping {{ month_label }}.</p></div>
-    <a class="button secondary small" href="{{ zoho_portal_url }}" target="_blank" rel="noopener noreferrer">Open Zoho approvals ↗</a>
   </div>
   <div class="profile-zoho-status{% if feed.leave_status != 'synced' %} is-error{% endif %}">{{ feed.leave_message }}</div>
   <div class="profile-leave-table-wrap">
     <table class="profile-leave-table">
-      <thead><tr><th>Dates</th><th>Type</th><th>Days this month</th><th>Reason</th><th>Zoho status</th><th></th></tr></thead>
+      <thead><tr><th>Dates</th><th>Type</th><th>Days this month</th><th>Reason</th><th>Approval status</th><th></th></tr></thead>
       <tbody>
         {% for leave in feed.leaves %}
         <tr>
@@ -95,8 +94,8 @@
           <td>{{ leave.leave_type }}<small>{{ leave.duration }}</small></td>
           <td>{{ "%g"|format(leave.month_days) }}</td>
           <td>{{ leave.reason or "—" }}</td>
-          <td><span class="profile-leave-sync is-{{ leave.status_class }}">{{ leave.status }}</span></td>
-          <td>{% if leave.status_class == 'pending' %}<button type="button" class="button ghost small" data-leave-review data-leave-date="{{ leave.date_label }}" data-leave-type="{{ leave.leave_type }}" data-leave-duration="{{ leave.duration }}" data-leave-days="{{ '%g'|format(leave.month_days) }}" data-leave-reason="{{ leave.reason }}">Review approval</button>{% endif %}</td>
+          <td><span class="profile-leave-sync is-{{ leave.status_class }}">{{ leave.status }}</span>{% if leave.approval_source == "ProTrack" %}<small>Approved in ProTrack{% if leave.approval_time %} · {{ leave.approval_time }}{% endif %}</small>{% endif %}</td>
+          <td>{% if leave.can_approve %}<button type="button" class="button ghost small" data-leave-review data-request-id="{{ leave.approval_request_id }}" data-leave-date="{{ leave.date_label }}" data-leave-type="{{ leave.leave_type }}" data-leave-duration="{{ leave.duration }}" data-leave-days="{{ '%g'|format(leave.month_days) }}" data-leave-reason="{{ leave.reason }}">Approve</button>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="6" class="empty">{{ "No leave requests for this month." if feed.leave_status == "synced" else "Leave requests are unavailable." }}</td></tr>
@@ -104,7 +103,7 @@
       </tbody>
     </table>
   </div>
-  <p class="form-helper">Approve leave in Zoho People under Home → My Space → Overview → Approvals. Return here and view the month again to see the updated status.</p>
+  <p class="form-helper">Review the details and approve pending leave here. Decisions are saved in ProTrack.</p>
 </section>
 {% if feed.attendance and feed.attendance.status == 'synced' %}
 <div class="modal-backdrop" aria-hidden="true" data-regularization-modal>
@@ -133,23 +132,52 @@
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-review-title">
     <div class="modal-head"><div><h2 id="leave-review-title">Review leave request</h2><p>{{ selected_member.full_name }}</p></div><button type="button" class="modal-close" aria-label="Close" data-modal-close>×</button></div>
     <dl class="leave-review-details"><div><dt>Dates</dt><dd data-review-date></dd></div><div><dt>Type</dt><dd data-review-type></dd></div><div><dt>Duration</dt><dd data-review-duration></dd></div><div><dt>Days this month</dt><dd data-review-days></dd></div><div><dt>Reason</dt><dd data-review-reason></dd></div></dl>
-    <p class="form-helper">Zoho People handles the approval. This page cannot change the Zoho approval status.</p>
-    <div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Close</button><a class="button" href="{{ zoho_portal_url }}" target="_blank" rel="noopener noreferrer">Approve in Zoho ↗</a></div>
+    <form method="post" action="/{{ org.slug }}/manager/team-leaves/approve" data-leave-approve-form>
+      <input type="hidden" name="member_id" value="{{ selected_member.id }}">
+      <input type="hidden" name="request_id" data-leave-request-id>
+      <p class="form-helper">Approve this request in ProTrack. Your name and approval time will be recorded.</p>
+      <p role="status" data-leave-approval-message hidden></p>
+      <div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Close</button><button type="submit" data-leave-approve-submit>Approve</button></div>
+    </form>
   </div>
 </div>
 {% endif %}
 <script>
 (() => {
   const open = (modal) => { if (!modal) return; modal.classList.add('is-open'); modal.setAttribute('aria-hidden', 'false'); modal.querySelector('[data-modal-close]')?.focus(); };
-  const close = (modal) => { if (!modal) return; modal.classList.remove('is-open'); modal.setAttribute('aria-hidden', 'true'); };
+  const close = (modal) => { if (!modal || (modal === leaveModal && approving)) return; modal.classList.remove('is-open'); modal.setAttribute('aria-hidden', 'true'); };
   const regularizationModal = document.querySelector('[data-regularization-modal]');
   const leaveModal = document.querySelector('[data-leave-review-modal]');
   document.querySelector('[data-regularization-open]')?.addEventListener('click', () => open(regularizationModal));
   document.querySelectorAll('[data-leave-review]').forEach((button) => button.addEventListener('click', () => {
+    const requestId = leaveModal?.querySelector('[data-leave-request-id]');
+    if (requestId) requestId.value = button.dataset.requestId;
+    const feedback = leaveModal?.querySelector('[data-leave-approval-message]');
+    if (feedback) feedback.hidden = true;
     const values = { date: button.dataset.leaveDate, type: button.dataset.leaveType, duration: button.dataset.leaveDuration, days: button.dataset.leaveDays, reason: button.dataset.leaveReason || '—' };
     Object.entries(values).forEach(([key, value]) => { const target = leaveModal?.querySelector(`[data-review-${key}]`); if (target) target.textContent = value; });
     open(leaveModal);
   }));
+  const approvalForm = leaveModal?.querySelector('[data-leave-approve-form]');
+  let approving = false;
+  approvalForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (approving) return;
+    approving = true;
+    const button = approvalForm.querySelector('[data-leave-approve-submit]');
+    const feedback = approvalForm.querySelector('[data-leave-approval-message]');
+    button.disabled = true; button.textContent = 'Approving…'; feedback.hidden = true;
+    try {
+      const response = await fetch(approvalForm.action, {method: 'POST', body: new FormData(approvalForm), headers: {Accept: 'application/json'}});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.status !== 'approved') throw new Error(result.detail || 'Unable to approve this request. Please try again.');
+      window.location.reload();
+    } catch (error) {
+      feedback.textContent = error.message || 'Unable to approve this request.';
+      feedback.hidden = false; feedback.classList.add('is-error');
+      button.disabled = false; button.textContent = 'Approve';
+    } finally { approving = false; }
+  });
   for (const modal of [regularizationModal, leaveModal]) {
     modal?.querySelectorAll('[data-modal-close]').forEach((button) => button.addEventListener('click', () => close(modal)));
     modal?.addEventListener('click', (event) => { if (event.target === modal) close(modal); });

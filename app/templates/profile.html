@@ -138,7 +138,7 @@
           <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }}{% if leave.reason %} · {{ leave.reason }}{% endif %}</small></td>
           <td><strong>{{ "%g"|format(leave.leave_days) }}</strong></td>
           <td>{{ leave.backup_name }}</td>
-          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.approval_status if leave.approval_status is defined else leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
+          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.approval_status if leave.approval_status is defined else leave.zoho_sync_status|replace('_', ' ')|title }}</span>{% if leave.approval_source is defined and leave.approval_source == "ProTrack" %}<small>Approved in ProTrack{% if leave.approval_time is defined and leave.approval_time %} · {{ leave.approval_time }}{% endif %}</small>{% endif %}</td>
           <td>
             {% if leave.can_modify %}
             <div class="profile-leave-row-actions">
@@ -180,7 +180,7 @@
           <td><strong>{{ leave.leave_category_label }}</strong><small>{{ leave.leave_type_label }}{% if leave.reason %} · {{ leave.reason }}{% endif %}</small></td>
           <td><strong>{{ "%g"|format(leave.leave_days) }}</strong></td>
           <td>{{ leave.backup_name }}</td>
-          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.approval_status if leave.approval_status is defined else leave.zoho_sync_status|replace('_', ' ')|title }}</span></td>
+          <td><span class="profile-leave-sync is-{{ leave.zoho_sync_status }}">{{ leave.approval_status if leave.approval_status is defined else leave.zoho_sync_status|replace('_', ' ')|title }}</span>{% if leave.approval_source is defined and leave.approval_source == "ProTrack" %}<small>Approved in ProTrack{% if leave.approval_time is defined and leave.approval_time %} · {{ leave.approval_time }}{% endif %}</small>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="6" class="empty">No team leave is available for this period.</td></tr>

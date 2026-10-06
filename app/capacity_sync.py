@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.database import SessionLocal
+from app.leave_approvals import apply_local_leave_approvals, request_fingerprint
 from app.models import CapacityZohoSnapshot, CapacityZohoSyncRun, User
 from app.zoho_people import fetch_zoho_employee_ids, fetch_zoho_leave_requests
 
@@ -61,6 +62,9 @@ def normalize_leave_days(leaves, people, start, end):
                 continue
             entry = {'user_id': user_id, 'date': day.isoformat(), 'count': min(float(count), 1),
                      'planned': 'sick' not in name.casefold(), 'type': name, 'approval': approval,
+                     'zoho_leave_id': str(raw.get('zoho_leave_id') or ''),
+                     'request_fingerprint': raw.get('source_fingerprint') or request_fingerprint(raw),
+                     'approval_source': raw.get('approval_source', 'Zoho'),
                      'session': sessions.get(day), 'request_start': raw['start_date'].isoformat(),
                      'request_end': raw['end_date'].isoformat(), 'request_days': float(raw.get('leave_days') or sum(float(value) for _, value in counts))}
             if key not in entries:
@@ -98,6 +102,7 @@ def sync_capacity_snapshots(db, org_id, start, end):
                                           from_date=month, to_date=last)
         if leaves.status != 'synced':
             raise HTTPException(503, 'Zoho leave sync failed. The saved snapshot has been kept. Check the Zoho connection and try again.')
+        leaves = apply_local_leave_approvals(db, org_id, mapped, leaves)
         leave_days = normalize_leave_days(leaves.leaves, mapped, month, last)
         fetched[(month.year, month.month)] = leave_days
     stamp = datetime.utcnow()

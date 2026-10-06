@@ -655,3 +655,19 @@ class CapacityZohoSyncRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str] = mapped_column(String(500), default="")
+
+
+class LeaveApproval(Base):
+    """Imported request and the authoritative approval made in ProTrack."""
+    __tablename__ = "leave_approvals"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "zoho_leave_id", name="uq_local_leave_approval"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    zoho_leave_id: Mapped[str] = mapped_column(String(120))
+    request_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    source_status: Mapped[str] = mapped_column(String(40))
+    approved_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

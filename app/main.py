@@ -31,6 +31,7 @@ from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
+from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, PENDING_STATUSES
 from app.capacity import build_capacity_payload, capacity_period
 from app.capacity_sync import capacity_snapshots, capacity_sync_status, run_capacity_sync, start_capacity_sync
 from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
@@ -47,6 +48,7 @@ from app.zoho_people import (
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
 from app.models import (
+    LeaveApproval,
     AttendanceRegularization,
     ActivityType,
     Department,
@@ -4452,6 +4454,7 @@ def dashboard_attendance(
             leaves = ZohoLeaveListResult(status="failed")
         return attendance, leaves
     attendance, leaves, synced_at = source_cache.get((org.id, user.id, user.zoho_employee_id, today), load_sources)
+    leaves = apply_local_leave_approvals(db, org.id, [user], leaves)
     attendance = regularization_attendance_context(db, org.id, user.id, attendance, today.replace(day=1), today)
     result = personal_attendance_summary(db, org, user, attendance, leaves, today, synced_at,
                                         settings.zoho_work_from_home_leave_type_id)
@@ -8599,6 +8602,10 @@ def zoho_profile_leave_feed(
         from_date=period_start,
         to_date=period_end,
     )
+    saved_source = leave_result.status != 'synced'
+    if saved_source:
+        leave_result = saved_leave_requests(db, user.org_id, users, period_start, period_end, leave_result)
+    leave_result = apply_local_leave_approvals(db, user.org_id, users, leave_result)
     if leave_result.status != "synced":
         detail = leave_result.error or "Unable to fetch leave from Zoho People"
         return {
@@ -8715,6 +8722,8 @@ def zoho_profile_leave_feed(
             "year_leave_days": year_days,
             "can_modify": bool(local_entries and start_date > today),
             "approval_status": approval_status,
+            "approval_source": raw.get("approval_source", "Zoho"),
+            "approval_time": format_local_datetime(raw.get("approved_at")),
             "approval_status_class": approval_class,
             "zoho_sync_status": approval_class,
             "created_at_label": str(raw.get("date_of_request") or "Zoho People"),
@@ -8734,7 +8743,7 @@ def zoho_profile_leave_feed(
     suffix = f" Warning: {'; '.join(warning_parts)}." if warning_parts else ""
     return {
         "status": "synced",
-        "message": f"Leave loaded directly from Zoho People.{suffix}",
+        "message": ("Showing saved leave requests with ProTrack approvals." if saved_source else f"Leave loaded directly from Zoho People.{suffix}"),
         "range_label": range_label,
         "mine": mine,
         "team": team,
@@ -8901,6 +8910,7 @@ def request_attendance_regularization(
     if any(row["date"] == attendance_date and (row["first_in_label"] != "—" or row["last_out_label"] != "—") for row in current["rows"]):
         raise HTTPException(status_code=409, detail="Attendance is already marked for this day")
     leaves = fetch_zoho_leave_requests(employee_zoho_ids=[user.zoho_employee_id], from_date=attendance_date, to_date=attendance_date)
+    leaves = apply_local_leave_approvals(db, org.id, [user], leaves)
     if leaves.status != "synced":
         raise HTTPException(status_code=503, detail="Unable to confirm leave status. Please try again after Zoho is available.")
     if approved_absence_counts(leaves, user.zoho_employee_id, settings.zoho_work_from_home_leave_type_id).get(attendance_date, 0) >= 1:
@@ -8942,6 +8952,10 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
     leave_result = fetch_zoho_leave_requests(
         employee_zoho_ids=[member.zoho_employee_id], from_date=month_start, to_date=month_end,
     )
+    saved_source = leave_result.status != 'synced'
+    if saved_source:
+        leave_result = saved_leave_requests(db, member.org_id, [member], month_start, month_end, leave_result)
+    leave_result = apply_local_leave_approvals(db, member.org_id, [member], leave_result)
     leaves: list[dict[str, Any]] = []
     approved_days = 0.0
     pending_days = 0.0
@@ -8963,7 +8977,7 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
             status = str(raw.get("approval_status") or "Unknown").strip()
             if status.casefold() == "approved":
                 approved_days += month_days
-            elif status.casefold() == "pending":
+            elif status.strip().upper() in PENDING_STATUSES:
                 pending_days += month_days
             leave_type = str(raw.get("leave_type_name") or "Leave").strip()
             is_remote = (
@@ -8983,6 +8997,10 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
                     remote_dates[day] = max(remote_dates.get(day, 0.0), count)
             leaves.append({
                 "zoho_leave_id": str(raw.get("zoho_leave_id") or ""),
+                "approval_request_id": raw.get("local_approval_id"),
+                "can_approve": raw.get("can_approve", False),
+                "approval_source": raw.get("approval_source", "Zoho"),
+            "approval_time": format_local_datetime(raw.get("approved_at")),
                 "start_date": start_date,
                 "end_date": end_date,
                 "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date:%d %b %Y} – {end_date:%d %b %Y}",
@@ -9000,7 +9018,7 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
         attendance = zoho_profile_attendance_feed(member, min(month_end, today), remote_dates)
     return {
         "leave_status": leave_result.status,
-        "leave_message": "Leave loaded from Zoho People." if leave_result.status == "synced" else (leave_result.error or "Unable to load leave from Zoho People."),
+        "leave_message": ("Showing saved requests. Manager approvals are recorded in ProTrack." if saved_source else "Leave imported from Zoho People. Manager approvals are recorded in ProTrack.") if leave_result.status == "synced" else (leave_result.error or "Unable to load leave from Zoho People."),
         "leaves": leaves,
         "approved_days": round(approved_days, 2),
         "pending_days": round(pending_days, 2),
@@ -9618,9 +9636,16 @@ def cancel_leave_request(db: Session, org: Organization, user: User, entries: li
             raise HTTPException(status_code=502, detail=zoho_result.error or "Zoho could not cancel this leave")
     leave_days = sum(leave_day_count(item) for item in entries)
     reason = entries[0].reason
+    for decision in db.scalars(select(LeaveApproval).where(LeaveApproval.org_id == org.id,
+        LeaveApproval.user_id == user.id, LeaveApproval.zoho_leave_id.in_(zoho_ids))):
+        decision.source_status = "CANCELLED"
+        imported_request = dict(decision.request_json)
+        imported_request["approval_status"] = "CANCELLED"
+        decision.request_json = imported_request
     for entry in entries:
         db.delete(entry)
     db.commit()
+    source_cache.invalidate(org.id, user.id)
     notify_leave_change(db, org, user, "cancelled", start_date, end_date, leave_days, reason)
     return {"ok": True, "cancelled_count": len(entries), "zoho_cancelled": bool(zoho_ids)}
 
@@ -9742,6 +9767,33 @@ def manager_team_leaves_page(
             "zoho_portal_url": get_settings().zoho_portal_url.strip() or get_settings().zoho_people_url.rstrip("/"),
         },
     )
+
+
+@app.post("/{org_slug}/manager/team-leaves/approve")
+def manager_approve_leave(request_id: int = Form(...), member_id: int = Form(...),
+                          org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, manager = org_user
+    must_be_admin_or_manager(manager)
+    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+                   if item["user"].id == member_id), None)
+    if member is None:
+        raise HTTPException(404, "Team member not found")
+    record = db.scalar(select(LeaveApproval).where(LeaveApproval.id == request_id,
+        LeaveApproval.org_id == org.id, LeaveApproval.user_id == member.id).with_for_update())
+    if record is None:
+        raise HTTPException(404, "Leave request not found. Reload the month to review the request.")
+    if locally_approved(record):
+        db.rollback()
+        return {"status": "approved", "message": "This request is already approved in ProTrack."}
+    if record.source_status not in PENDING_STATUSES:
+        db.rollback()
+        raise HTTPException(409, "Only pending leave requests can be approved.")
+    record.approved_fingerprint = record.fingerprint
+    record.approved_by = manager.id
+    record.approved_at = datetime.utcnow()
+    db.commit()
+    source_cache.invalidate(org.id, member.id)
+    return {"status": "approved", "message": "Leave approved in ProTrack."}
 
 
 @app.get("/{org_slug}/manager/team-leaves/attendance.csv")
