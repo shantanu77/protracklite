@@ -68,6 +68,7 @@ class LocalLeaveApprovalTests(unittest.TestCase):
         other_org=Organization(name='Other',slug='other-approvals');self.db.add(other_org);self.db.flush()
         self.record.org_id=other_org.id;self.db.commit()
         with self.assertRaises(HTTPException):self.approve()
+        self.assertEqual(profile_leave_requests(self.db,self.member.id),[])
 
     def test_cancelled_or_already_source_approved_request_cannot_be_approved(self):
         for status in ['CANCELLED','REJECTED','APPROVED']:

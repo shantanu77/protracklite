@@ -6,7 +6,7 @@ import json
 from threading import Lock
 
 from sqlalchemy import select
-from app.models import LeaveApproval
+from app.models import LeaveApproval, User
 
 PENDING_STATUSES = {'PENDING', 'PENDING APPROVAL', 'PENDING_APPROVAL', 'SUBMITTED', 'APPLIED'}
 _import_lock = Lock()
@@ -114,7 +114,10 @@ def saved_leave_requests(db, org_id, people, start, end, failed_result):
 def profile_saved_approvals(db, user_id, requests, today):
     """Show saved approval decisions on the default profile without an external refresh."""
     by_source = {item.get('zoho_leave_id'): item for item in requests if item.get('zoho_leave_id')}
-    for record in db.scalars(select(LeaveApproval).where(LeaveApproval.user_id == user_id)):
+    person = db.get(User, user_id)
+    if person is None:
+        return requests
+    for record in db.scalars(select(LeaveApproval).where(LeaveApproval.user_id == user_id, LeaveApproval.org_id == person.org_id)):
         raw = record.request_json
         first, last = date.fromisoformat(raw['start_date']), date.fromisoformat(raw['end_date'])
         status = 'Approved' if locally_approved(record) else record.source_status.title()
