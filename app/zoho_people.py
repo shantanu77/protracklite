@@ -437,7 +437,7 @@ def _punch_work_mode(source: object) -> str:
     normalized = str(source or "").strip().casefold()
     if "terminal" in normalized:
         return "office"
-    if normalized in {"web", "mobile", "remote", "work from home", "wfh"}:
+    if normalized in {"api", "web", "mobile", "remote", "work from home", "wfh"}:
         return "remote"
     if normalized in {"access terminal", "biometric", "kiosk", "office"}:
         return "office"
