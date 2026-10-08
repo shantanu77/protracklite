@@ -24,6 +24,13 @@
   </section>
   <div class="wd-workspace">
     <div class="wd-main">
+      <section class="wd-panel wd-people" data-today-people data-url="/{{ org.slug }}/dashboard/people">
+        <div class="wd-panel-head"><div><h2>Today’s people</h2><p>Office attendance and approved leave · shared with everyone</p></div><button type="button" class="wd-btn wd-small" data-people-refresh>Refresh</button></div>
+        <div class="wd-people-summary" data-people-counts></div>
+        <p class="wd-people-meta" data-people-meta role="status">Loading saved information…</p>
+        <ul class="wd-people-list" data-people-list aria-label="People in office or on leave today"></ul>
+        <button type="button" class="wd-btn wd-small" data-people-expand aria-expanded="false" hidden>View everyone</button>
+      </section>
       <section class="wd-panel" id="work-queue">
         <div class="wd-panel-head"><div><h2>My work</h2><p>One queue across your projects</p></div><button type="button" class="wd-btn wd-small" data-work-density aria-pressed="false">Compact view</button></div>
         <div class="wd-tabs" role="tablist" aria-label="Work views">

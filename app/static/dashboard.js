@@ -231,3 +231,51 @@
   render();
   loadAttendance();
 })();
+
+(() => {
+  const card = document.querySelector('[data-today-people]');
+  if (!card) return;
+  const list = card.querySelector('[data-people-list]'), meta = card.querySelector('[data-people-meta]');
+  const refresh = card.querySelector('[data-people-refresh]'), expand = card.querySelector('[data-people-expand]');
+  let data = null, expanded = false, timer;
+  function render() {
+    if (!data) return;
+    list.replaceChildren();
+    card.querySelector('[data-people-counts]').textContent = `${data.people.filter(p => p.office).length} in office · ${data.people.filter(p => p.leave).length} on leave`;
+    for (const person of data.people.slice(0, expanded ? undefined : 6)) {
+      const row = document.createElement('li'), avatar = document.createElement('span'), name = document.createElement('strong'), badge = document.createElement('span');
+      avatar.className = 'wd-people-avatar'; avatar.textContent = person.name.trim().slice(0, 1).toUpperCase();
+      if (person.avatar) {
+        const img = document.createElement('img'); img.src = person.avatar; img.alt = ''; img.loading = 'lazy'; img.addEventListener('error', () => img.remove()); avatar.append(img);
+      }
+      name.textContent = person.name;
+      const leave = person.leave_count < 1 ? `Half-day leave${person.session === 1 ? ' · AM' : person.session === 2 ? ' · PM' : ''}` : 'On leave';
+      badge.textContent = [person.office ? '🏢 Office today' : '', person.leave ? '🌴 ' + leave : ''].filter(Boolean).join(' · ');
+      badge.className = 'wd-people-badge'; row.append(avatar, name, badge); list.append(row);
+    }
+    expand.hidden = data.people.length <= 6;
+    expand.textContent = expanded ? 'Show fewer' : `View all ${data.people.length} people`;
+    expand.setAttribute('aria-expanded', String(expanded));
+    const busy = data.status === 'running'; refresh.disabled = busy; refresh.textContent = busy ? 'Refreshing…' : 'Refresh';
+    meta.textContent = [data.synced_at ? `Last shared refresh: ${data.synced_at}` : 'No saved information for today. Refresh to load.', busy ? 'An employee is refreshing the shared information.' : data.error, data.unmapped_count ? `${data.unmapped_count} employees could not be linked to Zoho.` : '', data.synced_at && !data.people.length ? 'No office attendance or approved leave recorded today.' : ''].filter(Boolean).join(' ');
+    if (busy) timer = setTimeout(load, 3000);
+  }
+  async function load() {
+    clearTimeout(timer);
+    try {
+      const response = await fetch(card.dataset.url, {cache: 'no-store'});
+      if (!response.ok) throw new Error();
+      data = await response.json(); render();
+    } catch (_) { meta.textContent = 'Unable to load shared information. Please refresh to try again.'; refresh.disabled = false; refresh.textContent = 'Refresh'; }
+  }
+  refresh.addEventListener('click', async () => {
+    refresh.disabled = true; refresh.textContent = 'Refreshing…';
+    try {
+      const response = await fetch(card.dataset.url + '/refresh', {method: 'POST'});
+      if (!response.ok && response.status !== 409) throw new Error();
+      await load();
+    } catch (_) { meta.textContent = 'Unable to start refresh. Please try again.'; refresh.disabled = false; refresh.textContent = 'Refresh'; }
+  });
+  expand.addEventListener('click', () => {expanded = !expanded; render();});
+  load();
+})();

@@ -4436,6 +4436,21 @@ def dashboard(
     )
 
 
+@app.get("/{org_slug}/dashboard/people")
+def dashboard_people(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    from app.today_people import payload
+    return JSONResponse(payload(db, org_user[0].id, local_today()), headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/{org_slug}/dashboard/people/refresh")
+def dashboard_people_refresh(background_tasks: BackgroundTasks, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    from app.today_people import start_sync, run_sync
+    day, org_id = local_today(), org_user[0].id
+    started_at = start_sync(db, org_id, day)
+    background_tasks.add_task(run_sync, org_id, day, started_at)
+    return JSONResponse({"status": "running"}, status_code=202)
+
+
 @app.get("/{org_slug}/dashboard/attendance")
 def dashboard_attendance(
     org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),

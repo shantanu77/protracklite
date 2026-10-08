@@ -671,3 +671,18 @@ class LeaveApproval(Base):
     approved_fingerprint: Mapped[str] = mapped_column(String(64), default="")
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TodayPeopleSnapshot(Base):
+    """Shared daily attendance and leave, refreshed explicitly by any employee."""
+    __tablename__ = "today_people_snapshots"
+    __table_args__ = (UniqueConstraint("org_id", "day", name="uq_today_people_org_day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    people_json: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    unmapped_count: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str] = mapped_column(String(20), default="idle")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error: Mapped[str] = mapped_column(String(500), default="")
