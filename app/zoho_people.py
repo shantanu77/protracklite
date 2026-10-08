@@ -682,3 +682,25 @@ def cancel_zoho_leave(*, leave_id: str, reason: str = "Cancelled from ProTrack")
         return ZohoLeaveResult(status="cancelled", leave_id=leave_id)
     except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
         return ZohoLeaveResult(status="failed", leave_id=leave_id, error=f"Zoho request failed: {exc}")
+
+
+def record_zoho_live_punch(*, employee_email: str, moment: datetime, action: str) -> ZohoLeaveResult:
+    """Submit a current remote web punch, then verify it in attendance entries."""
+    if action not in {'in', 'out'}:
+        return ZohoLeaveResult(status='failed', error='Invalid attendance action')
+    token, error = _access_token('attendance')
+    if not token:
+        return ZohoLeaveResult(status='failed', error=error)
+    try:
+        response = httpx.post(
+            f"{get_settings().zoho_people_url.rstrip('/')}/people/api/attendance",
+            headers={'Authorization': f'Zoho-oauthtoken {token}'},
+            data={'emailId': employee_email, 'dateFormat': 'dd/MM/yyyy HH:mm:ss',
+                  'checkIn' if action == 'in' else 'checkOut': moment.strftime('%d/%m/%Y %H:%M:%S'),
+                  'location': 'Noida'}, timeout=30.0)
+        if not response.is_success:
+            return ZohoLeaveResult(status='failed', error='Zoho could not accept the attendance punch. Please check again before retrying.')
+        # Legacy responses vary; the caller verifies the timestamp using the v3 read API.
+        return ZohoLeaveResult(status='submitted')
+    except httpx.HTTPError:
+        return ZohoLeaveResult(status='failed', error='Attendance could not be confirmed. Please check again before retrying.')

@@ -134,6 +134,8 @@
   }
   function showAttendance(data) {
     attendance = data;
+    const record = find('[data-work-record]');
+    if (record) record.hidden = true;
     if (data.status !== 'synced') {
       find('[data-work-attendance-mode]').textContent = 'Attendance unavailable';
       find('[data-work-check-in]').textContent = '—';
@@ -145,6 +147,11 @@
       return;
     }
     const today = data.today;
+    if (record) {
+      record.hidden = Boolean(today && (!today.is_open || today.mode_label === 'Office'));
+      record.dataset.action = today?.is_open ? 'out' : 'in';
+      record.textContent = today?.is_open ? 'Check out · Remote' : 'Record now · Remote';
+    }
     find('[data-work-attendance-mode]').textContent = today ? `${today.mode_label}${today.attendance_location ? ' · ' + today.attendance_location : ''}` : 'No punch recorded yet today';
     find('[data-work-check-in]').textContent = today?.first_in_label || '—';
     find('[data-work-check-out]').textContent = today?.is_open ? 'Still working' : today?.last_out_label || '—';
@@ -189,6 +196,20 @@
     return attendanceRequest;
   }
   find('[data-work-attendance-retry]').addEventListener('click', loadAttendance);
+  find('[data-work-record]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget, message = find('[data-work-record-message]');
+    button.disabled = true; message.textContent = 'Recording your attendance…';
+    try {
+      const response = await fetch(root.dataset.attendanceUrl + '/punch', {
+        method: 'POST', body: new URLSearchParams({action: button.dataset.action}),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || 'Unable to record attendance. Please try again.');
+      message.textContent = result.message;
+      await loadAttendance();
+    } catch (error) { message.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
   find('[data-work-regularize]').addEventListener('click', (event) => {
     if (!attendance?.missing_dates?.length || !attendance.can_request) return;
     requestDate.replaceChildren(...attendance.missing_dates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).map((date) => {
@@ -240,6 +261,7 @@
   let data = null, expanded = false, timer;
   function render() {
     if (!data) return;
+    clearTimeout(timer);
     list.replaceChildren();
     card.querySelector('[data-people-counts]').textContent = `${data.people.filter(p => p.office).length} in office · ${data.people.filter(p => p.leave).length} on leave`;
     for (const person of data.people.slice(0, expanded ? undefined : 6)) {

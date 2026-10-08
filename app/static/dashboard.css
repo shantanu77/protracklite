@@ -181,3 +181,13 @@ button.wd-task-check:hover { background: #eaf2e7; border-color: #17645b; }
 .wd-people-badge { font-size: 12px; color: #64748b; }
 .wd-people [data-people-expand] { margin: 16px 20px; }
 @media (max-width: 600px) { .wd-people-list { grid-template-columns: 1fr; } .wd-people .wd-panel-head { gap: 10px; } }
+
+.wd-team-attendance { border-top: 1px solid var(--wd-line); padding-bottom: 16px; }
+.wd-team-attendance .wd-panel-head { padding: 16px 20px; }
+.wd-team-attendance h3 { font-size: 13px; margin: 0; }
+.wd-team-attendance .wd-people-list { grid-template-columns: 1fr; gap: 0; }
+.wd-team-attendance .wd-people-summary { font-size: 12px; }
+.wd-team-attendance .wd-people-meta { font-size: 10px; line-height: 1.6; }
+.wd-team-attendance .wd-people-list strong { font-size: 12px; }
+.wd-team-attendance .wd-people-badge { font-size: 10px; }
+.wd-record { margin-bottom: 10px; }

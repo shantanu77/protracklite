@@ -4476,6 +4476,41 @@ def dashboard_attendance(
     return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
 
 
+@app.post("/{org_slug}/dashboard/attendance/punch")
+def dashboard_live_punch(action: str = Form(...), org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    from app.zoho_people import record_zoho_live_punch
+    org, user = org_user
+    if action not in {"in", "out"}:
+        raise HTTPException(400, "Invalid attendance action.")
+    # Serialize punches for the signed-in employee across application workers.
+    user = db.scalar(select(User).where(User.id == user.id, User.org_id == org.id).with_for_update())
+    if not user or not user.zoho_employee_id:
+        raise HTTPException(409, "Your account is not linked to Zoho attendance. Please contact HR.")
+    moment = local_now()
+    current = fetch_zoho_attendance_entries(employee_zoho_id=user.zoho_employee_id, from_date=moment.date(), to_date=moment.date())
+    if current.status != "synced":
+        raise HTTPException(503, "Unable to check attendance. Please try again.")
+    entries = [entry for entry in current.entries if entry.get("attendance_date") == moment.date()]
+    first_in = next((entry.get("first_in") for entry in entries if entry.get("first_in")), None)
+    last_out = next((entry.get("last_out") for entry in entries if entry.get("last_out")), None)
+    if action == "in" and first_in:
+        source_cache.invalidate(org.id, user.id)
+        return {"message": "Your check-in is already recorded."}
+    if action == "out" and (not first_in or last_out):
+        raise HTTPException(409, "No open check-in is available. Check your attendance again.")
+    if action == "out" and any(entry.get("work_mode") == "office" for entry in entries):
+        raise HTTPException(409, "Office attendance is recorded through the biometric terminal.")
+    result = record_zoho_live_punch(employee_email=user.email, moment=moment, action=action)
+    source_cache.invalidate(org.id, user.id)
+    if result.status != "submitted":
+        raise HTTPException(503, result.error)
+    confirmed = fetch_zoho_attendance_entries(employee_zoho_id=user.zoho_employee_id, from_date=moment.date(), to_date=moment.date())
+    key = "first_in" if action == "in" else "last_out"
+    if confirmed.status != "synced" or not any(entry.get("attendance_date") == moment.date() and entry.get(key) and entry[key] >= moment - timedelta(seconds=5) for entry in confirmed.entries):
+        raise HTTPException(503, "Punch submitted but not yet confirmed. Check attendance again before retrying.")
+    return {"message": "Remote check-in recorded in Noida." if action == "in" else "Remote check-out recorded in Noida."}
+
+
 @app.post("/{org_slug}/dashboard/attendance/regularize")
 def dashboard_request_regularization(
     org_slug: str, attendance_date: date = Form(...),

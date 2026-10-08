@@ -24,13 +24,6 @@
   </section>
   <div class="wd-workspace">
     <div class="wd-main">
-      <section class="wd-panel wd-people" data-today-people data-url="/{{ org.slug }}/dashboard/people">
-        <div class="wd-panel-head"><div><h2>Today’s people</h2><p>Office attendance and approved leave · shared with everyone</p></div><button type="button" class="wd-btn wd-small" data-people-refresh>Refresh</button></div>
-        <div class="wd-people-summary" data-people-counts></div>
-        <p class="wd-people-meta" data-people-meta role="status">Loading saved information…</p>
-        <ul class="wd-people-list" data-people-list aria-label="People in office or on leave today"></ul>
-        <button type="button" class="wd-btn wd-small" data-people-expand aria-expanded="false" hidden>View everyone</button>
-      </section>
       <section class="wd-panel" id="work-queue">
         <div class="wd-panel-head"><div><h2>My work</h2><p>One queue across your projects</p></div><button type="button" class="wd-btn wd-small" data-work-density aria-pressed="false">Compact view</button></div>
         <div class="wd-tabs" role="tablist" aria-label="Work views">
@@ -79,7 +72,15 @@
         <article class="wd-notice" data-work-pending-notice hidden><h3>Awaiting manager approval</h3><p data-work-pending-text></p><a class="wd-text" href="/{{ org.slug }}/profile?refresh_zoho=true">Review requests →</a></article>
         {% if not wd.attention_count %}<p class="wd-all-clear" data-work-all-clear>No task blockers or effort gaps to review. Attendance is checked separately.</p>{% endif %}
       </div></section>
-      <section class="wd-panel"><div class="wd-panel-head"><h2>My attendance</h2><span class="wd-pill">Today</span></div><div class="wd-attendance" aria-live="polite"><p class="wd-attendance-mode" data-work-attendance-mode>Loading attendance…</p><div class="wd-attendance-times"><div><small>First check-in</small><strong data-work-check-in>—</strong></div><div><small>Last check-out</small><strong data-work-check-out>—</strong></div></div><a class="wd-text" href="/{{ org.slug }}/profile?refresh_zoho=true">Attendance &amp; leave →</a><p class="wd-freshness" data-work-freshness>Checking your Zoho records. Your tasks are ready.</p><button type="button" class="wd-text" data-work-attendance-retry hidden>Try again</button></div></section>
+      <section class="wd-panel wd-attendance-card"><div class="wd-panel-head"><h2>My attendance</h2><span class="wd-pill">Today</span></div><div class="wd-attendance" aria-live="polite"><p class="wd-attendance-mode" data-work-attendance-mode>Loading attendance…</p><div class="wd-attendance-times"><div><small>First check-in</small><strong data-work-check-in>—</strong></div><div><small>Last check-out</small><strong data-work-check-out>—</strong></div></div><button type="button" class="wd-btn wd-primary wd-record" data-work-record hidden>Record now</button><p class="wd-freshness" data-work-record-message role="status"></p><a class="wd-text" href="/{{ org.slug }}/profile?refresh_zoho=true">Attendance &amp; leave →</a><p class="wd-freshness" data-work-freshness>Checking your Zoho records. Your tasks are ready.</p><button type="button" class="wd-text" data-work-attendance-retry hidden>Try again</button></div>
+        <div class="wd-people wd-team-attendance" data-today-people data-url="/{{ org.slug }}/dashboard/people">
+          <div class="wd-panel-head"><div><h3>Team today</h3><p>In office and on approved leave</p></div><button type="button" class="wd-btn wd-small" data-people-refresh>Refresh</button></div>
+          <div class="wd-people-summary" data-people-counts></div>
+          <p class="wd-people-meta" data-people-meta role="status">Loading saved information…</p>
+          <ul class="wd-people-list" data-people-list aria-label="People in office or on leave today"></ul>
+          <button type="button" class="wd-btn wd-small" data-people-expand aria-expanded="false" hidden>View everyone</button>
+        </div>
+      </section>
       <section class="wd-panel wd-next"><p class="wd-eyebrow">Looking one step ahead</p>{% if wd.upcoming_leave %}<h3>Leave recorded for {{ wd.upcoming_leave.leave_date.strftime('%d %b') }}.</h3><p>{% if wd.leave_conflicts %}{{ wd.leave_conflicts|length }} open {{ 'task is' if wd.leave_conflicts|length == 1 else 'tasks are' }} due that day. Agree dates or a backup before your leave.{% else %}Review your handoff and confirm a backup. Check approval status in your profile.{% endif %}</p>{% else %}<h3>Make room for the next outcome.</h3><p>Review your weekly plan, update estimates and keep your next steps clear.</p>{% endif %}<a class="wd-text" href="/{{ org.slug }}/profile?refresh_zoho=true">Review leave &amp; backup →</a><button type="button" class="wd-text" data-modal-open="dashboard-leave-modal">Apply leave →</button></section>
     </aside>
   </div>

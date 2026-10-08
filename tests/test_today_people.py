@@ -44,3 +44,33 @@ class TodayPeopleTests(unittest.TestCase):
             with patch('app.today_people.fetch_zoho_attendance_entries',return_value=ZohoAttendanceResult(status='synced')), patch('app.today_people.fetch_zoho_leave_requests',return_value=ZohoLeaveListResult(status='synced',leaves=(raw,))): return collect_people(self.db,self.org.id,DAY)[0]
         self.assertEqual(collect()[0]['leave_count'],0.5); self.assertEqual(collect()[0]['session'],1)
         raw['approval_status']='PENDING'; self.assertEqual(collect(),[])
+    def test_live_punch_uses_signed_in_user_and_server_time(self):
+        from app.main import dashboard_live_punch
+        from app.zoho_people import ZohoLeaveResult
+        moment=datetime(2026,10,8,10,30)
+        before=ZohoAttendanceResult(status='synced')
+        after=ZohoAttendanceResult(status='synced',entries=({'attendance_date':DAY,'first_in':moment,'work_mode':'remote'},))
+        with patch('app.main.local_now',return_value=moment), patch('app.main.fetch_zoho_attendance_entries',side_effect=[before,after]), patch('app.zoho_people.record_zoho_live_punch',return_value=ZohoLeaveResult(status='submitted')) as send:
+            result=dashboard_live_punch('in',(self.org,self.user),self.db)
+        self.assertIn('check-in recorded',result['message'])
+        self.assertEqual(send.call_args.kwargs,{'employee_email':self.user.email,'moment':moment,'action':'in'})
+    def test_live_punch_does_not_write_duplicate_or_invalid_checkout(self):
+        from app.main import dashboard_live_punch
+        current=ZohoAttendanceResult(status='synced',entries=({'attendance_date':DAY,'first_in':datetime(2026,10,8,10),'last_out':datetime(2026,10,8,19)},))
+        with patch('app.main.local_now',return_value=datetime(2026,10,8,20)), patch('app.main.fetch_zoho_attendance_entries',return_value=current), patch('app.zoho_people.record_zoho_live_punch') as send:
+            self.assertIn('already recorded',dashboard_live_punch('in',(self.org,self.user),self.db)['message'])
+            with self.assertRaises(HTTPException): dashboard_live_punch('out',(self.org,self.user),self.db)
+            send.assert_not_called()
+    def test_live_punch_requires_source_confirmation(self):
+        from app.main import dashboard_live_punch
+        from app.zoho_people import ZohoLeaveResult
+        with patch('app.main.local_now',return_value=datetime(2026,10,8,10)), patch('app.main.fetch_zoho_attendance_entries',return_value=ZohoAttendanceResult(status='synced')), patch('app.zoho_people.record_zoho_live_punch',return_value=ZohoLeaveResult(status='submitted')):
+            with self.assertRaises(HTTPException) as error: dashboard_live_punch('in',(self.org,self.user),self.db)
+            self.assertIn('not yet confirmed',error.exception.detail)
+    def test_remote_punch_request_is_only_selected_action(self):
+        import httpx
+        from app.zoho_people import record_zoho_live_punch
+        with patch('app.zoho_people._access_token',return_value=('test','')),patch('app.zoho_people.httpx.post',return_value=httpx.Response(200,json={'status':'success'})) as send:
+            record_zoho_live_punch(employee_email='person@example.com',moment=datetime(2026,10,8,10),action='in')
+        data=send.call_args.kwargs['data']
+        self.assertEqual(data['emailId'],'person@example.com'); self.assertIn('checkIn',data); self.assertNotIn('checkOut',data); self.assertEqual(data['location'],'Noida')
