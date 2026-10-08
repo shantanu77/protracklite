@@ -74,10 +74,11 @@
       </div></section>
       <section class="wd-panel wd-attendance-card"><div class="wd-panel-head"><h2>My attendance</h2><span class="wd-pill">Today</span></div><div class="wd-attendance" aria-live="polite"><p class="wd-attendance-mode" data-work-attendance-mode>Loading attendance…</p><div class="wd-attendance-times"><div><small>First check-in</small><strong data-work-check-in>—</strong></div><div><small>Last check-out</small><strong data-work-check-out>—</strong></div></div><button type="button" class="wd-btn wd-primary wd-record" data-work-record hidden>Record now</button><p class="wd-freshness" data-work-record-message role="status"></p><a class="wd-text" href="/{{ org.slug }}/profile?refresh_zoho=true">Attendance &amp; leave →</a><p class="wd-freshness" data-work-freshness>Checking your Zoho records. Your tasks are ready.</p><button type="button" class="wd-text" data-work-attendance-retry hidden>Try again</button></div>
         <div class="wd-people wd-team-attendance" data-today-people data-url="/{{ org.slug }}/dashboard/people">
-          <div class="wd-panel-head"><div><h3>Team today</h3><p>In office and on approved leave</p></div><button type="button" class="wd-btn wd-small" data-people-refresh>Refresh</button></div>
+          <div class="wd-panel-head"><div><div class="wd-team-title"><h3>Team today</h3><span class="wd-team-sync" data-people-sync></span></div><p>In office and on approved leave</p></div><button type="button" class="wd-btn wd-small" data-people-refresh>Refresh</button></div>
           <div class="wd-people-summary" data-people-counts></div>
           <p class="wd-people-meta" data-people-meta role="status">Loading saved information…</p>
-          <ul class="wd-people-list" data-people-list aria-label="People in office or on leave today"></ul>
+          <ul class="wd-people-list" data-people-list aria-label="People in office today"></ul>
+          <div class="wd-leave-tags" data-people-leaves hidden><span class="wd-leave-label">On leave</span><div data-people-leave-tags></div></div>
           <button type="button" class="wd-btn wd-small" data-people-expand aria-expanded="false" hidden>View everyone</button>
         </div>
       </section>

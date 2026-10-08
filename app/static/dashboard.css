@@ -191,3 +191,10 @@ button.wd-task-check:hover { background: #eaf2e7; border-color: #17645b; }
 .wd-team-attendance .wd-people-list strong { font-size: 12px; }
 .wd-team-attendance .wd-people-badge { font-size: 10px; }
 .wd-record { margin-bottom: 10px; }
+
+.wd-team-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; }
+.wd-team-sync { font-size: 9px; font-weight: 400; color: var(--wd-muted); }
+.wd-leave-tags { padding: 12px 20px 0; }
+.wd-leave-label { display: block; margin-bottom: 8px; font-size: 11px; font-weight: 600; }
+.wd-leave-tags [data-people-leave-tags] { display: flex; flex-wrap: wrap; gap: 6px; }
+.wd-leave-tag { border: 1px solid #e0e5ec; border-radius: 6px; background: #f5f7fa; padding: 4px 8px; font-size: 11px; color: #475569; }
