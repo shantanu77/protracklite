@@ -150,7 +150,7 @@
     if (record) {
       record.hidden = Boolean(today && (!today.is_open || today.mode_label === 'Office'));
       record.dataset.action = today?.is_open ? 'out' : 'in';
-      record.textContent = today?.is_open ? 'Check out · Remote' : 'Record now · Remote';
+      record.textContent = today?.is_open ? 'Log out · Remote' : 'Log in · Remote';
     }
     find('[data-work-attendance-mode]').textContent = today ? `${today.mode_label}${today.attendance_location ? ' · ' + today.attendance_location : ''}` : 'No punch recorded yet today';
     find('[data-work-check-in]').textContent = today?.first_in_label || '—';
