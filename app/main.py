@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, profile_saved_approvals, PENDING_STATUSES
 from app.capacity import build_capacity_payload, capacity_period
+from app.manager_dashboard import build_manager_dashboard
 from app.capacity_sync import capacity_snapshots, capacity_sync_status, run_capacity_sync, start_capacity_sync
 from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
 from app.zoho_people import (
@@ -123,6 +124,7 @@ templates = Jinja2Templates(directory="app/templates")
 STYLESHEET_VERSION = hashlib.sha256(Path("app/static/styles.css").read_bytes()).hexdigest()[:12]
 templates.env.globals["stylesheet_version"] = STYLESHEET_VERSION
 templates.env.globals["dashboard_asset_version"] = hashlib.sha256(Path("app/static/dashboard.css").read_bytes() + Path("app/static/dashboard.js").read_bytes()).hexdigest()[:12]
+templates.env.globals["manager_dashboard_asset_version"] = hashlib.sha256(Path("app/static/manager_dashboard.css").read_bytes() + Path("app/static/manager_dashboard.js").read_bytes()).hexdigest()[:12]
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
 
@@ -9757,22 +9759,38 @@ def admin_dashboard_page(request: Request, org_user: tuple[Organization, User] =
 
 
 @app.get("/{org_slug}/manager/dashboard", response_class=HTMLResponse)
-def manager_dashboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+def manager_dashboard_page(request: Request, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db), department: str = ""):
     org, user = org_user
     must_be_admin_or_manager(user)
     if user.role == Role.ADMIN:
         team = org_people(db, org.id)
     else:
         team = managed_people(db, org.id, user)
-    payload = scoped_team_dashboard_payload(db, org, team)
+    departments = sorted({member.department.name if member.department else "No department" for member in team})
+    if department:
+        if department not in departments:
+            raise HTTPException(status_code=400, detail="Select a department in your team")
+        team = [member for member in team if (member.department.name if member.department else "No department") == department]
+    today = local_today()
+    year = today.year if today.month >= 4 else today.year - 1
+    plans = db.scalars(performance_plan_query(org.id).where(
+        PerformancePlan.year == year, PerformancePlan.user_id.in_([member.id for member in team]),
+    )).all() if team else []
+    goals = {plan.user_id: {"id": plan.id, "title": plan.title,
+             "progress": calculate_plan_achievement_percent(plan),
+             "status": PERFORMANCE_PLAN_STATUSES.get(plan.status, plan.status.title()),
+             "cycle": plan.cycle_label or f"FY {year}-{str(year + 1)[-2:]}",
+             "url": f"/{org.slug}/goals?plan_id={plan.id}"} for plan in plans}
+    payload = build_manager_dashboard(db, org, user, team, goals, today)
     return templates.TemplateResponse(
         "manager_dashboard.html",
         {
             "request": request,
             "org": org,
             "user": user,
-            "summary": payload["summary"],
-            "rows": payload["rows"],
+            "dashboard": payload,
+            "departments": departments,
+            "selected_department": department,
         },
     )
 

@@ -1,79 +1,28 @@
 {% extends "base.html" %}
+{% block body_class %}manager-overview-page{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/manager_dashboard.css?v={{ manager_dashboard_asset_version }}"><script src="/static/manager_dashboard.js?v={{ manager_dashboard_asset_version }}" defer></script>{% endblock %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <p class="eyebrow">Manager</p>
-    <h1>Team Dashboard</h1>
-    <p>Team-level workload, goal progress, and execution visibility for direct reports.</p>
+{% set d = dashboard %}
+<div class="manager-overview" data-manager-dashboard>
+  <div class="md-topline"><span>Workspace / <b>Manager overview</b></span><span>{{ d.today.strftime('%d %b %Y') }} · {{ d.rows|length }} team members</span></div>
+  <section class="md-hero"><div><p class="md-eyebrow">YOUR TEAM, IN FOCUS</p><h1>Make room for better work.</h1><p>Delivery, capacity and the decisions that move your team forward.</p></div><button class="md-button md-primary" type="button" data-manager-export>↓ Export team snapshot</button></section>
+  <div class="md-filters"><form method="get"><label for="md-department">Team</label><select name="department" id="md-department"><option value="">All {% if user.role.value == 'admin' %}employees{% else %}direct reports{% endif %}</option>{% for department in departments %}<option value="{{ department }}" {% if department == selected_department %}selected{% endif %}>{{ department }}</option>{% endfor %}</select><button class="md-button" type="submit">Apply</button></form><span>Planning window <b>{{ d.start.strftime('%d %b') }}–{{ d.end.strftime('%d %b %Y') }}</b></span><a href="/{{ org.slug }}/manager/capacity?view=week">Open capacity view ↗</a></div>
+  <section class="md-brief" aria-label="Weekly briefing"><span aria-hidden="true">✦</span><div><strong>Your weekly briefing</strong><p>{{ d.at_risk }} projects need a delivery review. {{ d.overloaded }} people exceed remaining capacity. {{ d.approvals }} requests await review.{% if d.missing_estimates %} {{ d.missing_estimates }} commitments need estimates.{% endif %}</p></div><small>Rule-based summary</small></section>
+  <section class="md-metrics" aria-label="Team overview">
+    <a class="md-metric md-warning" href="#md-attention"><span>Overdue tasks ↗</span><strong>{{ d.overdue }}</strong><small>Open tasks past their due date</small></a>
+    <a class="md-metric" href="#md-capacity"><span>Remaining work / capacity ↗</span><strong>{% if d.available is none %}Unknown{% elif d.available > 0 %}{{ (d.planned / d.available * 100)|round|int }}%{% elif d.planned %}No capacity{% else %}—{% endif %}</strong><small>{{ '%g'|format(d.planned) }}h remaining / {% if d.available is not none %}{{ '%g'|format(d.available) }}h available{% else %}leave data incomplete{% endif %}{% if d.missing_estimates %} · Estimates incomplete{% endif %}</small></a>
+    <a class="md-metric {% if d.overloaded %}md-warning{% endif %}" href="#md-capacity"><span>Over remaining capacity ↗</span><strong>{{ d.overloaded }}</strong><small>Based on members with saved leave data</small></a>
+    <a class="md-metric" href="#md-delivery"><span>Projects on track ↗</span><strong>{{ d.projects|length - d.at_risk }}/{{ d.projects|length }}</strong><small>No stalled or overdue open tasks</small></a>
+  </section>
+  <div class="md-grid">
+    <section class="md-panel" id="md-attention"><div class="md-panel-head"><div><p class="md-eyebrow">DECISIONS FIRST</p><h2>Needs your attention <span class="md-counter">{{ d.alerts|length }}</span></h2></div></div><div class="md-tabs" aria-label="Filter attention items"><button type="button" data-manager-filter="all" aria-pressed="true">All items</button><button type="button" data-manager-filter="delivery" aria-pressed="false">Delivery risks</button><button type="button" data-manager-filter="approval" aria-pressed="false">Approvals</button><button type="button" data-manager-filter="data" aria-pressed="false">Data quality</button></div><div class="md-attention-list">{% for alert in d.alerts %}<article class="md-alert" data-manager-alert="{{ alert.type }}"><span class="md-alert-icon md-{{ alert.type }}" aria-hidden="true">{{ '!' if alert.type == 'delivery' else '✓' if alert.type == 'approval' else '◷' }}</span><div><h3>{{ alert.title }}</h3><p>{{ alert.detail }}</p><a class="md-button" href="{{ alert.url }}">{{ alert.action }} →</a></div></article>{% endfor %}</div><p class="md-empty" data-manager-attention-empty {% if d.alerts %}hidden{% endif %}>No items need attention in this view.</p><p class="md-panel-foot">Review links open the existing task, leave and capacity workflows.</p></section>
+    <section class="md-panel" id="md-delivery"><div class="md-panel-head"><div><p class="md-eyebrow">DELIVERY VISIBILITY</p><h2>Project pulse</h2></div><span class="md-counter">{{ d.projects|length }}</span></div><div class="md-project-list">{% for project in d.projects %}<a class="md-project" href="{{ project.url }}"><div><h3>{{ project.name }}</h3><span class="md-tag {% if project.status != 'On track' %}md-risk{% endif %}">{{ project.status }}</span></div><small>Tasks assigned to the selected team</small><div class="md-progress {% if project.status != 'On track' %}md-risk{% endif %}" role="progressbar" aria-label="{{ project.name }} task completion" aria-valuenow="{{ project.progress }}" aria-valuemin="0" aria-valuemax="100"><i style="width:{{ project.progress }}%"></i></div><p><span>{{ project.done }}/{{ project.total }} tasks complete</span><span>{{ project.blocked }} stalled · {{ project.overdue }} overdue</span></p></a>{% else %}<p class="md-empty">No projects with open tasks in this team.</p>{% endfor %}</div><p class="md-panel-foot">Health reflects stalled and overdue tasks in this team’s scope, across all dates. Open a project’s next task to review delivery.</p></section>
   </div>
-</section>
-<div class="admin-links">
-  <a class="card quick-link" href="/{{ org.slug }}/manager/team-leaves">Team Leaves</a>
-  <a class="card quick-link" href="/{{ org.slug }}/manager/capacity">Capacity View</a>
-  <a class="card quick-link" href="/{{ org.slug }}/goals">Team Goals</a>
-  <a class="card quick-link" href="/{{ org.slug }}/reports/overview">My Reports</a>
+  <section class="md-panel md-capacity" id="md-capacity"><div class="md-panel-head"><div><p class="md-eyebrow">BALANCE THE LOAD</p><h2>Team capacity & execution</h2><p>Remaining commitments against available hours from today to the end of the week.</p></div><label class="md-search">⌕ <input type="search" data-manager-search placeholder="Find a team member" aria-label="Find a team member"></label></div><div class="md-legend"><span>● Within capacity</span><span class="md-warning">● Over capacity</span><span>Effort records are a separate data check.</span><span data-manager-member-count aria-live="polite">{{ d.rows|length }} members</span></div><div class="md-table-wrap"><table><thead><tr><th>TEAM MEMBER</th><th>REMAINING / AVAILABLE</th><th>OPEN / OVERDUE</th><th>ELAPSED EFFORT¹</th><th>GOAL PLAN</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>{% for row in d.rows %}<tr data-manager-member data-search="{{ (row.name ~ ' ' ~ row.department)|lower }}" data-member-id="{{ row.id }}"><td><div class="md-person"><span class="md-avatar" aria-hidden="true">{{ row.name[:1] }}</span><div><strong>{{ row.name }}</strong><small>{{ row.department }}</small></div></div></td><td><div class="md-load"><strong>{{ '%g'|format(row.planned) }}h / {% if row.available is not none %}{{ '%g'|format(row.available) }}h{% else %}Unknown{% endif %}</strong>{% if row.load_percent is not none %}<small>{{ row.load_percent }}%</small><div class="md-progress {% if row.overloaded %}md-risk{% endif %}"><i style="width:{{ [100, row.load_percent]|min }}%"></i></div>{% elif row.overloaded %}<small class="md-warning">No remaining capacity</small>{% endif %}{% if row.missing_estimates %}<small class="md-warning">{{ row.missing_estimates }} unestimated</small>{% endif %}</div></td><td>{{ row.open }} open <span class="{% if row.overdue %}md-warning{% else %}md-muted{% endif %}">· {{ row.overdue }} overdue</span></td><td>{{ '%g'|format(row.logged) }}h / {% if row.elapsed is not none %}{{ '%g'|format(row.elapsed) }}h{% else %}Unknown{% endif %}<small>Through yesterday</small></td><td>{% if row.goal %}<a href="{{ row.goal.url }}">{{ '%.0f'|format(row.goal.progress) }}%</a><small>{{ row.goal.cycle }}</small>{% else %}<span class="md-tag md-neutral">No plan</span>{% endif %}</td><td><a href="{{ row.url }}">Review →</a></td></tr>{% endfor %}</tbody></table></div><p class="md-empty" data-manager-members-empty {% if d.rows %}hidden{% endif %}>No team members match this view.</p><p class="md-panel-foot">Commitments include open tasks due by week-end and tasks in this week’s plan. Remaining work = max(estimate − total logged effort, 0). Missing estimates are excluded. Capacity uses the organisation’s calendar, approved leave in saved snapshots and today’s logged effort. ¹ Logged effort / available hours from Monday through yesterday; this measures records, not productivity.</p></section>
+  <div class="md-grid md-lower"><section class="md-panel"><div class="md-panel-head"><div><p class="md-eyebrow">CONNECT WORK TO OUTCOMES</p><h2>Team goal plans</h2></div><a href="/{{ org.slug }}/goals">View goals ↗</a></div><div class="md-goal-list">{% for goal in d.goals %}<a class="md-goal" href="{{ goal.url }}"><div><h3>{{ goal.title }}</h3><span class="md-tag md-neutral">{{ goal.status }}</span></div><small>{{ goal.name }} · {{ goal.cycle }}</small><div class="md-progress" role="progressbar" aria-label="{{ goal.name }} goal achievement" aria-valuenow="{{ goal.progress }}" aria-valuemin="0" aria-valuemax="100"><i style="width:{{ [100, [0, goal.progress]|max]|min }}%"></i></div><p>{{ '%.0f'|format(goal.progress) }}% weighted achievement</p></a>{% else %}<p class="md-empty">No current financial-year goal plans for this team.</p>{% endfor %}</div></section><section class="md-panel"><div class="md-panel-head"><div><p class="md-eyebrow">LOOK AHEAD</p><h2>Leave & coverage</h2></div><a href="/{{ org.slug }}/manager/team-leaves">Review leave ↗</a></div><div class="md-leave-list">{% for leave in d.leaves %}<a class="md-leave" href="{{ leave.url }}"><span class="md-date">{{ leave.date.strftime('%b') }}<b>{{ leave.date.strftime('%d') }}</b></span><div><strong>{{ leave.name }}</strong> <span class="md-tag">Approved</span><p>{{ leave.days }} day · {{ leave.type }}</p><small>Review handoff and backup in the leave details.</small></div></a>{% else %}<p class="md-empty">No upcoming approved leave in the saved data for this week.</p>{% endfor %}</div><p class="md-panel-foot">Only approved leave reduces dashboard capacity. Pending requests appear in the attention queue.</p></section></div>
+  <footer class="md-footer"><span>Live task and goal records · Saved leave data:{% for snapshot in d.snapshots %} {{ snapshot.month }} {% if snapshot.synced_at %}synced {{ local_datetime(snapshot.synced_at) }}{% else %}not synced{% endif %}{% if not loop.last %};{% endif %}{% endfor %}</span><button type="button" class="md-text" data-manager-definitions>How metrics work ↗</button></footer>
+  <script type="application/json" id="manager-export-data">{{ d.rows|tojson }}</script>
+  <dialog class="md-dialog" data-manager-dialog><div class="md-dialog-head"><h2>How metrics work</h2><button class="md-button" type="button" data-manager-close aria-label="Close metric definitions">✕</button></div><div class="md-dialog-body"><p><strong>Overdue tasks:</strong> non-archived, open team tasks due before today.</p><p><strong>Workload:</strong> estimated remaining effort on overdue tasks, tasks due this week and tasks selected in this week’s plan. Future tasks outside that set are excluded.</p><p><strong>Remaining capacity:</strong> working hours from today to Sunday, less approved leave and hours already logged today. Holidays and configured weekends are excluded. Missing leave snapshots show Unknown.</p><p><strong>Project pulse:</strong> all non-archived tasks assigned to the selected team. Closed / total gives progress. Stalled tasks mean Blocked; overdue work means At risk. This does not predict deadlines.</p><p><strong>Goals:</strong> actual weighted achievement in the current financial-year plan, with its existing workflow status.</p><p><strong>Effort:</strong> recorded task hours through yesterday against elapsed working capacity. Incomplete records do not establish low productivity.</p><p>The overview uses saved data and does not refresh Zoho or send notifications. Open Capacity View to refresh the shared leave snapshot.</p></div></dialog>
+  <p class="md-status" data-manager-status role="status" hidden></p>
 </div>
-<div class="stats">
-  <div class="stat"><span>Direct Reports</span><strong>{{ summary.employees }}</strong></div>
-  <div class="stat"><span>Created This Month</span><strong>{{ summary.tasks_created_month }}</strong></div>
-  <div class="stat"><span>Closed This Month</span><strong>{{ summary.tasks_closed_month }}</strong></div>
-  <div class="stat"><span>Plans This Year</span><strong>{{ summary.plans_current_year }}</strong></div>
-</div>
-<section class="panel data-grid" data-grid>
-  <div class="grid-toolbar">
-    <div class="grid-toolbar-main">
-      <div>
-        <h2>Team Execution</h2>
-        <p>Direct-report delivery, effort, and yearly goal progress in one scoped view.</p>
-      </div>
-      <span class="grid-toolbar-meta" data-grid-count></span>
-    </div>
-    <div class="grid-controls">
-      <label class="grid-search">Search
-        <input type="search" placeholder="Search by employee name" data-grid-search>
-      </label>
-    </div>
-  </div>
-  <div class="manager-effort-legend" aria-label="Effort anomaly colors">
-    <span class="is-missing"><i></i>Not filled</span>
-    <span class="is-low"><i></i>Low &lt;80%</span>
-    <span class="is-partial"><i></i>Partial 80–99%</span>
-    <span class="is-on-track"><i></i>On track 100–120%</span>
-    <span class="is-high"><i></i>High &gt;120%</span>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Employee</th>
-          <th>Available</th>
-          <th>Logged</th>
-          <th>Total %</th>
-          <th>Open</th>
-          <th>Closed</th>
-          <th>Goal %</th>
-          <th>Goal status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-        <tr class="manager-effort-row is-{{ row.effort_health.key }}" data-grid-row data-grid-search="{{ row.member.full_name }}" title="{{ row.effort_health.detail }}">
-          <td><a href="/{{ org.slug }}/team/{{ row.member.id }}/tasks">{{ row.member.full_name }}</a></td>
-          <td>{{ "%.2f"|format(row.rates.available_hours) }}h</td>
-          <td class="manager-effort-value">{{ "%.2f"|format(row.rates.total_logged_hours) }}h</td>
-          <td class="manager-effort-rate">
-            <strong>{{ "%.2f"|format(row.rates.total_rate) }}%</strong>
-            <span class="manager-effort-badge">{{ row.effort_health.label }}</span>
-          </td>
-          <td>{{ row.open_tasks }}</td>
-          <td>{{ row.closed_tasks }}</td>
-          <td>{% if row.has_plan %}{{ "%.2f"|format(row.goal_progress) }}%{% else %}No plan{% endif %}</td>
-          <td>{% if row.has_plan %}{{ row.goal_status }}<br><small>{{ row.goal_cycle }}</small>{% else %}Not assigned{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <p class="grid-empty empty" data-grid-empty hidden>No team members match the current search.</p>
-</section>
 {% endblock %}
