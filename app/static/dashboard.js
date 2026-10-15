@@ -84,12 +84,12 @@
   density.addEventListener('click', () => applyDensity(!root.classList.contains('is-compact')));
   function openDay(date) {
     const day = root.querySelector(`[data-dashboard-leave-day][data-date="${date}"]`);
-    if (day?.dataset.canLogEffort === 'true') day.click();
+    if (day?.dataset.canLogEffort === 'true') day.dispatchEvent(new Event('work-add-effort'));
   }
   root.querySelectorAll('[data-work-log-date]').forEach((button) => button.addEventListener('click', () => openDay(button.dataset.workLogDate)));
   find('[data-work-log]').addEventListener('click', () => {
     const days = Array.from(root.querySelectorAll('[data-dashboard-leave-day][data-can-log-effort="true"]'));
-    if (days.length) days.at(-1).click();
+    if (days.length) days.at(-1).dispatchEvent(new Event('work-add-effort'));
     else root.querySelector('[data-modal-open="dashboard-log-modal"]')?.click();
   });
   document.addEventListener('click', (event) => {
@@ -317,4 +317,161 @@
   });
   expand.addEventListener('click', () => {expanded = !expanded; render();});
   load();
+})();
+
+/* Inspect and correct the signed-in person's dated effort without creating duplicates. */
+(() => {
+  'use strict';
+  const dialog = document.querySelector('[data-work-effort-dialog]');
+  if (!dialog) return;
+  const find = selector => dialog.querySelector(selector);
+  const dayInput = find('[data-work-effort-date]');
+  const summary = find('[data-work-effort-summary]');
+  const list = find('[data-work-effort-entries]');
+  const error = find('[data-work-effort-error]');
+  const editForm = find('[data-work-effort-edit]');
+  const saveError = find('[data-work-effort-save-error]');
+  const previous = find('[data-work-effort-previous]');
+  const next = find('[data-work-effort-next]');
+  const add = find('[data-work-effort-add]');
+  const today = dialog.dataset.today;
+  let request = null;
+  let generation = 0;
+  let selected = null;
+  let saving = false;
+  function element(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text != null) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+  function controls() {
+    dayInput.disabled = Boolean(selected) || saving;
+    previous.disabled = Boolean(selected) || saving;
+    next.disabled = Boolean(selected) || saving || dayInput.value >= today;
+    const card = document.querySelector(`[data-dashboard-leave-day][data-date="${dayInput.value}"]`);
+    add.hidden = card?.dataset.canLogEffort !== 'true';
+    add.disabled = Boolean(selected) || saving;
+  }
+  function cancelEdit() {
+    selected = null;
+    editForm.hidden = true;
+    list.hidden = false;
+    saveError.hidden = true;
+    controls();
+  }
+  function edit(entry) {
+    selected = entry;
+    editForm.reset();
+    editForm.elements.log_date.value = dayInput.value;
+    editForm.elements.hours.value = entry.hours;
+    editForm.elements.notes.value = entry.notes || '';
+    find('[data-work-effort-edit-title]').textContent = `Edit ${entry.task_code} · ${entry.task_name}`;
+    list.hidden = true;
+    editForm.hidden = false;
+    saveError.hidden = true;
+    controls();
+    editForm.elements.log_date.focus();
+  }
+  async function load(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    request?.abort();
+    const current = ++generation;
+    request = new AbortController();
+    dayInput.value = date;
+    cancelEdit();
+    error.hidden = true;
+    summary.textContent = 'Loading your effort entries…';
+    list.replaceChildren();
+    try {
+      const response = await fetch(`${dialog.dataset.effortUrl}?log_date=${encodeURIComponent(date)}`, { credentials: 'same-origin', cache: 'no-store', signal: request.signal, headers: { Accept: 'application/json' } });
+      if (!response.ok || response.redirected) throw new Error('Unable to load effort. Please check your connection or sign in again.');
+      const data = await response.json();
+      if (current !== generation) return;
+      const label = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      summary.textContent = `${label} · ${data.total_hours}h across ${data.entries.length} ${data.entries.length === 1 ? 'entry' : 'entries'}`;
+      if (!data.entries.length) list.append(element('p', 'No effort is recorded for this day.', 'wd-effort-empty'));
+      data.entries.forEach(entry => {
+        const article = element('article', null, 'wd-effort-entry');
+        const head = element('div', null, 'wd-effort-entry-head');
+        const title = element('a', `${entry.task_code} · ${entry.task_name}`);
+        title.href = entry.task_url;
+        head.append(title, element('strong', `${entry.hours}h`));
+        article.append(head, element('small', `${entry.project} · ${entry.status.replaceAll('_', ' ')}`), element('p', entry.notes || 'No work notes recorded.'));
+        const button = element('button', 'Edit date, hours & notes', 'wd-btn wd-small');
+        button.type = 'button';
+        button.addEventListener('click', () => edit(entry));
+        article.append(button);
+        list.append(article);
+      });
+    } catch (failure) {
+      if (failure.name === 'AbortError' || current !== generation) return;
+      summary.textContent = '';
+      error.textContent = failure.message;
+      error.hidden = false;
+      const retry = element('button', 'Try again', 'wd-btn wd-small');
+      retry.type = 'button';
+      retry.addEventListener('click', () => load(date));
+      list.append(retry);
+    }
+  }
+  function open(date) {
+    if (!dialog.open) dialog.showModal();
+    load(date);
+  }
+  document.querySelectorAll('[data-dashboard-leave-day]').forEach(card => card.addEventListener('click', () => open(card.dataset.date)));
+  document.querySelector('[data-work-effort-history]')?.addEventListener('click', () => open(today));
+  find('[data-work-effort-close]').addEventListener('click', () => { if (!saving) dialog.close(); });
+  dialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
+  dialog.addEventListener('close', () => { request?.abort(); generation++; });
+  find('[data-work-effort-cancel]').addEventListener('click', cancelEdit);
+  dayInput.addEventListener('change', () => { if (dayInput.validity.valid && dayInput.value) load(dayInput.value); });
+  function moveDay(offset) {
+    const date = new Date(`${dayInput.value}T12:00:00`);
+    date.setDate(date.getDate() + offset);
+    load(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
+  }
+  previous.addEventListener('click', () => moveDay(-1));
+  next.addEventListener('click', () => moveDay(1));
+  add.addEventListener('click', () => {
+    const card = document.querySelector(`[data-dashboard-leave-day][data-date="${dayInput.value}"]`);
+    dialog.close();
+    card?.dispatchEvent(new Event('work-add-effort'));
+  });
+  editForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!selected || saving || !editForm.reportValidity()) return;
+    saving = true;
+    controls();
+    editForm.querySelectorAll('button').forEach(button => { button.disabled = true; });
+    saveError.hidden = true;
+    try {
+      const response = await fetch(`${dialog.dataset.effortUrl}/${selected.id}`, {
+        method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ log_date: editForm.elements.log_date.value, hours: editForm.elements.hours.value, notes: editForm.elements.notes.value, revision: selected.revision }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Unable to save this effort entry.');
+      // Reload the overview so both weeks' totals and remaining capacity reflect the correction.
+      const url = new URL(window.location.href);
+      url.search = '';
+      url.searchParams.set('effort_date', data.date);
+      url.searchParams.set('effort_saved', '1');
+      window.location.assign(url.href);
+    } catch (failure) {
+      saveError.textContent = failure.message;
+      saveError.hidden = false;
+      saving = false;
+      controls();
+      editForm.querySelectorAll('button').forEach(button => { button.disabled = false; });
+    }
+  });
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('effort_date') && /^\d{4}-\d{2}-\d{2}$/.test(params.get('effort_date'))) {
+    open(params.get('effort_date'));
+    if (params.get('effort_saved') === '1') {
+      const notice = element('p', 'Effort updated. Your dashboard totals have been recalculated.', 'wd-effort-saved');
+      find('.wd-effort-body').prepend(notice);
+    }
+  }
 })();

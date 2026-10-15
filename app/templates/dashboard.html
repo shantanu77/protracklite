@@ -56,9 +56,9 @@
         </div>
         <div class="wd-queue-foot"><span data-work-results role="status">{{ wd.counts.today }} tasks in focus</span><button type="button" class="wd-text" data-work-more hidden>Show more tasks</button><button type="button" class="wd-text" data-work-view="all">See all work →</button></div>
       </section>
-      <section class="wd-panel wd-week" id="work-week"><div class="wd-panel-head"><div><h2>A week you can actually deliver</h2><p>{{ week_start.strftime('%d %b') }} – {{ week_end.strftime('%d %b') }} · Your plan, effort and recorded leave</p></div><a class="wd-btn wd-small" href="/{{ org.slug }}/reports/monday">Edit weekly plan ↗</a></div><div class="wd-capacity"><span><b>{{ '%g'|format(wd.estimated_work) }}h estimated remaining</b> · <span data-work-capacity>{{ '%g'|format(wd.available_hours) }}</span>h available</span><span data-work-capacity-source>After recorded leave and holidays</span><span><span data-work-remaining-capacity>{{ '%g'|format(wd.remaining_available_hours) }}</span>h left from today</span></div><p class="wd-plan-helper">Remaining work uses task estimates minus total effort. {% if wd.unknown_estimates %}{{ wd.unknown_estimates }} {{ 'task needs' if wd.unknown_estimates == 1 else 'tasks need' }} an estimate.{% endif %} Compare it with your remaining working time when planning.</p>
+      <section class="wd-panel wd-week" id="work-week"><div class="wd-panel-head"><div><h2>A week you can actually deliver</h2><p>{{ week_start.strftime('%d %b') }} – {{ week_end.strftime('%d %b') }} · Your plan, effort and recorded leave</p></div><a class="wd-btn wd-small" href="/{{ org.slug }}/reports/monday">Edit weekly plan ↗</a><button type="button" class="wd-btn wd-small" data-work-effort-history>View effort history</button></div><div class="wd-capacity"><span><b>{{ '%g'|format(wd.estimated_work) }}h estimated remaining</b> · <span data-work-capacity>{{ '%g'|format(wd.available_hours) }}</span>h available</span><span data-work-capacity-source>After recorded leave and holidays</span><span><span data-work-remaining-capacity>{{ '%g'|format(wd.remaining_available_hours) }}</span>h left from today</span></div><p class="wd-plan-helper">Remaining work uses task estimates minus total effort. {% if wd.unknown_estimates %}{{ wd.unknown_estimates }} {{ 'task needs' if wd.unknown_estimates == 1 else 'tasks need' }} an estimate.{% endif %} Compare it with your remaining working time when planning.</p>
         <div class="wd-week-grid" data-dashboard-leave-week>{% for day in week_leave_days %}
-          <button type="button" class="dashboard-leave-day is-{{ day.status }}{{ ' is-actionable' if day.can_log_effort else '' }}" data-dashboard-leave-day data-is-today="{{ 'true' if day.date == today else 'false' }}" data-can-log-base="{{ 'true' if day.can_log_base else 'false' }}" data-can-log-effort="{{ 'true' if day.can_log_effort else 'false' }}" data-day-label="{{ day.date.strftime('%A, %d %b %Y') }}" data-date="{{ day.date.isoformat() }}" data-status="{{ day.status }}" data-base-status="{{ day.base_status }}" data-base-value="{{ day.base_value_short }}" data-base-detail="{{ day.base_detail }}" aria-disabled="{{ 'false' if day.can_log_effort else 'true' }}" title="{{ 'Add effort for this past working day' if day.can_log_effort else ('Today’s day-level effort opens after the day ends' if day.date == today else day.detail) }}"><span class="wd-day-label">{{ day.day_short }} <span>{{ day.date.strftime('%d') }}</span></span><strong>{{ day.value_short }}</strong><small>{{ day.date.strftime('%d %b') }} · {{ 'Add effort' if day.can_log_effort else ('Today' if day.date == today else day.detail) }}</small></button>
+          <button type="button" class="dashboard-leave-day is-{{ day.status }} is-actionable" data-dashboard-leave-day aria-disabled="false" data-effort-hours="{{ '%g'|format(day.hours) }}" data-is-today="{{ 'true' if day.date == today else 'false' }}" data-can-log-base="{{ 'true' if day.can_log_base else 'false' }}" data-can-log-effort="{{ 'true' if day.can_log_effort else 'false' }}" data-day-label="{{ day.date.strftime('%A, %d %b %Y') }}" data-date="{{ day.date.isoformat() }}" data-status="{{ day.status }}" data-base-status="{{ day.base_status }}" data-base-value="{{ day.base_value_short }}" data-base-detail="{{ day.base_detail }}" aria-label="View effort for {{ day.date.strftime('%A, %d %b') }} · {{ '%g'|format(day.hours) }} hours" title="View tasks and effort entries for this day"><span class="wd-day-label">{{ day.day_short }} <span>{{ day.date.strftime('%d') }}</span></span><strong>{{ day.value_short }}</strong><small>{{ day.date.strftime('%d %b') }} · View effort · {{ '%g'|format(day.hours) }}h</small></button>
         {% endfor %}</div>
       </section>
     </div>
@@ -88,6 +88,24 @@
   <footer class="wd-footer"><span>Your priorities, progress and records in one place.</span><a href="/{{ org.slug }}/reports/monday">Weekly planning →</a></footer>
 </div>
 <dialog class="wd-dialog" data-work-regularization-dialog aria-labelledby="work-regularization-title"><div class="wd-dialog-head"><h2 id="work-regularization-title">Request remote regularization</h2><button type="button" class="wd-dialog-close" aria-label="Close" data-work-dialog-close>×</button></div><form class="wd-request-form" data-work-request-form action="/{{ org.slug }}/dashboard/attendance/regularize" method="post"><p>Select a past missing working day. Your manager will review the request.</p><label>Attendance date<select name="attendance_date" data-work-request-date required></select></label><div class="wd-request-summary"><strong>Remote · Noida</strong><p>10:00 AM – 07:00 PM. Office attendance comes from biometric entry.</p></div><p class="wd-request-error" role="alert" data-work-request-error hidden></p><div class="wd-actions"><button type="button" class="wd-btn" data-work-dialog-close>Cancel</button><button type="submit" class="wd-btn wd-primary">Send for approval</button></div></form></dialog>
+<dialog class="wd-dialog wd-effort-dialog" data-work-effort-dialog data-effort-url="/{{ org.slug }}/dashboard/effort" data-today="{{ today.isoformat() }}" aria-labelledby="work-effort-title">
+  <div class="wd-dialog-head"><div><h2 id="work-effort-title">Your effort entries</h2><p>See which tasks make up your hours, then correct an entry if needed.</p></div><button type="button" class="wd-dialog-close" data-work-effort-close aria-label="Close effort entries">×</button></div>
+  <div class="wd-effort-body">
+    <div class="wd-effort-toolbar"><label>Work date<input type="date" max="{{ today.isoformat() }}" value="{{ today.isoformat() }}" data-work-effort-date required></label><button type="button" class="wd-btn wd-small" data-work-effort-previous>← Previous day</button><button type="button" class="wd-btn wd-small" data-work-effort-next>Next day →</button><button type="button" class="wd-btn wd-primary wd-small" data-work-effort-add hidden>＋ Add effort</button></div>
+    <p class="wd-effort-summary" data-work-effort-summary aria-live="polite"></p>
+    <p class="wd-request-error" role="alert" data-work-effort-error hidden></p>
+    <div class="wd-effort-entries" data-work-effort-entries></div>
+    <form class="wd-effort-edit" data-work-effort-edit hidden>
+      <h3 data-work-effort-edit-title>Edit effort entry</h3>
+      <p>Change the work date to move this entry, including to last week. This updates the existing entry.</p>
+      <div class="wd-effort-edit-fields"><label>Work date<input name="log_date" type="date" max="{{ today.isoformat() }}" required></label><label>Hours<input name="hours" type="number" min="0.01" max="24" step="0.01" required></label></div>
+      <label>Work notes<textarea name="notes" rows="4" required></textarea></label>
+      <small>When changing notes, use at least {{ time_log_notes_min_length }} characters. Existing imported notes can be kept as they are.</small>
+      <p class="wd-request-error" role="alert" data-work-effort-save-error hidden></p>
+      <div class="wd-actions"><button type="button" class="wd-btn" data-work-effort-cancel>Cancel edit</button><button type="submit" class="wd-btn wd-primary">Save changes</button></div>
+    </form>
+  </div>
+</dialog>
 <div class="modal-backdrop" id="dashboard-day-log-modal" data-modal aria-hidden="true">
   <div class="modal-card wide monday-catchup-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-day-log-title">
     <div class="modal-head">
@@ -365,7 +383,7 @@
       }
     });
     document.querySelectorAll("[data-dashboard-leave-day]").forEach((card) => {
-      card.addEventListener("click", () => openForDay(card));
+      card.addEventListener("work-add-effort", () => openForDay(card));
     });
     resetEntry();
 
@@ -508,26 +526,23 @@
         const detailNode = card.querySelector("small");
         const canLogEffort = (!leave || leave.leave_type !== "full") && card.dataset.canLogBase === "true";
         card.dataset.canLogEffort = canLogEffort ? "true" : "false";
-        card.setAttribute("aria-disabled", canLogEffort ? "false" : "true");
+        card.setAttribute("aria-disabled", "false");
         if (leave) {
           card.dataset.status = "leave";
-          card.className = `dashboard-leave-day is-leave${canLogEffort ? " is-actionable" : ""}`;
+          card.className = `dashboard-leave-day is-leave is-actionable`;
           if (valueNode) valueNode.textContent = leaveLabel(leave.leave_type);
           if (detailNode) {
             const parts = detailNode.textContent.split("·");
-            detailNode.textContent = `${parts[0].trim()} · ${leave.reason || "On leave."}`;
+            detailNode.textContent = `${parts[0].trim()} · View effort · ${card.dataset.effortHours || "0"}h`;
           }
         } else {
           const originalStatus = card.dataset.baseStatus || "empty";
           card.dataset.status = originalStatus;
-          card.className = `dashboard-leave-day is-${originalStatus}${canLogEffort ? " is-actionable" : ""}`;
+          card.className = `dashboard-leave-day is-${originalStatus} is-actionable`;
           if (valueNode) valueNode.textContent = card.dataset.baseValue || "0h";
           if (detailNode) {
             const parts = detailNode.textContent.split("·");
-            const baseDetail = card.dataset.baseDetail?.trim();
-            detailNode.textContent = canLogEffort
-              ? `${parts[0].trim()} · Add effort`
-              : (baseDetail ? `${parts[0].trim()} · ${baseDetail}` : parts[0].trim());
+            detailNode.textContent = `${parts[0].trim()} · View effort · ${card.dataset.effortHours || "0"}h`;
           }
         }
       });

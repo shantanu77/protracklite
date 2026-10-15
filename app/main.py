@@ -4620,6 +4620,81 @@ async def dashboard_add_day_log(
     )
 
 
+def effort_entry_revision(entry: TimeLog) -> str:
+    return hashlib.sha256(f"{entry.log_date}|{entry.hours}|{entry.notes}".encode()).hexdigest()
+
+
+@app.get("/{org_slug}/dashboard/effort")
+def dashboard_day_effort(
+    log_date: date,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    entries = db.execute(select(TimeLog, Task, Project.name).join(Task, TimeLog.task_id == Task.id)
+        .join(Project, Task.project_id == Project.id).where(
+            Task.org_id == org.id, Task.is_archived.is_(False), TimeLog.user_id == user.id,
+            TimeLog.log_date == log_date,
+        ).order_by(Task.task_id, TimeLog.created_at, TimeLog.id)).all()
+    return JSONResponse({
+        "date": log_date.isoformat(),
+        "total_hours": float(sum((entry.hours for entry, _, _ in entries), Decimal("0"))),
+        "entries": [{"id": entry.id, "task_code": task.task_id, "task_name": task.name,
+                     "project": project_name, "status": task.status.value,
+                     "hours": float(entry.hours), "notes": entry.notes,
+                     "revision": effort_entry_revision(entry),
+                     "task_url": f"/{org.slug}/tasks/{task.task_id}"}
+                    for entry, task, project_name in entries],
+    }, headers={"Cache-Control": "private, no-store"})
+
+
+@app.patch("/{org_slug}/dashboard/effort/{log_id}")
+def dashboard_update_effort(
+    log_id: int,
+    payload: dict,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    # Ownership is checked on the log, including historical logs on reassigned tasks.
+    task = db.scalar(select(Task).join(TimeLog, TimeLog.task_id == Task.id).where(
+        Task.org_id == org.id, Task.is_archived.is_(False), TimeLog.id == log_id,
+        TimeLog.user_id == user.id,
+    ).with_for_update())
+    if task is None:
+        raise HTTPException(404, "Effort entry not found")
+    entry = db.scalar(select(TimeLog).where(TimeLog.id == log_id, TimeLog.user_id == user.id).with_for_update())
+    if payload.get("revision") != effort_entry_revision(entry):
+        raise HTTPException(409, "This entry changed since you opened it. Reload the day and review the latest entry.")
+    try:
+        target_date = date.fromisoformat(str(payload.get("log_date") or ""))
+        hours = Decimal(str(payload.get("hours") or ""))
+    except (ValueError, ArithmeticError):
+        raise HTTPException(400, "Enter a valid effort date and number of hours")
+    if target_date > local_today():
+        raise HTTPException(400, "Effort cannot be moved to a future date")
+    if not hours.is_finite() or hours <= 0 or hours > 24 or hours != hours.quantize(Decimal("0.01")):
+        raise HTTPException(400, "Hours must be greater than zero and no more than 24, with at most two decimal places")
+    notes = payload.get("notes", entry.notes)
+    if not isinstance(notes, str):
+        raise HTTPException(400, "Comments must be text")
+    # Retain older imported notes when correcting only the date or hours.
+    normalized_notes = entry.notes if notes == entry.notes else normalize_time_log_notes(notes)
+    notes_changed = normalized_notes != entry.notes
+    old_date, old_hours = entry.log_date, entry.hours
+    entry.log_date, entry.hours, entry.notes = target_date, hours, normalized_notes
+    if task.start_date is None or target_date < task.start_date:
+        task.start_date = target_date
+    db.flush()
+    task.logged_hours = db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).where(TimeLog.task_id == task.id))
+    add_task_event(db, task, user,
+        f"Corrected own effort entry #{entry.id}: {old_date.isoformat()} ({old_hours:g}h) → "
+        f"{target_date.isoformat()} ({hours:g}h)." + (" Updated effort notes." if notes_changed else ""))
+    db.commit()
+    return JSONResponse({"status": "saved", "date": target_date.isoformat(), "previous_date": old_date.isoformat()},
+                        headers={"Cache-Control": "private, no-store"})
+
+
 @app.post("/{org_slug}/whats-new/ack")
 def acknowledge_whats_new(
     org_slug: str,
@@ -7066,6 +7141,10 @@ def update_time_log_page(
     if not log_entry:
         raise HTTPException(status_code=404, detail="Time log not found")
 
+    if not hours.is_finite() or hours <= 0:
+        raise HTTPException(status_code=400, detail="Hours must be greater than zero")
+    if log_date > local_today():
+        raise HTTPException(status_code=400, detail="Effort cannot be logged for a future date")
     normalized_notes = normalize_time_log_notes(notes)
     log_entry.log_date = log_date
     log_entry.hours = hours
