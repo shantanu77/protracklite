@@ -34,10 +34,28 @@ class TodayPeopleTests(unittest.TestCase):
         with patch('app.today_people.collect_people',side_effect=RuntimeError()): run_sync(self.org.id,DAY,stamp)
         self.db.expire_all(); result=payload(self.db,self.org.id,DAY)
         self.assertEqual(result['status'],'failed'); self.assertEqual(len(result['people']),1); self.assertTrue(result['synced_at'])
-    def test_actual_office_only(self):
-        for mode,punch,count in [('office',datetime(2026,10,8,10),1),('remote',datetime(2026,10,8,10),0),('unknown',datetime(2026,10,8,10),0),('office',None,0)]:
+    def test_confirmed_office_and_home_only(self):
+        for mode,punch,count in [('office',datetime(2026,10,8,10),1),('remote',datetime(2026,10,8,10),1),('unknown',datetime(2026,10,8,10),0),('office',None,0),('remote',None,0)]:
             with patch('app.today_people.fetch_zoho_attendance_entries',return_value=ZohoAttendanceResult(status='synced',entries=({'attendance_date':DAY,'work_mode':mode,'first_in':punch},))), patch('app.today_people.fetch_zoho_leave_requests',return_value=ZohoLeaveListResult(status='synced')):
                 self.assertEqual(len(collect_people(self.db,self.org.id,DAY)[0]),count)
+    def test_home_snapshot_and_legacy_refresh_notice(self):
+        with patch('app.today_people.fetch_zoho_attendance_entries',return_value=ZohoAttendanceResult(status='synced',entries=({'attendance_date':DAY,'work_mode':'remote','first_in':datetime(2026,10,8,10)},))), patch('app.today_people.fetch_zoho_leave_requests',return_value=ZohoLeaveListResult(status='synced')):
+            entries,_=collect_people(self.db,self.org.id,DAY)
+        self.assertTrue(entries[0]['home']); self.assertFalse(entries[0]['office'])
+        row=TodayPeopleSnapshot(org_id=self.org.id,day=DAY,synced_at=datetime(2026,10,8,11),people_json=entries,status='done')
+        self.db.add(row); self.db.commit()
+        result=payload(self.db,self.org.id,DAY)
+        self.assertTrue(result['people'][0]['home']); self.assertFalse(result['home_refresh_needed'])
+        row.people_json=[{'user_id':self.user.id,'office':True,'leave':False}]; self.db.commit()
+        result=payload(self.db,self.org.id,DAY)
+        self.assertFalse(result['people'][0]['home']); self.assertTrue(result['home_refresh_needed'])
+    def test_approved_remote_regularization_appears_at_home(self):
+        from app.models import AttendanceRegularization
+        self.db.add(AttendanceRegularization(org_id=self.org.id,user_id=self.user.id,manager_id=self.user.id,attendance_date=DAY,status='approved'))
+        self.db.commit()
+        with patch('app.today_people.fetch_zoho_attendance_entries',return_value=ZohoAttendanceResult(status='synced')), patch('app.today_people.fetch_zoho_leave_requests',return_value=ZohoLeaveListResult(status='synced')):
+            entries,_=collect_people(self.db,self.org.id,DAY)
+        self.assertTrue(entries[0]['home']); self.assertFalse(entries[0]['office'])
     def test_half_day_and_pending(self):
         raw={'employee_zoho_id':'123','approval_status':'APPROVED','leave_type_name':'Annual','start_date':DAY,'end_date':DAY,'day_counts':[(DAY,0.5)],'day_sessions':[(DAY,1)],'leave_days':0.5}
         def collect():

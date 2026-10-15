@@ -1,4 +1,4 @@
-"""Persisted organization-wide daily office and approved leave snapshot."""
+"""Persisted organization-wide daily office, home and approved leave snapshot."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Lock
@@ -79,9 +79,12 @@ def collect_people(db, org_id, day):
     entries = []
     for person, result in zip(mapped, results):
         office = person.id not in remote and any(entry.get('attendance_date') == day and entry.get('work_mode') == 'office' and (entry.get('first_in') or entry.get('last_out')) for entry in result.entries)
+        home = not office and (person.id in remote or any(
+            entry.get('attendance_date') == day and entry.get('work_mode') == 'remote'
+            and (entry.get('first_in') or entry.get('last_out')) for entry in result.entries))
         leave = by_user.get(person.id)
-        if office or leave:
-            entries.append({'user_id': person.id, 'office': office, 'leave': bool(leave),
+        if office or home or leave:
+            entries.append({'user_id': person.id, 'office': office, 'home': home, 'leave': bool(leave),
                             'leave_count': leave['count'] if leave else 0, 'session': leave['session'] if leave else None})
     return entries, len(missing) - sum(bool(person.zoho_employee_id) for person in missing)
 
@@ -110,7 +113,7 @@ def payload(db, org_id, day):
     for entry in row.people_json if row else []:
         person = people.get(entry['user_id'])
         if person:
-            entries.append({**entry, 'name': person.full_name, 'avatar': person.avatar_128_url or person.avatar_24_url or ''})
+            entries.append({**entry, 'home': bool(entry.get('home', False)), 'name': person.full_name, 'avatar': person.avatar_128_url or person.avatar_24_url or ''})
     entries.sort(key=lambda entry: (not entry['office'], entry['name'].casefold()))
     status = row.status if row else 'idle'
     if status == 'running' and not running(row):
@@ -118,4 +121,5 @@ def payload(db, org_id, day):
     return {'day': day.isoformat(), 'people': entries, 'status': status,
             'synced_at': format_local_datetime(row.synced_at) if row else '',
             'unmapped_count': row.unmapped_count if row else 0,
+            'home_refresh_needed': bool(row and any('home' not in entry for entry in row.people_json)),
             'error': (row.error or 'The previous refresh did not finish. Please try again.') if status == 'failed' else ''}

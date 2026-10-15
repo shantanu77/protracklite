@@ -222,3 +222,9 @@ button.wd-task-check:hover { background: #eaf2e7; border-color: #17645b; }
 .wd-effort-saved { background: #edf4e5; border: 1px solid #d4e2c7; border-radius: 7px; padding: 12px; font-size: 12px; color: #356344; }
 .wd-effort-dialog [hidden] { display: none !important; }
 @media(max-width:600px) { .wd-effort-edit-fields { grid-template-columns: 1fr; } .wd-effort-dialog .wd-dialog-head { align-items: start; } .wd-week > .wd-panel-head { flex-wrap: wrap; } }
+
+.wd-people-tabs { display: flex; gap: 5px; margin: 0 20px 12px; padding: 4px; border-radius: 9px; background: #f2f5ee; }
+.wd-people-tabs button { flex: 1; min-width: 0; padding: 8px 4px; border: 0; border-radius: 6px; background: transparent; color: #697a80; font-size: 11px; box-shadow: none; white-space: nowrap; }
+.wd-people-tabs button[aria-selected="true"] { background: white; color: #17645b; font-weight: 750; box-shadow: 0 1px 3px #18363412; }
+.wd-people-tabs button span { font-size: 10px; }
+.wd-team-attendance [role="tabpanel"] { padding-bottom: 12px; }

@@ -258,36 +258,42 @@
   if (!card) return;
   const list = card.querySelector('[data-people-list]'), meta = card.querySelector('[data-people-meta]');
   const refresh = card.querySelector('[data-people-refresh]'), expand = card.querySelector('[data-people-expand]');
-  let data = null, expanded = false, timer;
+  const tabs = [...card.querySelectorAll('[data-people-tab]')];
+  const panel = card.querySelector('[role="tabpanel"]');
+  const empty = card.querySelector('[data-people-empty]');
+  const labels = {office: 'in office', home: 'working from home', leave: 'on approved leave'};
+  let data = null, expanded = false, timer, active = 'office';
   function render() {
     if (!data) return;
     clearTimeout(timer);
     list.replaceChildren();
-    card.querySelector('[data-people-counts]').textContent = `${data.people.filter(p => p.office).length} in office · ${data.people.filter(p => p.leave).length} on leave`;
-    const visible = data.people.slice(0, expanded ? undefined : 6);
-    const leaveTags = card.querySelector('[data-people-leave-tags]');
-    leaveTags.replaceChildren();
-    card.querySelector('[data-people-leaves]').hidden = !visible.some(person => person.leave);
+    tabs.forEach(tab => {
+      const key = tab.dataset.peopleTab;
+      const count = data.people.filter(person => person[key]).length;
+      card.querySelector(`[data-people-count="${key}"]`).textContent = `(${count})`;
+      tab.setAttribute('aria-selected', String(key === active));
+      tab.tabIndex = key === active ? 0 : -1;
+    });
+    panel.setAttribute('aria-labelledby', `people-tab-${active}`);
+    list.setAttribute('aria-label', `People ${labels[active]} today`);
+    const matching = data.people.filter(person => person[active]);
+    const visible = matching.slice(0, expanded ? undefined : 6);
     for (const person of visible) {
-      const leave = person.leave_count < 1 ? `Half-day leave${person.session === 1 ? ' · AM' : person.session === 2 ? ' · PM' : ''}` : 'On leave';
-      if (person.leave) {
-        const tag = document.createElement('span'); tag.className = 'wd-leave-tag';
-        tag.textContent = person.name.trim().split(/\s+/)[0];
-        if (person.leave_count < 1) tag.textContent += person.session === 1 ? ' · ½ AM' : person.session === 2 ? ' · ½ PM' : ' · ½';
-        tag.title = `${person.name} · ${leave}`; tag.setAttribute('aria-label', tag.title); leaveTags.append(tag);
-      }
-      if (!person.office) continue;
       const row = document.createElement('li'), avatar = document.createElement('span'), name = document.createElement('strong'), badge = document.createElement('span');
       avatar.className = 'wd-people-avatar';
       const img = document.createElement('img');
       img.src = person.avatar || '/static/profile-placeholder.svg'; img.alt = `${person.name} profile picture`; img.loading = 'lazy';
       img.addEventListener('error', () => { img.src = '/static/profile-placeholder.svg'; }, {once: true}); avatar.append(img);
       name.textContent = person.name;
-      badge.textContent = '🏢 Office today';
+      badge.textContent = active === 'leave'
+        ? (person.leave_count < 1 ? `Half-day leave${person.session === 1 ? ' · AM' : person.session === 2 ? ' · PM' : ''}` : 'On approved leave')
+        : active === 'home' ? 'Working from home' : 'Office today';
       badge.className = 'wd-people-badge'; row.append(avatar, name, badge); list.append(row);
     }
-    expand.hidden = data.people.length <= 6;
-    expand.textContent = expanded ? 'Show fewer' : `View all ${data.people.length} people`;
+    empty.hidden = matching.length > 0 || !data.synced_at;
+    empty.textContent = `No people ${labels[active]} in today’s saved records.`;
+    expand.hidden = matching.length <= 6;
+    expand.textContent = expanded ? 'Show fewer' : `View all ${matching.length} people`;
     expand.setAttribute('aria-expanded', String(expanded));
     const busy = data.status === 'running'; refresh.disabled = busy; refresh.textContent = busy ? 'Refreshing…' : 'Refresh';
     const stamp = card.querySelector('[data-people-sync]');
@@ -295,7 +301,8 @@
     stamp.title = data.synced_at ? `Last shared refresh: ${data.synced_at}` : '';
     meta.textContent = [busy ? 'Refreshing…' : data.error,
       !data.synced_at ? 'Refresh to load today’s people.' : '',
-      data.synced_at && !data.people.length ? 'No office attendance or approved leave recorded today.' : ''].filter(Boolean).join(' ');
+      data.home_refresh_needed ? 'Refresh to include home attendance in saved records.' : '',
+      data.synced_at && !data.people.length ? 'No attendance or approved leave recorded today.' : ''].filter(Boolean).join(' ');
     meta.hidden = !meta.textContent;
     if (busy) timer = setTimeout(load, 3000);
   }
@@ -314,6 +321,25 @@
       if (!response.ok && response.status !== 409) throw new Error();
       await load();
     } catch (_) { meta.hidden = false; meta.textContent = 'Unable to start refresh. Please try again.'; refresh.disabled = false; refresh.textContent = 'Refresh'; }
+  });
+  function selectTab(tab) {
+    active = tab.dataset.peopleTab;
+    expanded = false;
+    render();
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectTab(tab));
+    tab.addEventListener('keydown', event => {
+      let position;
+      if (event.key === 'ArrowRight') position = (index + 1) % tabs.length;
+      if (event.key === 'ArrowLeft') position = (index + tabs.length - 1) % tabs.length;
+      if (event.key === 'Home') position = 0;
+      if (event.key === 'End') position = tabs.length - 1;
+      if (position === undefined) return;
+      event.preventDefault();
+      selectTab(tabs[position]);
+      tabs[position].focus();
+    });
   });
   expand.addEventListener('click', () => {expanded = !expanded; render();});
   load();
