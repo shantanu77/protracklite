@@ -64,14 +64,16 @@
   <div class="profile-zoho-status{% if zoho_attendance.status != 'synced' %} is-error{% endif %}">
     {{ zoho_attendance.message }}
   </div>
-  <div class="profile-attendance-stats">
-    <article><span>Work from office</span><strong>{{ "%g"|format(zoho_attendance.office_days) }}</strong><small>Access Terminal days</small></article>
-    <article><span>Work from home / remote</span><strong>{{ "%g"|format(zoho_attendance.remote_days) }}</strong><small>Web, Mobile or approved regularization</small></article>
-    <article><span>Total work days</span><strong>{{ "%g"|format(zoho_attendance.total_days) }}</strong><small>Office plus remote</small></article>
-    <article><span>Total leave / unmarked days</span><strong>{{ "%g"|format(zoho_attendance.unmarked_count) if zoho_attendance.status == 'synced' else '—' }}</strong><small>{{ zoho_attendance.working_day_count if zoho_attendance.status == 'synced' else '—' }} working days this month − office − remote; includes future days</small></article>
+  <div class="profile-attendance-stats" aria-label="Attendance and leave this month">
+    <article><span>🏢 Office</span><strong>{{ "%g"|format(zoho_attendance.office_days) if zoho_attendance.status == 'synced' else '—' }}</strong><small>days this month</small></article>
+    <article><span>🏠 Home</span><strong>{{ "%g"|format(zoho_attendance.remote_days) if zoho_attendance.status == 'synced' else '—' }}</strong><small>remote days</small></article>
+    <article><span>📅 Total work</span><strong>{{ "%g"|format(zoho_attendance.total_days) if zoho_attendance.status == 'synced' else '—' }}</strong><small>office + home</small></article>
+    <article><span>🌴 Applied leave</span><strong>{{ "%g"|format(attendance_summary.applied_leave) }}</strong><small>{{ attendance_summary.month_label }} · {{ "%g"|format(attendance_summary.approved_leave) }} approved · {{ "%g"|format(attendance_summary.pending_leave) }} pending / local</small></article>
+    <article class="{% if attendance_summary.unmarked is not none and attendance_summary.unmarked > 0 %}is-unmarked{% endif %}"><span>⚠️ Unmarked attendance</span><strong>{{ "%g"|format(attendance_summary.unmarked) if attendance_summary.unmarked is not none else '—' }}</strong>{% if attendance_summary.unmarked is not none and attendance_summary.unmarked > 0 %}<a href="#profile-regularization" data-open-profile-regularization>Regularize Attendance →</a>{% else %}<small>past working days only</small>{% endif %}</article>
   </div>
+  <p class="profile-attendance-summary-note">Leave uses saved requests for {{ attendance_summary.month_label }}; refresh from Zoho for current status. Unmarked attendance excludes today, future days, approved leave and approved regularization.</p>
   {% if zoho_attendance.status == 'synced' %}
-  <details class="profile-regularization">
+  <details class="profile-regularization" id="profile-regularization">
     <summary class="button secondary small">Regularize attendance</summary>
     <p>Select a past working day with no attendance and send it to your manager for approval as remote work in Noida.</p>
     {% for missing in zoho_attendance.missing_days %}
@@ -497,4 +499,14 @@
 {% if refresh_zoho %}
 <script>window.history.replaceState(null, "", "/{{ org.slug }}/profile");</script>
 {% endif %}
+
+
+<script>
+document.querySelector('[data-open-profile-regularization]')?.addEventListener('click', () => {
+  const panel = document.getElementById('profile-regularization');
+  panel.open = true;
+  panel.querySelector('summary')?.focus();
+});
+</script>
+
 {% endblock %}

@@ -34,6 +34,7 @@ from app.config import get_settings
 from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, profile_saved_approvals, PENDING_STATUSES
 from app.capacity import build_capacity_payload, capacity_period
 from app.manager_dashboard import build_manager_dashboard
+from app.profile_attendance import profile_attendance_summary
 from app.capacity_sync import capacity_snapshots, capacity_sync_status, run_capacity_sync, start_capacity_sync
 from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
 from app.zoho_people import (
@@ -4216,6 +4217,9 @@ def profile_page(
     if zoho_feed["status"] == "synced":
         leave_requests = zoho_feed["mine"]
         team_leave_requests = zoho_feed["team"]
+    attendance_summary = profile_attendance_summary(db, org.id, user.id, attendance, today)
+    if attendance.get("status") == "synced":
+        attendance["missing_days"] = attendance_summary["missing_days"]
     return templates.TemplateResponse(
         "profile.html",
         {
@@ -4229,6 +4233,7 @@ def profile_page(
             "zoho_leave_feed_message": zoho_feed["message"],
             "zoho_leave_feed_range": zoho_feed["range_label"],
             "zoho_attendance": attendance,
+            "attendance_summary": attendance_summary,
             "refresh_zoho": refresh_zoho,
             "leave_year": current_year,
             "leave_default_date": today.isoformat(),

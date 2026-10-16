@@ -17,6 +17,7 @@ class ProfileZohoRefreshTests(unittest.TestCase):
         local_leave = {"year_leave_days": 1.0}
         with (
             patch("app.main.reporting_tree_people", return_value=[]),
+            patch("app.main.profile_attendance_summary", return_value={"missing_days": []}),
             patch("app.main.local_today", return_value=date(2026, 9, 29)),
             patch("app.main.profile_leave_requests", return_value=[local_leave]),
             patch("app.main.team_profile_leave_requests", return_value=[]),
@@ -48,6 +49,7 @@ class ProfileZohoRefreshTests(unittest.TestCase):
         zoho_leave = {"year_leave_days": 2.0}
         with (
             patch("app.main.reporting_tree_people", return_value=[]),
+            patch("app.main.profile_attendance_summary", return_value={"missing_days": []}),
             patch("app.main.local_today", return_value=date(2026, 9, 29)),
             patch("app.main.profile_leave_requests", return_value=[]),
             patch("app.main.team_profile_leave_requests", return_value=[]),

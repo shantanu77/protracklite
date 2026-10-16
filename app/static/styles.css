@@ -491,10 +491,16 @@ textarea {
 .team-leaves-summary span, .team-leaves-summary small { display: block; color: var(--muted); font-size: 0.7rem; }
 .team-leaves-summary strong { display: block; margin: 0.15rem 0; font-size: 1.4rem; }
 @media (max-width: 900px) { .team-leaves-summary { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } }
-.profile-attendance-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 1rem 0; }
-.profile-attendance-stats article { padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: #f8faf9; }
+.profile-attendance-stats { display: grid; grid-template-columns: repeat(5, minmax(145px, 1fr)); gap: 8px; margin: 12px 0 8px; overflow-x: auto; padding-bottom: 4px; }
+.profile-attendance-stats article { padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: #f8faf9; }
 .profile-attendance-stats span, .profile-attendance-stats small { display: block; color: var(--muted); }
-.profile-attendance-stats strong { display: block; margin: 0.2rem 0; font-size: 1.45rem; }
+.profile-attendance-stats strong { display: block; margin: 2px 0; font-size: 1.25rem; line-height: 1.3; }
+.profile-attendance-stats span { font-size: 11px; }
+.profile-attendance-stats small { font-size: 10px; }
+.profile-attendance-stats article.is-unmarked { background: #fff1ee; border-color: #efc0b6; }
+.profile-attendance-stats article.is-unmarked span, .profile-attendance-stats article.is-unmarked strong, .profile-attendance-stats article.is-unmarked a { color: #ad352c; }
+.profile-attendance-stats a { font-size: 10px; font-weight: 700; }
+.profile-attendance-summary-note { font-size: 10px; color: var(--muted); margin: 0 0 12px; }
 .profile-attendance-table td small { display: block; margin-top: 0.2rem; color: #b45309; }
 .profile-regularization { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; }
 .profile-regularization summary { cursor: pointer; display: inline-block; }
@@ -518,7 +524,7 @@ textarea {
 .leave-review-details div { display: grid; grid-template-columns: 7rem 1fr; gap: .5rem; }
 .leave-review-details dt { color: var(--muted); }
 .leave-review-details dd { margin: 0; overflow-wrap: anywhere; }
-@media (max-width: 720px) { .profile-attendance-stats { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .profile-attendance-stats { grid-template-columns: repeat(5, 150px); } }
 
 .profile-leave-table-wrap {
   max-height: 25rem;
