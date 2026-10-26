@@ -4390,7 +4390,7 @@ def dashboard(
     week_days = week_allocation_summary(db, org.id, user.id, week_start, week_end)
     for day in week_days:
         day["can_log_effort"] = (
-            day["date"] < today
+            day["date"] <= today
             and day["base_status"] not in {"weekend", "holiday"}
             and day["status"] != "leave"
         )
@@ -4546,7 +4546,7 @@ async def dashboard_add_day_log(
         log_date = date.fromisoformat(log_date_raw)
     except ValueError:
         return RedirectResponse(
-            url=dashboard_redirect_url(org_slug, daylog_error="Select a valid past workday.", daylog_open=True),
+            url=dashboard_redirect_url(org_slug, daylog_error="Select a valid working day.", daylog_open=True),
             status_code=303,
         )
 
@@ -4555,11 +4555,11 @@ async def dashboard_add_day_log(
     valid_dates = {
         day["date"]
         for day in week_allocation_summary(db, org.id, user.id, week_start, week_end)
-        if day["date"] < today and day["base_status"] not in {"weekend", "holiday"} and day["leave_type"] != "full"
+        if day["date"] <= today and day["base_status"] not in {"weekend", "holiday"} and day["leave_type"] != "full"
     }
     if log_date not in valid_dates:
         return RedirectResponse(
-            url=dashboard_redirect_url(org_slug, daylog_error="Effort can only be added to a past working day this week."),
+            url=dashboard_redirect_url(org_slug, daylog_error="Effort can only be added to today or a past working day this week."),
             status_code=303,
         )
     if not task_code:

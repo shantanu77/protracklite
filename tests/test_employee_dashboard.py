@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import unittest
@@ -14,7 +15,7 @@ from sqlalchemy import select
 from app.database import Base, SessionLocal, engine
 from app.employee_dashboard import DashboardSourceCache, build_employee_dashboard, personal_attendance_summary
 from app.main import (add_time_log_page, dashboard, dashboard_attendance, dashboard_payload,
-                      dashboard_request_regularization, request_attendance_regularization, resume_task_page)
+                      dashboard_request_regularization, request_attendance_regularization, resume_task_page, dashboard_add_day_log)
 from app.models import (ActivityType, AttendanceRegularization, Holiday, Leave, LeaveType, Organization,
                         OrgSettings, Project, Role, Task, TaskStatus, TimeLog, User, WeeklyTaskPlan, WeeklyTaskPlanItem)
 from app.reports import week_allocation_summary
@@ -108,6 +109,46 @@ class EmployeeDashboardTests(unittest.TestCase):
         self.assertEqual(result['remaining_available_hours'], 8)
         self.assertEqual([(day['date'], day['gap_hours']) for day in result['gap_days']], [(START, 6), (date(2026, 10, 6), 4)])
         self.assertEqual(result['attention_count'], 3)
+
+    def test_friday_today_card_is_actionable_and_day_log_saves(self):
+        friday = date(2026, 10, 9)
+        self.db.delete(self.db.scalar(select(Leave).where(Leave.user_id == self.user.id, Leave.leave_date == friday)))
+        self.db.commit()
+        with patch('app.main.local_today', return_value=friday):
+            response = dashboard(request=SimpleNamespace(url=SimpleNamespace(path='/example/dashboard')), org_user=(self.org, self.user), db=self.db)
+            html = response.body.decode()
+            from html.parser import HTMLParser
+            cards = []
+            class Cards(HTMLParser):
+                def handle_starttag(self, tag, attrs):
+                    attrs = dict(attrs)
+                    if 'data-dashboard-leave-day' in attrs:
+                        cards.append(attrs)
+            Cards().feed(html)
+            card = next(card for card in cards if card['data-date'] == friday.isoformat())
+            self.assertEqual(card['data-can-log-effort'], 'true')
+            self.assertEqual(card['data-can-log-base'], 'true')
+            self.assertEqual(card['aria-disabled'], 'false')
+            async def form():
+                return {'task_code': 'APP1', 'log_date': friday.isoformat(), 'hours': '1.5', 'notes': 'Implemented the dashboard effort entry fix and verified the Friday current-day behavior. '}
+            response = asyncio.run(dashboard_add_day_log('example', SimpleNamespace(form=form), (self.org, self.user), self.db))
+        self.assertIn('daylog_saved=1', response.headers['location'])
+        log = self.db.scalar(select(TimeLog).where(TimeLog.log_date == friday))
+        self.assertEqual(log.hours, Decimal('1.5'))
+        self.assertEqual(log.task_id, self.overdue.id)
+
+    def test_day_log_rejects_future_weekends_holidays_and_full_leave(self):
+        for day in [date(2026, 10, 9), date(2026, 10, 10), date(2026, 10, 7)]:
+            async def form():
+                return {'task_code': 'APP1', 'log_date': day.isoformat(), 'hours': '1', 'notes': 'Detailed work notes. ' * 8}
+            with patch('app.main.local_today', return_value=TODAY):
+                response = asyncio.run(dashboard_add_day_log('example', SimpleNamespace(form=form), (self.org, self.user), self.db))
+            self.assertIn('daylog_error=', response.headers['location'])
+            self.assertIsNone(self.db.scalar(select(TimeLog).where(TimeLog.log_date == day)))
+        day = date(2026, 10, 9)
+        with patch('app.main.local_today', return_value=day):
+            response = asyncio.run(dashboard_add_day_log('example', SimpleNamespace(form=form), (self.org, self.user), self.db))
+        self.assertIn('daylog_error=', response.headers['location'])
 
     def test_empty_weekend_configuration_is_respected(self):
         self.settings.weekend_days = []

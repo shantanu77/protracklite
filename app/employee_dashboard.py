@@ -90,9 +90,9 @@ def build_employee_dashboard(db: Session, org: Any, user: Any, groups: dict, wee
         if day['leave_type'] == 'full': hours = 0
         elif day['leave_type'] in {'half_am', 'half_pm'}: hours /= 2
         day['available_hours'] = hours
-        day['can_log_effort'] = day['date'] < today and hours > 0
-        day['can_log_base'] = day['date'] < today and day['date'] in scheduled
-        if day['can_log_effort'] and day['hours'] < hours:
+        day['can_log_effort'] = day['date'] <= today and hours > 0
+        day['can_log_base'] = day['date'] <= today and day['date'] in scheduled
+        if day['date'] < today and day['can_log_effort'] and day['hours'] < hours:
             day['gap_hours'] = round(hours - day['hours'], 2)
             gap_days.append(day)
     estimated_work = sum(task['remaining_hours'] or 0 for task in week)
