@@ -180,10 +180,32 @@ def approved_absence_counts(leaves: Any, employee_zoho_id: str, work_from_home_t
     return approved_absence
 
 
+def submitted_absence_counts(leaves: Any, employee_zoho_id: str, work_from_home_type_id: str = '') -> dict[date, float]:
+    """Absence dates from live requests, regardless of approval, for attendance visibility."""
+    submitted: dict[date, float] = {}
+    if leaves.status == 'synced':
+        excluded = {'REJECTED', 'CANCELLED', 'CANCELED', 'WITHDRAWN'}
+        for leave in leaves.leaves:
+            if leave.get('employee_zoho_id') != employee_zoho_id or str(leave.get('approval_status', '')).strip().upper() in excluded:
+                continue
+            name = str(leave.get('leave_type_name', '')).casefold()
+            if 'remote' in name or 'work from home' in name or (work_from_home_type_id and str(leave.get('leave_type_id')) == work_from_home_type_id):
+                continue
+            day_counts = leave.get('day_counts')
+            if not day_counts:
+                dates = leave.get('day_dates') or tuple(leave['start_date'] + timedelta(days=i) for i in range((leave['end_date'] - leave['start_date']).days + 1))
+                count = min(float(leave.get('leave_days') or len(dates)) / max(len(dates), 1), 1)
+                day_counts = [(day, count) for day in dates]
+            for day, count in day_counts:
+                submitted[day] = min(submitted.get(day, 0) + max(float(count), 0), 1)
+    return submitted
+
+
 def personal_attendance_summary(db: Session, org: Any, user: Any, attendance: dict, leaves: Any, today: date, synced_at: Any, work_from_home_type_id: str = '') -> dict:
     start, end = current_week_bounds(today)
     calendar = working_calendar(db, org.id, min(today.replace(day=1), start), max(today, end))
     approved_absence = approved_absence_counts(leaves, user.zoho_employee_id, work_from_home_type_id)
+    visible_absence = submitted_absence_counts(leaves, user.zoho_employee_id, work_from_home_type_id)
     requests = db.scalars(select(AttendanceRegularization).where(
         AttendanceRegularization.org_id == org.id, AttendanceRegularization.user_id == user.id,
         AttendanceRegularization.attendance_date >= today.replace(day=1), AttendanceRegularization.attendance_date < today,
@@ -191,8 +213,11 @@ def personal_attendance_summary(db: Session, org: Any, user: Any, attendance: di
     request_days = {record.attendance_date for record in requests if record.status in {'approved', 'pending'}}
     marked = {row['date'] for row in attendance.get('rows', []) if row['first_in_label'] != '—' or row['last_out_label'] != '—'}
     # Suppress absence notices when either source is unknown; no inferred leave.
-    missing = [day for day in calendar if today.replace(day=1) <= day < today and day not in marked and day not in request_days and approved_absence.get(day, 0) < 1] if attendance['status'] == 'synced' and leaves.status == 'synced' else []
+    missing = [day for day in calendar if today.replace(day=1) <= day < today and day not in marked and day not in request_days and visible_absence.get(day, 0) < 1] if attendance['status'] == 'synced' and leaves.status == 'synced' else []
     today_row = next((row for row in attendance.get('rows', []) if row['date'] == today), None)
+    today_leave = next((leave for leave in leaves.leaves if leave.get('employee_zoho_id') == user.zoho_employee_id
+                        and str(leave.get('approval_status', '')).strip().upper() not in {'REJECTED', 'CANCELLED', 'CANCELED', 'WITHDRAWN'}
+                        and any(day == today and float(count) > 0 for day, count in (leave.get('day_counts') or ()))), None) if leaves.status == 'synced' else None
     logged_today = float(db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).join(Task, Task.id == TimeLog.task_id).where(
         Task.org_id == org.id, Task.is_archived.is_(False), TimeLog.user_id == user.id, TimeLog.log_date == today,
     )) or 0)
@@ -201,6 +226,7 @@ def personal_attendance_summary(db: Session, org: Any, user: Any, attendance: di
         'status': attendance['status'], 'leave_status': leaves.status,
         'synced_at': synced_at.strftime('%d %b, %I:%M %p'),
         'today': {key: today_row[key] for key in ('mode_label', 'attendance_location', 'attendance_source', 'first_in_label', 'last_out_label', 'is_open')} if today_row else None,
+        'today_leave': ({'type': today_leave.get('leave_type_name') or 'Leave', 'approval': today_leave.get('approval_status') or 'Submitted'} if today_leave else None),
         'missing_count': len(missing), 'missing_dates': [day.isoformat() for day in missing],
         'pending_count': sum(record.status == 'pending' for record in requests),
         'can_request': bool(user.manager_id),

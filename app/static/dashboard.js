@@ -152,7 +152,10 @@
       record.dataset.action = today?.is_open ? 'out' : 'in';
       record.textContent = today?.is_open ? 'Log out · Remote' : 'Log in · Remote';
     }
-    find('[data-work-attendance-mode]').textContent = today ? `${today.mode_label}${today.attendance_location ? ' · ' + today.attendance_location : ''}` : 'No punch recorded yet today';
+    const leave = data.today_leave;
+    find('[data-work-attendance-mode]').textContent = leave
+      ? `${leave.type}${String(leave.approval).toUpperCase() === 'APPROVED' ? '' : ' · awaiting approval'}`
+      : today ? `${today.mode_label}${today.attendance_location ? ' · ' + today.attendance_location : ''}` : 'No punch recorded yet today';
     find('[data-work-check-in]').textContent = today?.first_in_label || '—';
     find('[data-work-check-out]').textContent = today?.is_open ? 'Still working' : today?.last_out_label || '—';
     find('[data-work-freshness]').textContent = `Zoho checked ${data.synced_at}${data.leave_status !== 'synced' ? ' · Leave unavailable; missing-day reminders are paused.' : ''}`;
@@ -286,7 +289,7 @@
       img.addEventListener('error', () => { img.src = '/static/profile-placeholder.svg'; }, {once: true}); avatar.append(img);
       name.textContent = person.name;
       badge.textContent = active === 'leave'
-        ? (person.leave_count < 1 ? `Half-day leave${person.session === 1 ? ' · AM' : person.session === 2 ? ' · PM' : ''}` : 'On approved leave')
+        ? `${person.leave_count < 1 ? `Half-day leave${person.session === 1 ? ' · AM' : person.session === 2 ? ' · PM' : ''}` : 'On leave'}${person.leave_approval && !['APPROVED'].includes(String(person.leave_approval).toUpperCase()) ? ' · awaiting approval' : ''}`
         : active === 'home' ? 'Working from home' : 'Office today';
       badge.className = 'wd-people-badge'; row.append(avatar, name, badge); list.append(row);
     }

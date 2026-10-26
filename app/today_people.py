@@ -71,7 +71,7 @@ def collect_people(db, org_id, day):
     leave_days = []
     if leaves is not None:
         leaves = apply_local_leave_approvals(db, org_id, mapped, leaves)
-        leave_days = normalize_leave_days([raw for raw in leaves.leaves if str(raw.get('approval_status', '')).upper() == 'APPROVED'], mapped, day, day)
+        leave_days = normalize_leave_days(leaves.leaves, mapped, day, day)
     by_user = {entry['user_id']: entry for entry in leave_days}
     remote = set(db.scalars(select(AttendanceRegularization.user_id).where(
         AttendanceRegularization.org_id == org_id, AttendanceRegularization.attendance_date == day,
@@ -85,7 +85,8 @@ def collect_people(db, org_id, day):
         leave = by_user.get(person.id)
         if office or home or leave:
             entries.append({'user_id': person.id, 'office': office, 'home': home, 'leave': bool(leave),
-                            'leave_count': leave['count'] if leave else 0, 'session': leave['session'] if leave else None})
+                            'leave_count': leave['count'] if leave else 0, 'session': leave['session'] if leave else None,
+                            'leave_approval': leave['approval'] if leave else ''})
     return entries, len(missing) - sum(bool(person.zoho_employee_id) for person in missing)
 
 
