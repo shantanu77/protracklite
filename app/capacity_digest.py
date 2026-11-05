@@ -7,11 +7,12 @@ from datetime import date
 import httpx
 from sqlalchemy import select
 
-from app.capacity import leave_is_planned
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Holiday, Leave, Organization, User
+from app.leave_approvals import apply_local_leave_approvals, CANCELLED_STATUSES
+from app.models import Holiday, Organization, User
 from app.time_utils import local_today
+from app.zoho_people import fetch_zoho_employee_ids, fetch_zoho_leave_requests
 
 
 settings = get_settings()
@@ -26,33 +27,47 @@ class DigestResult:
 
 
 def build_daily_summary(db, org: Organization, summary_date: date) -> tuple[str, int]:
-    rows = db.execute(
-        select(Leave, User)
-        .join(User, Leave.user_id == User.id)
-        .where(
-            User.org_id == org.id,
-            User.is_active.is_(True),
-            Leave.leave_date == summary_date,
-        )
-        .order_by(User.full_name.asc())
-    ).all()
-    backup_ids = {leave.backup_user_id for leave, _ in rows if leave.backup_user_id}
-    backup_map = {
-        user.id: user
-        for user in db.scalars(select(User).where(User.id.in_(backup_ids))).all()
-    } if backup_ids else {}
+    people = list(db.scalars(select(User).where(
+        User.org_id == org.id, User.is_active.is_(True)
+    ).order_by(User.full_name.asc())).all())
+    missing = [person for person in people if not person.zoho_employee_id]
+    if missing:
+        directory = fetch_zoho_employee_ids(employee_emails=[person.email for person in missing])
+        if directory.status != "synced":
+            raise RuntimeError(f"Zoho employee lookup failed for {org.name}: {directory.error}")
+        identifiers = dict(directory.employee_ids)
+        for person in missing:
+            person.zoho_employee_id = identifiers.get(person.email.strip().lower(), "")
+        db.flush()
+    mapped = [person for person in people if person.zoho_employee_id]
+    leave_result = fetch_zoho_leave_requests(
+        employee_zoho_ids=[person.zoho_employee_id for person in mapped],
+        from_date=summary_date,
+        to_date=summary_date,
+    )
+    if leave_result.status != "synced":
+        raise RuntimeError(f"Zoho leave lookup failed for {org.name}: {leave_result.error}")
+    leave_result = apply_local_leave_approvals(db, org.id, mapped, leave_result)
+    people_by_zoho = {person.zoho_employee_id: person for person in mapped}
     holiday = db.scalar(
         select(Holiday).where(Holiday.org_id == org.id, Holiday.holiday_date == summary_date)
     )
 
     planned: list[str] = []
     unplanned: list[str] = []
-    for leave, employee in rows:
-        label = f"@{employee.full_name}"
-        backup = backup_map.get(leave.backup_user_id)
-        if backup:
-            label += f" (Cover: @{backup.full_name})"
-        if leave_is_planned(leave):
+    rows = []
+    for leave in leave_result.leaves:
+        approval = str(leave.get("approval_status") or "Unknown").strip()
+        if approval.upper() in CANCELLED_STATUSES:
+            continue
+        person = people_by_zoho.get(str(leave.get("employee_zoho_id") or ""))
+        if not person:
+            continue
+        rows.append(leave)
+        label = f"@{person.full_name}"
+        if approval.upper() not in {"APPROVED"}:
+            label += f" ({approval})"
+        if "sick" not in str(leave.get("leave_type_name") or "").casefold():
             planned.append(label)
         else:
             unplanned.append(label)
