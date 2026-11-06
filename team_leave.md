@@ -19,6 +19,7 @@ Give a manager a quick way to inspect one employee's leave year, review all leav
 - Preserve manager/admin authorization and the existing reporting-tree scope.
 - Fetch the selected employee's Zoho leave for the full selected year, apply local ProTrack approval decisions, and use locally saved requests if the live source fails.
 - Count approved and pending leave separately. Exclude rejected, cancelled, and withdrawn requests from the calendar and availability counts while retaining returned requests in the request table for context.
+- Treat Zoho Work From Home / remote entries as attendance context only. Exclude them from the calendar, request table, leave balances, pending reviews, and every leave total.
 - Leave approval continues to record the manager and approval time in ProTrack. The review modal shows request dates, type, duration, days, and reason before confirmation.
 - Regularize attendance only when the selected month's synced attendance contains missing working days. Keep the existing past-working-day validation and remote Noida behavior.
 - Keep attendance export scoped to the selected employee and month.

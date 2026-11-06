@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.leave_approvals import apply_local_leave_approvals, request_fingerprint
 from app.models import CapacityZohoSnapshot, CapacityZohoSyncRun, User
+from app.leave_types import is_work_from_home_request
 from app.zoho_people import fetch_zoho_employee_ids, fetch_zoho_leave_requests
 
 _guard = Lock()
@@ -39,8 +40,7 @@ def normalize_leave_days(leaves, people, start, end):
         user_id = by_zoho.get(str(raw.get('employee_zoho_id') or ''))
         approval = str(raw.get('approval_status') or '').strip().upper()
         name = str(raw.get('leave_type_name') or 'Leave')
-        remote = 'remote' in name.casefold() or 'work from home' in name.casefold() or (
-            remote_type_id and str(raw.get('leave_type_id') or '') == remote_type_id)
+        remote = is_work_from_home_request(raw, remote_type_id)
         if not user_id or approval in {'REJECTED', 'CANCELLED', 'CANCELED', 'WITHDRAWN'}:
             continue
         if approval not in {'APPROVED', 'PENDING', 'PENDING APPROVAL', 'PENDING_APPROVAL', 'SUBMITTED', 'APPLIED'}:

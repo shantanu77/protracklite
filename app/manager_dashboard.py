@@ -6,10 +6,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.capacity_sync import capacity_snapshots
+from app.config import get_settings
 from app.employee_dashboard import working_calendar
 from app.leave_approvals import PENDING_STATUSES, capacity_local_approvals, locally_approved, overlay_capacity_approval
 from app.models import (AttendanceRegularization, LeaveApproval, Task, TaskStatus, TimeLog,
                         WeeklyTaskPlan, WeeklyTaskPlanItem)
+from app.leave_types import is_work_from_home_request
 from app.reports import current_week_bounds
 
 
@@ -32,8 +34,7 @@ def build_manager_dashboard(db, org, viewer, members, goals, today):
                 continue
             if str(entry.get('approval', '')).upper() != 'APPROVED':
                 continue
-            name = str(entry.get('type', '')).lower()
-            if 'remote' in name or 'work from home' in name:
+            if is_work_from_home_request(entry):
                 continue
             day = date.fromisoformat(entry['date'])
             count = max(0, min(1, float(entry.get('count', 1))))
@@ -98,10 +99,13 @@ def build_manager_dashboard(db, org, viewer, members, goals, today):
             alerts.append({'type': 'data', 'title': f'Effort records need review · {person.full_name}', 'detail': f'{logged:g}h recorded / {elapsed:g}h elapsed capacity through yesterday. This is not a productivity score.', 'action': 'Review effort', 'url': url})
     approvals = list(db.scalars(select(LeaveApproval).where(LeaveApproval.org_id == org.id,
         LeaveApproval.user_id.in_(ids), LeaveApproval.source_status.in_(PENDING_STATUSES)))) if ids else []
+    work_from_home_type_id = get_settings().zoho_work_from_home_leave_type_id.strip()
     for approval in approvals:
         if locally_approved(approval):
             continue
         raw = approval.request_json or {}
+        if is_work_from_home_request(raw, work_from_home_type_id):
+            continue
         alerts.append({'type': 'approval', 'title': f'Leave request · {people[approval.user_id].full_name}',
                        'detail': f"{raw.get('start_date', 'Date unavailable')} – {raw.get('end_date', '')} · Pending approval",
                        'action': 'Review request', 'url': f'{prefix}/manager/team-leaves?member_id={approval.user_id}&month={str(raw.get("start_date") or today.isoformat())[:7]}'})

@@ -75,7 +75,7 @@ Zoho currently returns these four employee-eligible leave types:
 | Earned Leave | `24413000000183927` | Days | Planned, Sick, Casual, Comp Off |
 | Leave Without Pay | `24413000000159083` | Days | Unpaid |
 | Maternity Leave | `24413000000159075` | Days | Not currently represented in ProTrack |
-| Work From Home | `24413000002552035` | Days | Not currently represented in ProTrack |
+| Work From Home | `24413000002552035` | Days | Attendance work-mode context only; excluded from leave requests and totals |
 
 Per the approved mapping decision, ProTrack **Sick**, **Casual**, and **Comp Off** requests are intentionally submitted to Zoho as **Earned Leave**. ProTrack **Unpaid** requests use **Leave Without Pay**.
 
@@ -140,8 +140,9 @@ Work-mode counts mirror the signals used by the Zoho attendance application:
 
 - any login or logout from a terminal during a day is counted as work from office
 - `Web` or `Mobile` punches without a terminal punch count as remote/work from home
-- configured WFH leave is used only when an attendance entry has no usable
-  punch-source classification
+- configured WFH entries are used only as attendance context when an attendance
+  entry has no usable punch-source classification; they are not leave and are
+  excluded from leave requests, balances, and absence totals
 - an approved WFH date without an attendance punch is not counted as a worked
   day
 - the geographic location and punch source returned by Zoho are shown beside

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.leave_approvals import capacity_local_approvals, overlay_capacity_approval
+from app.leave_types import is_work_from_home_request
 from app.models import Holiday, Leave, LeaveType, Organization, User
 from app.time_utils import local_datetime, local_today
 
@@ -224,6 +225,8 @@ def build_capacity_payload(
                 continue
             for entry in snapshot.leave_days_json:
                 entry = overlay_capacity_approval(entry, local_decisions)
+                if is_work_from_home_request(entry):
+                    continue
                 day = date.fromisoformat(entry['date'])
                 if entry['user_id'] in member_ids and period_start <= day <= period_end:
                     zoho_leave_map[(entry['user_id'], day)] = entry

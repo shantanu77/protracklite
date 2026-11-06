@@ -89,6 +89,7 @@ from app.models import (
     WorkListItem,
     WorkListMember,
 )
+from app.leave_types import is_work_from_home_request
 from app.today_alerts import build_today_alert_candidates
 from app.reports import (
     admin_leaderboard_report,
@@ -8829,16 +8830,8 @@ def zoho_profile_leave_feed(
             year_days = float(raw.get("leave_days") or 0)
         approval_status = str(raw.get("approval_status") or "Unknown")
         leave_type_name = str(raw.get("leave_type_name") or "Leave").strip()
-        leave_type_id = str(raw.get("leave_type_id") or "").strip()
-        normalized_leave_type = leave_type_name.casefold()
-        if person.id == user.id and approval_status.strip().upper() == "APPROVED" and (
-            (
-                settings.zoho_work_from_home_leave_type_id.strip()
-                and leave_type_id == settings.zoho_work_from_home_leave_type_id.strip()
-            )
-            or "work from home" in normalized_leave_type
-            or "remote" in normalized_leave_type
-        ):
+        is_remote_work = is_work_from_home_request(raw, settings.zoho_work_from_home_leave_type_id.strip())
+        if person.id == user.id and approval_status.strip().upper() == "APPROVED" and is_remote_work:
             day_counts = raw.get("day_counts") or ()
             if day_counts:
                 for remote_date, remote_count in day_counts:
@@ -8850,6 +8843,8 @@ def zoho_profile_leave_feed(
                 while cursor <= end_date:
                     remote_dates[cursor] = max(remote_dates.get(cursor, 0.0), fallback_count)
                     cursor += timedelta(days=1)
+        if is_remote_work:
+            continue
         approval_class = re.sub(r"[^a-z0-9]+", "-", approval_status.lower()).strip("-")
         item = {
             "request_key": request_key,
@@ -9124,24 +9119,34 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
             if end_date < year_start or start_date > year_end:
                 continue
             year_day_counts = [(day, float(count)) for day, count in raw.get("day_counts", ()) if year_start <= day <= year_end]
+            status = str(raw.get("approval_status") or "Unknown").strip()
+            leave_type = str(raw.get("leave_type_name") or "Leave").strip()
+            is_remote = is_work_from_home_request(raw, settings.zoho_work_from_home_leave_type_id.strip())
+            if is_remote:
+                if status.casefold() == "approved":
+                    remote_day_counts = [(day, count) for day, count in year_day_counts if month_start <= day <= month_end]
+                    if not remote_day_counts:
+                        daily_count = float(raw.get("leave_days") or 0) / max((end_date - start_date).days + 1, 1)
+                        remote_day_counts = [
+                            (start_date + timedelta(days=offset), daily_count)
+                            for offset in range((end_date - start_date).days + 1)
+                            if month_start <= start_date + timedelta(days=offset) <= month_end
+                        ]
+                    for day, count in remote_day_counts:
+                        remote_dates[day] = max(remote_dates.get(day, 0.0), count)
+                continue
             if year_day_counts:
                 year_days = sum(count for _, count in year_day_counts)
             else:
                 span = max((end_date - start_date).days + 1, 1)
                 overlap = (min(end_date, year_end) - max(start_date, year_start)).days + 1
                 year_days = float(raw.get("leave_days") or 0) * overlap / span
-            status = str(raw.get("approval_status") or "Unknown").strip()
             if status.casefold() == "approved":
                 approved_days += year_days
             elif status.strip().upper() in PENDING_STATUSES:
                 pending_days += year_days
-            leave_type = str(raw.get("leave_type_name") or "Leave").strip()
-            is_remote = (
-                str(raw.get("leave_type_id") or "") == settings.zoho_work_from_home_leave_type_id.strip()
-                if settings.zoho_work_from_home_leave_type_id.strip() else False
-            ) or "work from home" in leave_type.casefold() or "remote" in leave_type.casefold()
             status_key = "approved" if status.upper() == "APPROVED" else "pending" if status.upper() in PENDING_STATUSES else ""
-            if status_key and status.upper() not in {"REJECTED", "CANCELLED", "CANCELED", "WITHDRAWN"} and not is_remote:
+            if status_key and status.upper() not in {"REJECTED", "CANCELLED", "CANCELED", "WITHDRAWN"}:
                 if year_day_counts:
                     calendar_counts = year_day_counts
                 else:
@@ -9158,17 +9163,6 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
                         calendar_days[key] = {"status": status_key, "count": min(count, 1), "type": leave_type}
                     elif existing["status"] == status_key:
                         existing["count"] = min(existing["count"] + count, 1)
-            if status.casefold() == "approved" and is_remote:
-                remote_day_counts = [(day, count) for day, count in year_day_counts if month_start <= day <= month_end]
-                if not remote_day_counts:
-                    daily_count = float(raw.get("leave_days") or 0) / max((end_date - start_date).days + 1, 1)
-                    remote_day_counts = [
-                        (start_date + timedelta(days=offset), daily_count)
-                        for offset in range((end_date - start_date).days + 1)
-                        if month_start <= start_date + timedelta(days=offset) <= month_end
-                    ]
-                for day, count in remote_day_counts:
-                    remote_dates[day] = max(remote_dates.get(day, 0.0), count)
             leaves.append({
                 "zoho_leave_id": str(raw.get("zoho_leave_id") or ""),
                 "approval_request_id": raw.get("local_approval_id"),
@@ -9677,7 +9671,9 @@ def api_zoho_leave_balance(org_user: tuple[Organization, User] = Depends(get_org
     if result.status == "not_configured":
         raise HTTPException(status_code=503, detail=result.error)
     configured_ids = {settings.zoho_earned_leave_type_id.strip()} - {""}
-    leave_types = [dict(item) for item in result.leave_types]
+    leave_types = [dict(item) for item in result.leave_types
+                   if not is_work_from_home_request({"leave_type_name": item.get("name"), "leave_type_id": item.get("id")},
+                                                    settings.zoho_work_from_home_leave_type_id.strip())]
     primary_types = [item for item in leave_types if item["id"] in configured_ids]
     if not primary_types:
         primary_types = [item for item in leave_types if item["name"].strip().lower() == "earned leave"]

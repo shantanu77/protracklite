@@ -5,6 +5,7 @@ from app.config import get_settings
 from app.employee_dashboard import working_calendar
 from app.leave_approvals import CANCELLED_STATUSES, PENDING_STATUSES, locally_approved
 from app.models import AttendanceRegularization, Leave, LeaveApproval, LeaveType
+from app.leave_types import is_work_from_home_request
 
 
 def profile_attendance_summary(db, org_id, user_id, attendance, today):
@@ -25,8 +26,7 @@ def profile_attendance_summary(db, org_id, user_id, attendance, today):
     for record in records:
         raw = record.request_json or {}
         status = record.source_status.strip().upper()
-        name = str(raw.get('leave_type_name') or '').casefold()
-        if status in CANCELLED_STATUSES or 'remote' in name or 'work from home' in name or (remote_type and str(raw.get('leave_type_id')) == remote_type):
+        if status in CANCELLED_STATUSES or is_work_from_home_request(raw, remote_type):
             continue
         is_approved = status == 'APPROVED' or locally_approved(record)
         if not is_approved and status not in PENDING_STATUSES:

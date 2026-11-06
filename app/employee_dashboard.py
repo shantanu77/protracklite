@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AttendanceRegularization, Holiday, Leave, OrgSettings, Project, Task, TaskStatus, TimeLog, WeeklyTaskPlan, WeeklyTaskPlanItem
+from app.leave_types import is_work_from_home_request
 from app.reports import current_week_bounds
 from app.time_utils import local_now
 
@@ -167,8 +168,7 @@ def approved_absence_counts(leaves: Any, employee_zoho_id: str, work_from_home_t
         for leave in leaves.leaves:
             if leave.get('employee_zoho_id') != employee_zoho_id or str(leave.get('approval_status', '')).strip().upper() != 'APPROVED':
                 continue
-            name = str(leave.get('leave_type_name', '')).casefold()
-            if 'remote' in name or 'work from home' in name or (work_from_home_type_id and str(leave.get('leave_type_id')) == work_from_home_type_id):
+            if is_work_from_home_request(leave, work_from_home_type_id):
                 continue
             day_counts = leave.get('day_counts')
             if not day_counts:
@@ -188,8 +188,7 @@ def submitted_absence_counts(leaves: Any, employee_zoho_id: str, work_from_home_
         for leave in leaves.leaves:
             if leave.get('employee_zoho_id') != employee_zoho_id or str(leave.get('approval_status', '')).strip().upper() in excluded:
                 continue
-            name = str(leave.get('leave_type_name', '')).casefold()
-            if 'remote' in name or 'work from home' in name or (work_from_home_type_id and str(leave.get('leave_type_id')) == work_from_home_type_id):
+            if is_work_from_home_request(leave, work_from_home_type_id):
                 continue
             day_counts = leave.get('day_counts')
             if not day_counts:
@@ -217,6 +216,7 @@ def personal_attendance_summary(db: Session, org: Any, user: Any, attendance: di
     today_row = next((row for row in attendance.get('rows', []) if row['date'] == today), None)
     today_leave = next((leave for leave in leaves.leaves if leave.get('employee_zoho_id') == user.zoho_employee_id
                         and str(leave.get('approval_status', '')).strip().upper() not in {'REJECTED', 'CANCELLED', 'CANCELED', 'WITHDRAWN'}
+                        and not is_work_from_home_request(leave, work_from_home_type_id)
                         and any(day == today and float(count) > 0 for day, count in (leave.get('day_counts') or ()))), None) if leaves.status == 'synced' else None
     logged_today = float(db.scalar(select(func.coalesce(func.sum(TimeLog.hours), 0)).join(Task, Task.id == TimeLog.task_id).where(
         Task.org_id == org.id, Task.is_archived.is_(False), TimeLog.user_id == user.id, TimeLog.log_date == today,

@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.leave_approvals import apply_local_leave_approvals, CANCELLED_STATUSES
 from app.models import Holiday, Organization, User
+from app.leave_types import is_work_from_home_request
 from app.time_utils import local_today
 from app.zoho_people import fetch_zoho_employee_ids, fetch_zoho_leave_requests
 
@@ -59,6 +60,8 @@ def build_daily_summary(db, org: Organization, summary_date: date) -> tuple[str,
     for leave in leave_result.leaves:
         approval = str(leave.get("approval_status") or "Unknown").strip()
         if approval.upper() in CANCELLED_STATUSES:
+            continue
+        if is_work_from_home_request(leave, settings.zoho_work_from_home_leave_type_id.strip()):
             continue
         person = people_by_zoho.get(str(leave.get("employee_zoho_id") or ""))
         if not person:
