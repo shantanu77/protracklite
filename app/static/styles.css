@@ -495,6 +495,7 @@ textarea {
 .team-leaves-section-head .eyebrow { margin: 0 0 .2rem; }
 .team-leaves-count { flex: 0 0 auto; padding: .3rem .6rem; border-radius: 999px; background: #f1f5f3; color: #49605a; font-size: .7rem; font-weight: 800; }
 .team-leaves-layout { display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); align-items: start; gap: 1rem; }
+[hidden] { display: none !important; }
 .team-leaves-roster { position: sticky; top: 1rem; display: grid; gap: .8rem; max-height: calc(100vh - 2rem); overflow: auto; padding: .9rem; }
 .team-leaves-roster-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
 .team-leaves-roster-head .eyebrow { margin: 0 0 .15rem; }
@@ -505,7 +506,8 @@ textarea {
 .team-leaves-roster-person { display: flex; align-items: center; gap: .6rem; min-width: 0; padding: .55rem; border: 1px solid transparent; border-radius: 10px; }
 .team-leaves-roster-person:hover { background: #f6f9f7; }
 .team-leaves-roster-person.is-selected { border-color: #cfe4d7; background: #eef8f1; }
-.team-leaves-roster-person > span:not(.avatar) { display: grid; flex: 1; min-width: 0; gap: .08rem; }
+.team-leaves-roster-person > .user-avatar { width: 30px; height: 30px; flex: 0 0 30px; font-size: .9rem; }
+.team-leaves-roster-copy { display: grid; flex: 1; min-width: 0; gap: .08rem; }
 .team-leaves-roster-person strong { overflow: hidden; font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
 .team-leaves-roster-person small { overflow: hidden; color: var(--muted); font-size: .61rem; text-overflow: ellipsis; white-space: nowrap; }
 .team-leaves-roster-person > b { color: #82918a; font-size: 1rem; }
@@ -529,6 +531,7 @@ textarea {
 .team-leaves-filter select, .team-leaves-filter input { min-height: 2.7rem; }
 .team-leaves-employee { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin: 1rem 0 .75rem; padding: 1rem 1.15rem; border-color: #dce7e2; background: linear-gradient(115deg, #f1f8f4, #fff 70%); }
 .team-leaves-employee-main { display: flex; align-items: center; gap: .85rem; min-width: 0; }
+.team-leaves-employee-main > .team-leaves-employee-avatar { width: 42px; height: 42px; flex: 0 0 42px; font-size: 1.15rem; }
 .team-leaves-employee-main > div { min-width: 0; }
 .team-leaves-employee-main .eyebrow { margin: 0 0 .12rem; }
 .team-leaves-employee-main h2 { margin: 0; font-size: 1.18rem; }
@@ -580,6 +583,10 @@ textarea {
 .team-leaves-attendance-summary { display: flex; align-items: center; gap: .7rem; color: var(--muted); font-size: .73rem; }
 .team-leaves-attendance-summary b { color: #3e6054; font-size: 1.1rem; transition: transform .2s ease; }
 .team-leaves-attendance-details[open] .team-leaves-attendance-summary b { transform: rotate(180deg); }
+.team-leaves-attendance-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.team-leaves-attendance-actions form { margin: 0; }
+.team-leaves-reminder-status { margin: 0; color: #236449; font-size: .75rem; font-weight: 700; }
+.team-leaves-reminder-status.is-error { color: var(--danger); }
 @media (max-width: 900px) { .team-leaves-summary { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } }
 @media (max-width: 620px) {
   .team-leaves-layout { grid-template-columns: minmax(0, 1fr); }

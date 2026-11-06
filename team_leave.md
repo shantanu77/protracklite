@@ -23,6 +23,8 @@ Give a manager a quick way to inspect one employee's leave year, review all leav
 - Leave approval continues to record the manager and approval time in ProTrack. The review modal shows request dates, type, duration, days, and reason before confirmation.
 - Regularize attendance only when the selected month's synced attendance contains missing working days. Keep the existing past-working-day validation and remote Noida behavior.
 - Keep attendance export scoped to the selected employee and month.
+- Let managers email the selected employee about past unmarked working days, excluding full-day approved leave and days that already have attendance records. Explain how to add the Zoho entry or request manager regularization; show existing pending requests so employees do not resubmit them.
+- Provide a true Excel-compatible attendance workbook export alongside CSV.
 - On narrow screens, stack the roster above the selected employee view, reduce the calendar to two or three month columns, and keep the request table horizontally scrollable.
 
 ## Visual direction

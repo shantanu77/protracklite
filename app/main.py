@@ -9111,6 +9111,7 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
     pending_days = 0.0
     remote_dates: dict[date, float] = {}
     calendar_days: dict[str, dict[str, Any]] = {}
+    approved_full_leave_dates: set[date] = set()
     if leave_result.status == "synced":
         settings = get_settings()
         for raw in leave_result.leaves:
@@ -9135,6 +9136,20 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
                     for day, count in remote_day_counts:
                         remote_dates[day] = max(remote_dates.get(day, 0.0), count)
                 continue
+            if status.casefold() == "approved":
+                attendance_counts = year_day_counts
+                if not attendance_counts:
+                    attendance_dates = list(raw.get("day_dates") or ())
+                    if not attendance_dates:
+                        attendance_dates, _ = leave_working_dates(
+                            db, member.org_id, max(start_date, year_start), min(end_date, year_end),
+                        )
+                    daily_count = min(float(raw.get("leave_days") or len(attendance_dates)) / max(len(attendance_dates), 1), 1.0)
+                    attendance_counts = [(day, daily_count) for day in attendance_dates]
+                approved_full_leave_dates.update(
+                    day for day, count in attendance_counts
+                    if month_start <= day <= month_end and float(count) >= 1
+                )
             if year_day_counts:
                 year_days = sum(count for _, count in year_day_counts)
             else:
@@ -9191,6 +9206,7 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
         "approved_days": round(approved_days, 2),
         "pending_days": round(pending_days, 2),
         "calendar_days": calendar_days,
+        "approved_full_leave_dates": approved_full_leave_dates,
         "attendance": attendance,
     }
 
@@ -10058,6 +10074,126 @@ def download_team_attendance(
     return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="attendance-{member.id}-{month}.csv"',
     })
+
+
+@app.get("/{org_slug}/manager/team-leaves/attendance.xlsx")
+def download_team_attendance_excel(
+    member_id: int, month: str,
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    must_be_admin_or_manager(manager)
+    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+                   if item["user"].id == member_id), None)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Select a valid month")
+    start = date.fromisoformat(f"{month}-01")
+    today = local_today()
+    if start > today:
+        raise HTTPException(status_code=400, detail="Attendance is unavailable for a future month")
+    end = min(start.replace(day=monthrange(start.year, start.month)[1]), today)
+    feed = team_member_month_feed(db, member, start, end, today)
+    attendance = feed["attendance"]
+    if not attendance or attendance["status"] != "synced":
+        raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
+    attendance = regularization_attendance_context(
+        db, org.id, member.id, attendance, start, end, include_missing_rows=True,
+    )
+    headings = ("Date", "First login", "Last logout", "Work mode", "Location", "Source")
+    rows = [headings]
+    rows.extend((
+        row["date"].isoformat(), row["first_in_label"], row["last_out_label"],
+        row["mode_label"], row["attendance_location"], row["attendance_source"],
+    ) for row in attendance["rows"])
+
+    def excel_cell(value: object) -> str:
+        return f'<Cell><Data ss:Type="String">{html.escape(str(value), quote=True)}</Data></Cell>'
+
+    sheet_rows = "".join(f"<Row>{''.join(excel_cell(value) for value in row)}</Row>" for row in rows)
+    workbook = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<?mso-application progid="Excel.Sheet"?>'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+        'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+        '<Worksheet ss:Name="Attendance"><Table>' + sheet_rows + '</Table></Worksheet></Workbook>'
+    )
+    return Response(content=workbook, media_type="application/vnd.ms-excel", headers={
+        "Content-Disposition": f'attachment; filename="attendance-{member.id}-{month}.xls"',
+    })
+
+
+@app.post("/{org_slug}/manager/team-leaves/attendance-reminder")
+def manager_send_attendance_reminder(
+    org_slug: str,
+    member_id: int = Form(...),
+    month: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    must_be_admin_or_manager(manager)
+    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+                   if item["user"].id == member_id), None)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Select a valid month")
+    start = date.fromisoformat(f"{month}-01")
+    today = local_today()
+    if start > today:
+        raise HTTPException(status_code=400, detail="Attendance reminders are unavailable for a future month")
+    end = min(start.replace(day=monthrange(start.year, start.month)[1]), today)
+    feed = team_member_month_feed(db, member, start, end, today)
+    if feed["leave_status"] != "synced":
+        raise HTTPException(status_code=503, detail=feed["leave_message"] or "Leave status is unavailable")
+    attendance = feed["attendance"]
+    if not attendance or attendance["status"] != "synced":
+        raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
+    attendance = regularization_attendance_context(db, org.id, member.id, attendance, start, end)
+    approved_leave_dates = feed.get("approved_full_leave_dates", set())
+    missing_days = [item for item in attendance.get("missing_days", []) if item["date"] not in approved_leave_dates]
+    if not missing_days:
+        raise HTTPException(status_code=409, detail="No unmarked past working days need a reminder for this month")
+
+    manager_name = manager.full_name or "your manager"
+    date_lines = []
+    date_items = []
+    for item in missing_days:
+        label = item["date"].strftime("%A, %d %B %Y")
+        if item.get("request") and item["request"].status == "pending":
+            label += " (regularization request pending)"
+        date_lines.append(f"• {label}")
+        date_items.append(f"<li>{html.escape(label)}</li>")
+    profile_url = f"{app_base_url()}/{org.slug}/profile"
+    subject = f"Attendance reminder for {month}"
+    body = (
+        f"Hi {member.full_name},\n\n"
+        "Our records show no attendance entry for these past working days:\n"
+        + "\n".join(date_lines)
+        + "\n\nIf you worked on one of these days, please complete your attendance in Zoho People. "
+          "If you cannot add the entry, request your manager to regularize it from your ProTrack Profile attendance page. "
+          "If you already submitted a regularization request, you do not need to submit it again.\n\n"
+        f"Open your profile: {profile_url}\n\n"
+        f"Regards,\n{manager_name}"
+    )
+    html_body = (
+        f"<p>Hi {html.escape(member.full_name)},</p>"
+        "<p>Our records show no attendance entry for these past working days:</p>"
+        f"<ul>{''.join(date_items)}</ul>"
+        "<p>If you worked on one of these days, please complete your attendance in Zoho People. "
+        "If you cannot add the entry, request your manager to regularize it from your ProTrack Profile attendance page. "
+        "If you already submitted a regularization request, you do not need to submit it again.</p>"
+        f'<p><a href="{html.escape(profile_url, quote=True)}">Open your ProTrack Profile</a></p>'
+        f"<p>Regards,<br>{html.escape(manager_name)}</p>"
+    )
+    try:
+        send_email(member.email, subject, body, html_body)
+    except Exception as exc:
+        logger.exception("Attendance reminder email failed for user_id=%s", member.id)
+        raise HTTPException(status_code=502, detail="Unable to send the attendance reminder email") from exc
+    return JSONResponse({"status": "sent", "message": f"Attendance reminder sent to {member.full_name} for {len(missing_days)} unmarked day(s)."})
 
 
 @app.post("/{org_slug}/manager/team-leaves/regularize")
