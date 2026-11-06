@@ -9102,43 +9102,64 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
                 "approved_days": 0.0, "pending_days": 0.0, "attendance": None,
             }
 
+    year_start = date(month_start.year, 1, 1)
+    year_end = date(month_start.year, 12, 31)
     leave_result = fetch_zoho_leave_requests(
-        employee_zoho_ids=[member.zoho_employee_id], from_date=month_start, to_date=month_end,
+        employee_zoho_ids=[member.zoho_employee_id], from_date=year_start, to_date=year_end,
     )
     saved_source = leave_result.status != 'synced'
     if saved_source:
-        leave_result = saved_leave_requests(db, member.org_id, [member], month_start, month_end, leave_result)
+        leave_result = saved_leave_requests(db, member.org_id, [member], year_start, year_end, leave_result)
     leave_result = apply_local_leave_approvals(db, member.org_id, [member], leave_result)
     leaves: list[dict[str, Any]] = []
     approved_days = 0.0
     pending_days = 0.0
     remote_dates: dict[date, float] = {}
+    calendar_days: dict[str, dict[str, Any]] = {}
     if leave_result.status == "synced":
         settings = get_settings()
         for raw in leave_result.leaves:
             start_date = raw["start_date"]
             end_date = raw["end_date"]
-            if end_date < month_start or start_date > month_end:
+            if end_date < year_start or start_date > year_end:
                 continue
-            day_counts = [(day, float(count)) for day, count in raw.get("day_counts", ()) if month_start <= day <= month_end]
-            if day_counts:
-                month_days = sum(count for _, count in day_counts)
+            year_day_counts = [(day, float(count)) for day, count in raw.get("day_counts", ()) if year_start <= day <= year_end]
+            if year_day_counts:
+                year_days = sum(count for _, count in year_day_counts)
             else:
                 span = max((end_date - start_date).days + 1, 1)
-                overlap = (min(end_date, month_end) - max(start_date, month_start)).days + 1
-                month_days = float(raw.get("leave_days") or 0) * overlap / span
+                overlap = (min(end_date, year_end) - max(start_date, year_start)).days + 1
+                year_days = float(raw.get("leave_days") or 0) * overlap / span
             status = str(raw.get("approval_status") or "Unknown").strip()
             if status.casefold() == "approved":
-                approved_days += month_days
+                approved_days += year_days
             elif status.strip().upper() in PENDING_STATUSES:
-                pending_days += month_days
+                pending_days += year_days
             leave_type = str(raw.get("leave_type_name") or "Leave").strip()
             is_remote = (
                 str(raw.get("leave_type_id") or "") == settings.zoho_work_from_home_leave_type_id.strip()
                 if settings.zoho_work_from_home_leave_type_id.strip() else False
             ) or "work from home" in leave_type.casefold() or "remote" in leave_type.casefold()
+            status_key = "approved" if status.upper() == "APPROVED" else "pending" if status.upper() in PENDING_STATUSES else ""
+            if status_key and status.upper() not in {"REJECTED", "CANCELLED", "CANCELED", "WITHDRAWN"} and not is_remote:
+                if year_day_counts:
+                    calendar_counts = year_day_counts
+                else:
+                    daily_count = float(raw.get("leave_days") or 0) / max((end_date - start_date).days + 1, 1)
+                    calendar_counts = [(start_date + timedelta(days=offset), daily_count)
+                                       for offset in range((end_date - start_date).days + 1)
+                                       if year_start <= start_date + timedelta(days=offset) <= year_end]
+                for calendar_day, count in calendar_counts:
+                    if count <= 0:
+                        continue
+                    key = calendar_day.isoformat()
+                    existing = calendar_days.get(key)
+                    if not existing or (status_key == "approved" and existing["status"] != "approved"):
+                        calendar_days[key] = {"status": status_key, "count": min(count, 1), "type": leave_type}
+                    elif existing["status"] == status_key:
+                        existing["count"] = min(existing["count"] + count, 1)
             if status.casefold() == "approved" and is_remote:
-                remote_day_counts = day_counts
+                remote_day_counts = [(day, count) for day, count in year_day_counts if month_start <= day <= month_end]
                 if not remote_day_counts:
                     daily_count = float(raw.get("leave_days") or 0) / max((end_date - start_date).days + 1, 1)
                     remote_day_counts = [
@@ -9159,7 +9180,7 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
                 "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date:%d %b %Y} – {end_date:%d %b %Y}",
                 "leave_type": leave_type,
                 "duration": str(raw.get("duration_label") or ""),
-                "month_days": round(month_days, 2),
+                "month_days": round(year_days, 2),
                 "reason": str(raw.get("reason") or ""),
                 "status": status,
                 "status_class": re.sub(r"[^a-z0-9]+", "-", status.casefold()).strip("-"),
@@ -9175,6 +9196,7 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
         "leaves": leaves,
         "approved_days": round(approved_days, 2),
         "pending_days": round(pending_days, 2),
+        "calendar_days": calendar_days,
         "attendance": attendance,
     }
 
@@ -9884,17 +9906,24 @@ def manager_team_leaves_page(
     request: Request,
     member_id: int | None = None,
     month: str = "",
+    year: str = "",
     regularized: int = 0,
     regularization_error: str = "",
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
+    import calendar as calendar_module
+
     org, user = org_user
     must_be_admin_or_manager(user)
     people = reporting_tree_people(db, org.id, user)
     members = [item["user"] for item in people]
     today = local_today()
-    month_value = month or today.strftime("%Y-%m")
+    year_value = year or (month[:4] if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month) else str(today.year))
+    if not re.fullmatch(r"\d{4}", year_value) or not 1900 <= int(year_value) <= 2100:
+        raise HTTPException(status_code=400, detail="Select a valid year")
+    attendance_month = month if month.startswith(year_value + "-") and re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month) else (today.strftime("%Y-%m") if year_value == str(today.year) else f"{year_value}-01")
+    month_value = attendance_month
     if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month_value):
         raise HTTPException(status_code=400, detail="Select a valid month")
     try:
@@ -9904,6 +9933,8 @@ def manager_team_leaves_page(
     month_end = month_start.replace(day=monthrange(month_start.year, month_start.month)[1])
     selected_member = None
     feed = None
+    year_holidays = []
+    year_calendar = []
     working_day_count = None
     pending_requests = db.scalars(select(AttendanceRegularization).where(
         AttendanceRegularization.org_id == org.id, AttendanceRegularization.manager_id == user.id,
@@ -9915,6 +9946,30 @@ def manager_team_leaves_page(
         if selected_member is None:
             raise HTTPException(status_code=404, detail="Team member not found")
         feed = team_member_month_feed(db, selected_member, month_start, month_end, today)
+        year_start = date(int(year_value), 1, 1)
+        year_end = date(int(year_value), 12, 31)
+        year_holidays = db.scalars(select(Holiday).where(
+            Holiday.org_id == org.id, Holiday.holiday_date >= year_start, Holiday.holiday_date <= year_end,
+        ).order_by(Holiday.holiday_date.asc())).all()
+        holidays_by_date = {item.holiday_date: item.name for item in year_holidays}
+        leave_days = feed.get("calendar_days", {})
+        for month_number in range(1, 13):
+            weeks = []
+            for week in calendar_module.Calendar(firstweekday=0).monthdatescalendar(int(year_value), month_number):
+                cells = []
+                for day in week:
+                    leave_day = leave_days.get(day.isoformat(), {})
+                    holiday_name = holidays_by_date.get(day, "")
+                    cells.append({
+                        "date": day,
+                        "in_month": day.month == month_number,
+                        "leave_status": leave_day.get("status", ""),
+                        "leave_count": leave_day.get("count", 0),
+                        "leave_type": leave_day.get("type", ""),
+                        "holiday": holiday_name,
+                    })
+                weeks.append(cells)
+            year_calendar.append({"label": date(int(year_value), month_number, 1).strftime("%B"), "weeks": weeks})
         if feed["attendance"]:
             feed["attendance"] = regularization_attendance_context(
                 db, org.id, selected_member.id, feed["attendance"], month_start, min(month_end, today),
@@ -9928,6 +9983,10 @@ def manager_team_leaves_page(
             "request": request, "org": org, "user": user,
             "members": members, "selected_member": selected_member,
             "month_value": month_value, "month_label": month_start.strftime("%B %Y"),
+            "year_value": year_value,
+            "year_options": range(today.year - 2, today.year + 3),
+            "year_holidays": year_holidays,
+            "year_calendar": year_calendar,
             "today_month": today.strftime("%Y-%m"),
             "regularized": max(0, min(regularized, 31)), "regularization_error": regularization_error[:500],
             "feed": feed, "working_day_count": working_day_count,
