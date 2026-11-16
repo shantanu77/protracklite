@@ -25,13 +25,6 @@
         {% if user %}
           <button class="nav-toggle" aria-label="Toggle menu" onclick="document.querySelector('.nav-drawer').classList.toggle('open')">&#9776;</button>
         </div>
-        <a class="sidebar-user" href="/{{ org.slug }}/profile">
-          {{ user_avatar(user, 24) }}
-          <span class="sidebar-user-copy">
-            <strong>{{ user.full_name }}</strong>
-            <span>{{ org.name }}</span>
-          </span>
-        </a>
         {% set current_path = request.url.path if request else "" %}
         {% set planning_active = current_path.startswith('/' ~ org.slug ~ '/releases') or current_path == '/' ~ org.slug ~ '/goals' %}
         {% set manager_active = current_path.startswith('/' ~ org.slug ~ '/manager/') or current_path == '/' ~ org.slug ~ '/admin/leaderboard' or current_path == '/' ~ org.slug ~ '/reports/monthly' %}
@@ -126,9 +119,10 @@
             </div>
           </div>
           {% endif %}
-          <form class="logout-form" method="post" action="/{{ org.slug }}/logout">
-            <button type="submit" class="logout-btn"><span class="nav-icon" aria-hidden="true">↪</span><span>Sign out</span></button>
-          </form>
+          <a class="sidebar-user sidebar-account-link" href="/{{ org.slug }}/profile" {% if current_path == '/' ~ org.slug ~ '/profile' %}aria-current="page"{% endif %}>
+            {{ user_avatar(user, 28) }}
+            <span class="sidebar-user-copy"><strong>{{ user.full_name }}</strong><span>My Profile</span></span>
+          </a>
         </nav>
         {% else %}
         </div>

@@ -509,4 +509,9 @@ document.querySelector('[data-open-profile-regularization]')?.addEventListener('
 });
 </script>
 
+<section class="panel profile-signout-panel">
+  <div><h2>Sign out</h2><p>End your ProTrack session on this device.</p></div>
+  <form method="post" action="/{{ org.slug }}/logout"><button type="submit" class="button danger">↪ Sign out</button></form>
+</section>
+
 {% endblock %}

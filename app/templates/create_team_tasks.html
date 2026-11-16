@@ -1,8 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .team-task-review { overflow-x:auto; border:1px solid #e4e9ec; border-radius:12px; }
+  .team-task-review table { width:100%; min-width:650px; border-collapse:collapse; font-size:12px; }
+  .team-task-review th { padding:9px 11px; color:#647582; background:#f6f8f9; font-size:10px; font-weight:800; letter-spacing:.055em; text-align:left; text-transform:uppercase; }
+  .team-task-review td { padding:7px 10px; border-top:1px solid #edf0f2; }
+  .team-task-review tr:hover td { background:#fbfcfc; }
+  .team-task-review input, .team-task-review select { min-width:115px; width:100%; padding:6px 8px; border:1px solid #dce3e6; border-radius:7px; background:#fff; color:#233943; font:500 12px/1.35 Manrope,sans-serif; }
+  .team-task-review input:focus, .team-task-review select:focus { outline:2px solid #c6ded4; border-color:#7ea995; }
+  .team-task-review .task-title { min-width:220px; font-weight:700; }
+  .team-task-review .task-date { min-width:140px; }
+  .team-task-review .remove-task { padding:5px 8px; border-radius:7px; background:#fff; color:#9c3c38; border:1px solid #ead5d4; box-shadow:none; font-size:11px; }
+  .team-task-review .remove-task:hover { background:#fbefee; }
+  #save-tasks { margin-top:14px; }
+</style>
 <section class="page-head"><div><p class="eyebrow">Manager</p><h1>Create Team Task</h1><p>Paste assignments in plain text. AI will match owners and deadlines; review every task before creating it.</p></div></section>
 <section class="panel"><form id="team-task-input"><label class="full">Task list<textarea name="freeflow_tasks" rows="8" placeholder="Alex: prepare the release notes by Friday&#10;Mina to review the onboarding flow next Tuesday" required></textarea></label><button type="submit">Parse tasks</button><span id="feedback" class="form-helper">{% if not ai_configured %}AI parsing is not configured for this workspace.{% endif %}</span></form></section>
-<section class="panel" id="review-panel" hidden><div class="panel-head"><h2>Review tasks</h2><p>Edit titles, owners, and deadlines, or remove rows before creating.</p></div><div class="table-wrap"><table><thead><tr><th>Task</th><th>Owner</th><th>Deadline</th><th></th></tr></thead><tbody id="task-rows"></tbody></table></div><button id="save-tasks" type="button">Create tasks</button></section>
+<section class="panel" id="review-panel" hidden><div class="panel-head"><div><h2>Review tasks</h2><p>Edit titles, owners, and deadlines, or remove rows before creating.</p></div></div><div class="team-task-review"><table><thead><tr><th>Task</th><th>Owner</th><th>Deadline</th><th></th></tr></thead><tbody id="task-rows"></tbody></table></div><button id="save-tasks" type="button">Create tasks</button></section>
 <script>
 (() => {
   const org = {{ org.slug|tojson }};

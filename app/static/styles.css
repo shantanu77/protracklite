@@ -941,7 +941,7 @@ textarea {
   align-items: center;
   gap: 0.55rem;
   min-height: 2.55rem;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   padding: 0.45rem 0.7rem;
   border-radius: 15px;
@@ -970,6 +970,21 @@ textarea {
   font-size: 0.58rem;
   font-weight: 700;
 }
+
+.sidebar-account-link {
+  width:100%;
+  box-sizing:border-box;
+  margin:0.3rem 0 0;
+  border:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.055);
+  text-decoration:none;
+}
+.sidebar-account-link:hover,
+.sidebar-account-link[aria-current="page"] { background:rgba(255,255,255,.12); }
+.sidebar-account-link .user-avatar { flex:0 0 auto; }
+.profile-signout-panel { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1.5rem; border-color:#eadfdd; }
+.profile-signout-panel h2 { margin:0; font-size:1rem; }
+.profile-signout-panel p { margin:.25rem 0 0; color:var(--muted); font-size:.82rem; }
 
 .nav-group {
   display: grid;
@@ -8240,8 +8255,10 @@ code {
 .sidebar .brand-mark { background: #dfecc6; color: #142c32; }
 .sidebar .sidebar-user, .sidebar .nav-link.primary { background: #ffffff0f; border-color: #ffffff16; color: white; }
 .sidebar .nav-link:hover, .sidebar .logout-btn:hover { background: #ffffff13; color: white; }
-.sidebar .sidebar-compose { background: #dfecc6; color: #142c32; }
+.sidebar .sidebar-compose { background: #dfecc6; color: #142c32; width:100%; box-sizing:border-box; justify-content:flex-start; }
 .sidebar .sidebar-compose kbd { color: #142c32; }
+.sidebar .sidebar-account-link { color:white; }
+.sidebar .sidebar-account-link:hover, .sidebar .sidebar-account-link[aria-current="page"] { color:white; }
 .sidebar .nav-section-toggle, .sidebar .nav-section { color: #a9bdb7; }
 
 .sidebar .nav-sublink.active { background: #ffffff0f; color: white; }
