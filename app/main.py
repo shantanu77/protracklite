@@ -6412,81 +6412,65 @@ def create_task_page(
     return RedirectResponse(url=f"/{org_slug}/tasks/new?created_task_id={task.task_id}", status_code=303)
 
 
-@app.post("/{org_slug}/tasks/new/bulk-backlog-ai")
-def create_bulk_backlog_tasks(
-    org_slug: str,
-    freeflow_tasks: str = Form(""),
-    is_private: bool = Form(False),
-    redirect_to: str = Form(""),
-    org_user: tuple[Organization, User] = Depends(get_org_user),
-    db: Session = Depends(get_db),
-):
-    org, user = org_user
-    task_lines = split_freeflow_task_input(freeflow_tasks)
-    if not task_lines:
-        return RedirectResponse(url=f"/{org_slug}/tasks/new", status_code=303)
+@app.post("/{org_slug}/tasks/new/ai/parse")
+def parse_bulk_tasks_preview(freeflow_tasks: str = Form(""), org_user: tuple[Organization, User] = Depends(get_org_user)):
+    if not freeflow_tasks.strip():
+        return {"tasks": []}
+    return {"tasks": extract_bulk_tasks_with_openai(freeflow_tasks)}
 
+
+@app.post("/{org_slug}/tasks/new/ai/save")
+def save_bulk_tasks_preview(payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, user = org_user
     project, default_activity_type = resolve_default_task_targets(db, org.id, user)
     activity_types = visible_activity_types_for_user(db, org.id, user)
-    parsed_tasks = extract_bulk_tasks_with_openai(freeflow_tasks)
+    parsed_tasks = payload.get("tasks", [])
+    if not isinstance(parsed_tasks, list) or not parsed_tasks:
+        raise HTTPException(status_code=400, detail="Add at least one task to save")
     created_task_ids: list[str] = []
-
     for parsed_task in parsed_tasks:
+        title = str(parsed_task.get("title") or "").strip()[:300]
+        if not title:
+            raise HTTPException(status_code=400, detail="Every task needs a title")
         activity_type = select_activity_type_for_ai_task(activity_types, default_activity_type, parsed_task.get("category"))
-        status_value = TaskStatus(parsed_task.get("status") or TaskStatus.NOT_STARTED.value)
-        parsed_time_logs = list(parsed_task.get("time_logs") or [])
+        try:
+            status_value = TaskStatus(str(parsed_task.get("status") or TaskStatus.NOT_STARTED.value))
+        except ValueError:
+            status_value = TaskStatus.NOT_STARTED
+        parsed_time_logs = []
+        for log in parsed_task.get("time_logs") or []:
+            log_date = parse_optional_date(str(log.get("log_date") or ""))
+            hours_value = parse_optional_decimal(str(log.get("hours") or ""))
+            if log_date and hours_value and hours_value > 0 and log_date <= date.today():
+                parsed_time_logs.append({"log_date": log_date, "hours": hours_value, "notes": str(log.get("notes") or "")})
         earliest_log_date = min((item["log_date"] for item in parsed_time_logs), default=None)
         latest_log_date = max((item["log_date"] for item in parsed_time_logs), default=None)
-        task_start_date = parsed_task["start_date"] or earliest_log_date
+        start_date = parse_optional_date(str(parsed_task.get("start_date") or "")) or earliest_log_date
+        end_date = parse_optional_date(str(parsed_task.get("end_date") or ""))
+        estimated_hours = parse_optional_decimal(str(parsed_task.get("estimated_hours") or ""))
         task = Task(
-            task_id=next_task_id(project),
-            org_id=org.id,
-            project_id=project.id,
-            assigned_to=user.id,
-            created_by=user.id,
-            name=parsed_task["title"],
-            description=sanitize_html(parsed_task["description"]),
-            activity_type_id=activity_type.id,
-            status=status_value,
-            is_private=is_private,
+            task_id=next_task_id(project), org_id=org.id, project_id=project.id,
+            assigned_to=user.id, created_by=user.id, name=title,
+            description=sanitize_html(str(parsed_task.get("description") or title)),
+            activity_type_id=activity_type.id, status=status_value,
+            is_private=bool(parsed_task.get("is_private", False)),
             dashboard_rank=next_dashboard_rank(db, org.id, user.id),
-            start_date=task_start_date,
-            end_date=parsed_task["end_date"],
-            estimated_hours=parsed_task["estimated_hours"],
-            stalled_reason=parsed_task.get("stalled_reason") or "",
+            start_date=start_date, end_date=end_date, estimated_hours=estimated_hours,
+            stalled_reason=str(parsed_task.get("stalled_reason") or ""),
             closed_at=datetime.combine(latest_log_date, datetime.max.time().replace(microsecond=0)) if status_value == TaskStatus.CLOSED and latest_log_date else (datetime.utcnow() if status_value == TaskStatus.CLOSED else None),
         )
         db.add(task)
         db.flush()
         total_logged_hours = Decimal("0")
-        for time_log in parsed_time_logs:
-            hours_value = Decimal(str(time_log["hours"]))
+        for log in parsed_time_logs:
+            hours_value = Decimal(str(log["hours"]))
             total_logged_hours += hours_value
-            db.add(
-                TimeLog(
-                    task_id=task.id,
-                    user_id=user.id,
-                    log_date=time_log["log_date"],
-                    hours=hours_value,
-                    notes=build_ai_import_time_log_notes(
-                        parsed_task["title"],
-                        str(time_log.get("notes") or parsed_task["description"] or parsed_task["title"]),
-                        time_log["log_date"],
-                        hours_value,
-                    ),
-                )
-            )
+            db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log["log_date"], hours=hours_value, notes=build_ai_import_time_log_notes(title, str(log.get("notes") or parsed_task.get("description") or title), log["log_date"], hours_value)))
         if total_logged_hours > 0:
             task.logged_hours = total_logged_hours
         created_task_ids.append(task.task_id)
-
     db.commit()
-    created_summary = ",".join(created_task_ids[:5])
-    redirect_base = safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/new")
-    return RedirectResponse(
-        url=f"{redirect_base}?created_task_id={created_task_ids[0]}&created_count={len(created_task_ids)}&created_summary={created_summary}",
-        status_code=303,
-    )
+    return {"ok": True, "created": len(created_task_ids), "task_ids": created_task_ids}
 
 
 def release_summary(release: DevRelease, people_map: dict[int, User]) -> dict[str, Any]:

@@ -37,7 +37,7 @@
         {% set manager_active = current_path.startswith('/' ~ org.slug ~ '/manager/') or current_path == '/' ~ org.slug ~ '/admin/leaderboard' or current_path == '/' ~ org.slug ~ '/reports/monthly' %}
         {% set admin_active = current_path.startswith('/' ~ org.slug ~ '/admin/') and current_path != '/' ~ org.slug ~ '/admin/leaderboard' %}
         <nav class="nav-drawer">
-          <a class="sidebar-compose" href="/{{ org.slug }}/tasks/new" title="Create a task · Ctrl+Shift+K">
+          <a class="sidebar-compose" href="/{{ org.slug }}/tasks/new?open_ai=1" title="Create tasks with AI · Ctrl+Shift+K">
             <span class="sidebar-compose-mark" aria-hidden="true">+</span>
             <span>New task</span>
             <kbd>Ctrl ⇧ K</kbd>
@@ -1060,7 +1060,7 @@
         return;
       }
       event.preventDefault();
-      openQuickTaskModal();
+      window.location.href = "/{{ org.slug }}/tasks/new?open_ai=1";
     });
 
     const sidebarGroups = document.querySelectorAll("[data-nav-group]");
