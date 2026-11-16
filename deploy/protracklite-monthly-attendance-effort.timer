@@ -1,0 +1,10 @@
+[Unit]
+Description=Send monthly attendance and effort emails on the last day at 2 PM India Standard Time
+
+[Timer]
+OnCalendar=*-*-28..31 14:00:00 Asia/Kolkata
+Persistent=true
+Unit=protracklite-monthly-attendance-effort.service
+
+[Install]
+WantedBy=timers.target

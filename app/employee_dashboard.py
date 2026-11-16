@@ -152,6 +152,37 @@ class DashboardSourceCache:
             with self.lock:
                 self.inflight.pop(key, None)
 
+    def get_leave_requests(self, key: tuple, loader: Callable):
+        """Cache Zoho leave-only reads without coupling them to attendance fetch success."""
+        cache_key = (*key[:2], "leave-requests", *key[2:])
+        with self.lock:
+            cached = self.entries.get(cache_key)
+            if cached and cached[0] > monotonic():
+                self.entries.move_to_end(cache_key)
+                return deepcopy(cached[1])
+            existing = self.inflight.get(cache_key)
+            if existing is None:
+                future = Future()
+                self.inflight[cache_key] = future
+        if existing is not None:
+            return deepcopy(existing.result())
+        try:
+            result = loader()
+            ttl = 300 if result.status == "synced" else 30
+            with self.lock:
+                self.entries[cache_key] = (monotonic() + ttl, result)
+                self.entries.move_to_end(cache_key)
+                while len(self.entries) > 256:
+                    self.entries.popitem(last=False)
+            future.set_result(result)
+            return deepcopy(result)
+        except Exception as exc:
+            future.set_exception(exc)
+            raise
+        finally:
+            with self.lock:
+                self.inflight.pop(cache_key, None)
+
     def invalidate(self, org_id: int, user_id: int):
         with self.lock:
             for key in list(self.entries):

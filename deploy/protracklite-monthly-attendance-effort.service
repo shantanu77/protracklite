@@ -1,0 +1,10 @@
+[Unit]
+Description=ProtrackLite monthly attendance and effort emails for active Solulever users at 2 PM IST
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/protracklite
+EnvironmentFile=-/etc/protracklite.env
+ExecStart=/opt/protracklite/.venv/bin/python -m app.monthly_attendance_effort --all-enabled --org-slug solulever --send --last-day-only --not-before 2026-11-01

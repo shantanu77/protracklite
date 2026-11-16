@@ -300,6 +300,36 @@ class WorkListActivityDigestDelivery(Base):
     processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class EmailDeliveryRun(Base):
+    __tablename__ = "email_delivery_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    report_type: Mapped[str] = mapped_column(String(60), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    target_count: Mapped[int] = mapped_column(default=0)
+    sent_count: Mapped[int] = mapped_column(default=0)
+    failed_count: Mapped[int] = mapped_column(default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class EmailDeliveryLog(Base):
+    __tablename__ = "email_delivery_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("email_delivery_runs.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
+    recipient_email: Mapped[str] = mapped_column(String(255), index=True)
+    subject: Mapped[str] = mapped_column(String(255), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_message: Mapped[str] = mapped_column(Text, default="")
+
+
 class PerformancePlan(Base):
     __tablename__ = "performance_plans"
     __table_args__ = (UniqueConstraint("org_id", "user_id", "year", name="uq_performance_plan_org_user_year"),)

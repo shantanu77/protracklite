@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">Manager</p><h1>Create Team Task</h1><p>Paste assignments in plain text. AI will match owners and deadlines; review every task before creating it.</p></div></section>
+<section class="panel"><form id="team-task-input"><label class="full">Task list<textarea name="freeflow_tasks" rows="8" placeholder="Alex: prepare the release notes by Friday&#10;Mina to review the onboarding flow next Tuesday" required></textarea></label><button type="submit">Parse tasks</button><span id="feedback" class="form-helper">{% if not ai_configured %}AI parsing is not configured for this workspace.{% endif %}</span></form></section>
+<section class="panel" id="review-panel" hidden><div class="panel-head"><h2>Review tasks</h2><p>Edit titles, owners, and deadlines, or remove rows before creating.</p></div><div class="table-wrap"><table><thead><tr><th>Task</th><th>Owner</th><th>Deadline</th><th></th></tr></thead><tbody id="task-rows"></tbody></table></div><button id="save-tasks" type="button">Create tasks</button></section>
+<script>
+(() => {
+  const org = {{ org.slug|tojson }};
+  const form = document.getElementById('team-task-input');
+  const feedback = document.getElementById('feedback');
+  const panel = document.getElementById('review-panel');
+  const rows = document.getElementById('task-rows');
+  let people = [];
+  const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function render(tasks) {
+    rows.innerHTML = tasks.map((task, i) => `<tr data-index="${i}"><td><input class="task-title" value="${escapeHtml(task.title)}" aria-label="Task title"></td><td><select class="task-owner" aria-label="Owner"><option value="">Choose owner</option>${people.map(p => `<option value="${p.id}" ${Number(task.owner_id) === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}</select></td><td><input class="task-date" type="date" value="${escapeHtml(task.due_date)}" aria-label="Deadline"></td><td><button class="remove-task" type="button">Remove</button></td></tr>`).join('');
+    panel.hidden = !tasks.length;
+    rows.querySelectorAll('.remove-task').forEach(button => button.addEventListener('click', () => button.closest('tr').remove()));
+  }
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); feedback.textContent = 'Parsing assignments…';
+    try {
+      const data = new FormData(form);
+      const response = await fetch(`/${org}/manager/create-team-tasks/parse`, {method:'POST', body:data});
+      const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not parse tasks.');
+      people = result.people; render(result.tasks); feedback.textContent = result.tasks.length ? `${result.tasks.length} tasks ready for review.` : 'No tasks found.';
+    } catch (error) { feedback.textContent = error.message; }
+  });
+  document.getElementById('save-tasks').addEventListener('click', async () => {
+    const tasks = [...rows.querySelectorAll('tr')].map(row => ({title:row.querySelector('.task-title').value.trim(), owner_id:row.querySelector('.task-owner').value, due_date:row.querySelector('.task-date').value}));
+    if (!tasks.length) return;
+    if (tasks.some(task => !task.title || !task.owner_id)) { feedback.textContent = 'Add a title and choose an owner for every task.'; return; }
+    feedback.textContent = 'Creating tasks…';
+    try {
+      const response = await fetch(`/${org}/manager/create-team-tasks/save`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tasks})});
+      const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not create tasks.');
+      rows.innerHTML = ''; panel.hidden = true; feedback.textContent = `${result.created} tasks created and assigned.`;
+    } catch (error) { feedback.textContent = error.message; }
+  });
+})();
+</script>
+{% endblock %}

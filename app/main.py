@@ -31,12 +31,12 @@ from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
-from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, profile_saved_approvals, PENDING_STATUSES
+from app.leave_approvals import apply_local_leave_approvals, locally_approved, saved_leave_requests, profile_saved_approvals, PENDING_STATUSES, CANCELLED_STATUSES
 from app.capacity import build_capacity_payload, capacity_period
 from app.manager_dashboard import build_manager_dashboard
 from app.profile_attendance import profile_attendance_summary
 from app.capacity_sync import capacity_snapshots, capacity_sync_status, run_capacity_sync, start_capacity_sync
-from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache
+from app.employee_dashboard import approved_absence_counts, build_employee_dashboard, personal_attendance_summary, source_cache, working_calendar
 from app.zoho_people import (
     add_zoho_attendance_entry,
     cancel_zoho_leave,
@@ -46,6 +46,7 @@ from app.zoho_people import (
     fetch_zoho_leave_balance,
     fetch_zoho_leave_requests,
     sync_zoho_leave,
+    ZohoLeaveListResult,
 )
 from app.database import Base, engine, get_db
 from app.list_templates import LIST_TEMPLATES
@@ -798,6 +799,81 @@ def monday_report_redirect_url(
         query["daylog_date"] = daylog_date
     base_url = f"/{org_slug}/reports/monday"
     return f"{base_url}?{urlencode(query)}" if query else base_url
+
+
+def monday_report_with_leave_status(db: Session, org: Organization, user: User) -> dict[str, Any]:
+    """Include active Zoho leave requests in the Monday day strip, even before local approval/sync."""
+    report = monday_report(db, org.id, user.id)
+    start, end = report["previous_week_start"], report["previous_week_end"]
+    if not user.zoho_employee_id.strip():
+        directory = fetch_zoho_employee_ids(employee_emails=[user.email])
+        if directory.status == "synced":
+            user.zoho_employee_id = dict(directory.employee_ids).get(user.email.strip().lower(), "")
+            if user.zoho_employee_id:
+                db.commit()
+
+    if user.zoho_employee_id.strip():
+        leaves = source_cache.get_leave_requests(
+            (org.id, user.id, user.zoho_employee_id, start, end),
+            lambda: fetch_zoho_leave_requests(
+                employee_zoho_ids=[user.zoho_employee_id], from_date=start, to_date=end,
+            ),
+        )
+    else:
+        leaves = ZohoLeaveListResult(status="failed", error="Employee is not mapped to Zoho People")
+    if leaves.status != "synced":
+        leaves = saved_leave_requests(db, org.id, [user], start, end, leaves)
+    leaves = apply_local_leave_approvals(db, org.id, [user], leaves)
+    if leaves.status != "synced":
+        return report
+
+    days_by_date = {item["date"]: item for item in report["previous_week_daily_allocation"]}
+    workdays = working_calendar(db, org.id, start, end)
+    remote_type_id = settings.zoho_work_from_home_leave_type_id.strip()
+    for item in leaves.leaves:
+        employee_zoho_id = str(item.get("employee_zoho_id") or "").strip()
+        if employee_zoho_id and employee_zoho_id != user.zoho_employee_id:
+            continue
+        source_status = str(item.get("approval_status") or "Applied").strip()
+        if source_status.upper() in CANCELLED_STATUSES:
+            continue
+        leave_type = str(item.get("leave_type_name") or "Leave").strip()
+        leave_type_id = str(item.get("leave_type_id") or "").strip()
+        if "remote" in leave_type.casefold() or "work from home" in leave_type.casefold() or (
+            remote_type_id and leave_type_id == remote_type_id
+        ):
+            continue
+        day_counts = item.get("day_counts") or ()
+        if not day_counts:
+            dates = item.get("day_dates") or ()
+            if not dates:
+                first, last = item.get("start_date"), item.get("end_date")
+                dates = [day for day in workdays if first and last and first <= day <= last]
+            dates = [day for day in dates if start <= day <= end]
+            requested_days = float(item.get("leave_days") or len(dates))
+            weight = min(requested_days / max(len(dates), 1), 1.0)
+            day_counts = [(day, weight) for day in dates]
+        approval_label = "Approved" if source_status.upper() == "APPROVED" else "Applied"
+        reason = str(item.get("reason") or "").strip()
+        detail = f"On leave · {approval_label}"
+        if reason:
+            detail += f" ({reason})"
+        for leave_day, count in day_counts:
+            day_row = days_by_date.get(leave_day)
+            if not day_row or float(count or 0) <= 0:
+                continue
+            day_row.update(
+                status="leave",
+                value_short="L",
+                detail=detail,
+                leave_id=item.get("zoho_leave_id") or day_row.get("leave_id"),
+                leave_type=leave_type,
+                leave_short_label="L",
+                leave_reason=reason,
+                leave_approval_status=approval_label,
+                leave_source="Zoho",
+            )
+    return report
 
 
 def dashboard_redirect_url(
@@ -7646,6 +7722,74 @@ def team_tasks_page(request: Request, org_slug: str, user_id: int, org_user: tup
     )
 
 
+@app.get("/{org_slug}/manager/create-team-tasks", response_class=HTMLResponse)
+def create_team_tasks_page(request: Request, org_slug: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, manager = org_user
+    if manager.role not in {Role.MANAGER, Role.ADMIN}:
+        raise HTTPException(status_code=403, detail="Manager access required")
+    people = [person for person in org_people(db, org.id) if person.id != manager.id and (manager.role == Role.ADMIN or can_manage_user_scope(db, org.id, manager, person.id))]
+    return templates.TemplateResponse("create_team_tasks.html", {"request": request, "org": org, "user": manager, "people": people, "ai_configured": bool(settings.openai_api_key.strip())})
+
+
+@app.post("/{org_slug}/manager/create-team-tasks/parse")
+def parse_team_tasks(org_slug: str, freeflow_tasks: str = Form(""), org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, manager = org_user
+    if manager.role not in {Role.MANAGER, Role.ADMIN}:
+        raise HTTPException(status_code=403, detail="Manager access required")
+    people = [person for person in org_people(db, org.id) if person.id != manager.id and (manager.role == Role.ADMIN or can_manage_user_scope(db, org.id, manager, person.id))]
+    if not freeflow_tasks.strip():
+        return {"tasks": [], "people": [{"id": p.id, "name": p.full_name} for p in people]}
+    prompt = {"model": settings.openai_backlog_model, "temperature": 0.1, "response_format": {"type": "json_object"}, "messages": [
+        {"role": "system", "content": "Extract actionable work assignments as JSON {tasks:[{title,description,owner_name,due_date}]}. Preserve owner names as written and resolve clear deadlines to YYYY-MM-DD. Use null when absent. Return every task. Do not invent owners or dates."},
+        {"role": "user", "content": freeflow_tasks[:20000]},
+    ]}
+    try:
+        if not settings.openai_api_key.strip():
+            raise RuntimeError("AI is not configured")
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}, json=prompt)
+        response.raise_for_status()
+        parsed = parse_json_payload(response.json()["choices"][0]["message"]["content"])
+        result = []
+        for item in parsed.get("tasks", []):
+            title = str(item.get("title") or "").strip()[:300]
+            if not title: continue
+            owner_name = str(item.get("owner_name") or "").strip()
+            owner_match = next((p for p in people if p.full_name.casefold() == owner_name.casefold()), None)
+            if not owner_match and owner_name:
+                matches = [p for p in people if owner_name.casefold() in p.full_name.casefold() or p.full_name.casefold() in owner_name.casefold()]
+                owner_match = matches[0] if len(matches) == 1 else None
+            due = parse_optional_date(str(item.get("due_date") or ""))
+            result.append({"title": title, "description": str(item.get("description") or title), "owner_name": owner_name, "owner_id": owner_match.id if owner_match else None, "due_date": due.isoformat() if due else ""})
+        return {"tasks": result, "people": [{"id": p.id, "name": p.full_name} for p in people]}
+    except Exception as exc:
+        logger.warning("Team task parsing failed: %s", exc.__class__.__name__)
+        raise HTTPException(status_code=502, detail="AI could not parse this list. Please try again or check AI configuration.")
+
+
+@app.post("/{org_slug}/manager/create-team-tasks/save")
+def save_team_tasks(org_slug: str, payload: dict, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+    org, manager = org_user
+    if manager.role not in {Role.MANAGER, Role.ADMIN}:
+        raise HTTPException(status_code=403, detail="Manager access required")
+    created = []
+    for item in payload.get("tasks", []):
+        owner_id = int(item.get("owner_id") or 0)
+        if not can_manage_user_scope(db, org.id, manager, owner_id):
+            raise HTTPException(status_code=400, detail="Choose a valid team member for every task")
+        owner = db.get(User, owner_id)
+        if not owner or owner.org_id != org.id or not owner.is_active:
+            raise HTTPException(status_code=400, detail="Invalid team member")
+        project, default_activity = resolve_default_task_targets(db, org.id, owner)
+        activity = select_activity_type_for_ai_task(visible_activity_types_for_user(db, org.id, owner), default_activity, str(item.get("category") or "others"))
+        due = parse_optional_date(str(item.get("due_date") or ""))
+        task = Task(task_id=next_task_id(project), org_id=org.id, project_id=project.id, assigned_to=owner.id, created_by=manager.id, name=str(item.get("title") or "").strip()[:300], description=sanitize_html(str(item.get("description") or "")), activity_type_id=activity.id, status=TaskStatus.NOT_STARTED, dashboard_rank=next_dashboard_rank(db, org.id, owner.id), end_date=due)
+        if not task.name: raise HTTPException(status_code=400, detail="Task title is required")
+        db.add(task); db.flush(); created.append(task.task_id)
+    db.commit()
+    return {"ok": True, "created": len(created), "task_ids": created}
+
+
 @app.get("/{org_slug}/reports/work-rate", response_class=HTMLResponse)
 def work_rate_page(
     request: Request,
@@ -7688,7 +7832,7 @@ def monday_report_page(
     created_task_ids = [item.strip() for item in (created_summary or "").split(",") if item.strip()]
     if created_task_id and created_task_id not in created_task_ids:
         created_task_ids.insert(0, created_task_id)
-    report = monday_report(db, org.id, user.id)
+    report = monday_report_with_leave_status(db, org, user)
     task_lookup = {
         task["task_id"]: task
         for key in ("worked_last_week_tasks", "pending_tasks", "this_week_tasks", "completed_tasks", "stalled_tasks", "backlog_tasks")
@@ -7935,7 +8079,7 @@ async def monday_report_generate_ai_summary(
             url=monday_report_redirect_url(org_slug, summary_error="AI summary is not configured for this workspace."),
             status_code=303,
         )
-    report = monday_report(db, org.id, user.id)
+    report = monday_report_with_leave_status(db, org, user)
     previous_week_start = report["previous_week_start"]
     previous_week_end = report["previous_week_end"]
     existing_summary = get_weekly_ai_summary(db, org.id, user.id, previous_week_start)
@@ -8108,7 +8252,7 @@ async def monday_report_catch_up_last_week(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    report = monday_report(db, org.id, user.id)
+    report = monday_report_with_leave_status(db, org, user)
     workdays = [
         day
         for day in report["previous_week_daily_allocation"]

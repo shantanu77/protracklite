@@ -121,3 +121,30 @@ Send that manager's digest to a test address without changing the manager accoun
 ```bash
 python3 -m app.manager_effort_digest --manager-email manager@example.com --recipient test@example.com
 ```
+
+## Monthly attendance and effort report
+
+The personal monthly report includes a styled HTML summary and a day-by-day CSV attachment. Attendance and leave are read from Zoho People; effort hours come from ProtrackLite task time logs.
+
+Preview the current month without sending:
+
+```bash
+python -m app.monthly_attendance_effort --email employee@example.com
+```
+
+Send one employee's report (use `--month YYYY-MM` to select a month and `--recipient` to override delivery):
+
+```bash
+python -m app.monthly_attendance_effort --email employee@example.com --send
+```
+
+The attendance and effort report is scheduled for all active users in the `solulever` organization at 2 PM India Standard Time on the last calendar day of each month, beginning November 2026. The timer checks on days 28–31 and sends only on the actual month end. A manual run can use `--all-enabled --org-slug solulever --send`.
+
+Each send now creates a persistent run entry and a recipient entry with its status, attempt time, completion time, subject, and any error. Inspect recent runs or a run's per-recipient results with:
+
+```bash
+python -m app.email_delivery_log --limit 20
+python -m app.email_delivery_log --run-id RUN_ID
+```
+
+`sent` means the configured SMTP server accepted the message; it does not confirm inbox delivery. Runs made before this log was installed have no recipient-level audit record.
