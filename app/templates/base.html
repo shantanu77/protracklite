@@ -120,7 +120,7 @@
           </div>
           {% endif %}
           <a class="sidebar-user sidebar-account-link" href="/{{ org.slug }}/profile" {% if current_path == '/' ~ org.slug ~ '/profile' %}aria-current="page"{% endif %}>
-            {{ user_avatar(user, 28) }}
+            {{ user_avatar(user, 24) }}
             <span class="sidebar-user-copy"><strong>{{ user.full_name }}</strong><span>My Profile</span></span>
           </a>
         </nav>

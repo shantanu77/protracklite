@@ -981,7 +981,7 @@ textarea {
 }
 .sidebar-account-link:hover,
 .sidebar-account-link[aria-current="page"] { background:rgba(255,255,255,.12); }
-.sidebar-account-link .user-avatar { flex:0 0 auto; }
+.sidebar-account-link .user-avatar { flex:0 0 24px; width:24px; min-width:24px; height:24px; font-size:.72rem; }
 .profile-signout-panel { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1.5rem; border-color:#eadfdd; }
 .profile-signout-panel h2 { margin:0; font-size:1rem; }
 .profile-signout-panel p { margin:.25rem 0 0; color:var(--muted); font-size:.82rem; }
