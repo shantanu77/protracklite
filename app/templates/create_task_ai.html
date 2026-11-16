@@ -9,7 +9,7 @@
   .ai-task-input-actions .form-helper { margin:0; }
   .ai-task-review { margin-top:1rem; }
   .ai-task-review-scroll { overflow:auto; border:1px solid #e2e8eb; border-radius:13px; }
-  .ai-task-review-table { width:100%; min-width:900px; border-collapse:collapse; font-size:12px; }
+  .ai-task-review-table { width:100%; min-width:1120px; border-collapse:collapse; font-size:12px; }
   .ai-task-review-table th { padding:10px 11px; background:#f5f8f7; color:#62747e; font-size:10px; font-weight:800; letter-spacing:.055em; text-align:left; text-transform:uppercase; }
   .ai-task-review-table td { padding:8px 9px; vertical-align:top; border-top:1px solid #edf1f2; }
   .ai-task-review-table tr:hover td { background:#fbfcfc; }
@@ -20,6 +20,17 @@
   .ai-task-review-table .preview-date { min-width:140px; }
   .ai-date-narration { display:block; margin:4px 1px 0; color:#71818a; font-size:10px; }
   .ai-task-review-table .preview-effort { min-width:76px; }
+  .ai-log-list { display:grid; gap:8px; min-width:285px; }
+  .ai-log-entry { padding:8px; border:1px solid #e6ebed; border-radius:9px; background:#fafcfc; }
+  .ai-log-fields { display:grid; grid-template-columns:minmax(125px,1fr) 90px auto; gap:6px; align-items:center; }
+  .ai-log-date-wrap { min-width:0; }
+  .ai-task-review-table .ai-log-fields input { min-width:0; }
+  .ai-task-review-table .ai-log-entry textarea { min-height:58px; font-size:11px; }
+  .ai-log-note-count { display:block; margin:3px 2px 0; color:#73818a; font-size:10px; }
+  .ai-log-note-count.is-short { color:#a34b38; font-weight:700; }
+  .ai-log-remove, .ai-log-add { padding:4px 7px; border:1px solid #e1e7e9; border-radius:7px; background:#fff; color:#50636e; box-shadow:none; font-size:10px; }
+  .ai-log-add { margin-top:7px; }
+  .ai-no-logs { color:#829099; font-size:11px; }
   .ai-task-remove { padding:6px 9px; border:1px solid #ead8d6; border-radius:8px; background:#fff; color:#a3443e; box-shadow:none; font-size:11px; }
   .ai-task-remove:hover { background:#fcf1f0; }
   .ai-task-review-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1rem; }
@@ -41,7 +52,7 @@
   </section>
   <section class="panel ai-task-review" id="ai-review" hidden>
     <div class="panel-head"><div><h2>Review tasks</h2><p>Check task details, schedule, and estimated effort. Remove any item you do not want to create.</p></div></div>
-    <div class="ai-task-review-scroll"><table class="ai-task-review-table"><thead><tr><th>Task and description</th><th>Start</th><th>Deadline</th><th>Est. effort</th><th></th></tr></thead><tbody id="ai-preview-rows"></tbody></table></div>
+    <div class="ai-task-review-scroll"><table class="ai-task-review-table"><thead><tr><th>Task and description</th><th>Start</th><th>Deadline</th><th>Estimated effort</th><th>Logged effort</th><th></th></tr></thead><tbody id="ai-preview-rows"></tbody></table></div>
     <div class="ai-task-review-actions"><p>Tasks will be assigned to you and added to your current workspace.</p><button type="button" id="ai-save-tasks">Save tasks</button></div>
   </section>
   <section class="panel ai-summary-feedback ai-summary-feedback-success ai-task-success" id="ai-task-success" hidden></section>
@@ -57,6 +68,10 @@
   const success = document.getElementById('ai-task-success');
   let tasks = [];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const notesMinLength = 80;
+  const noteLength = value => String(value || '').trim().replace(/\s+/g,' ').length;
+  const noteCounter = value => { const count = noteLength(value); return `<small class="ai-log-note-count ${count < notesMinLength ? 'is-short' : ''}">${count} / ${notesMinLength} characters${count < notesMinLength ? ` · Add ${notesMinLength-count} more` : ' · Ready to save'}</small>`; };
+  const todayIso = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; };
   function dateNarration(value) {
     if (!value) return '';
     const date = new Date(`${value}T12:00:00`), today = new Date(); today.setHours(12,0,0,0);
@@ -67,7 +82,11 @@
     return date.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
   }
   function render() {
-    rows.innerHTML = tasks.map((task,i) => `<tr data-index="${i}"><td><input class="preview-title" value="${esc(task.title)}" aria-label="Task title"><textarea class="preview-description" rows="2" aria-label="Task description">${esc(task.description)}</textarea></td><td><input class="preview-date preview-start" type="date" value="${esc(task.start_date)}" aria-label="Start date"><small class="ai-date-narration">${esc(dateNarration(task.start_date))}</small></td><td><input class="preview-date preview-end" type="date" value="${esc(task.end_date)}" aria-label="Deadline"><small class="ai-date-narration">${esc(dateNarration(task.end_date))}</small></td><td><input class="preview-effort" type="number" min="0" step="0.25" value="${esc(task.estimated_hours)}" placeholder="—" aria-label="Estimated effort in hours"> h</td><td><button class="ai-task-remove" type="button">Remove</button></td></tr>`).join('');
+    rows.innerHTML = tasks.map((task,i) => {
+      const logs = task.time_logs || [];
+      const logMarkup = logs.length ? logs.map((log,j) => `<div class="ai-log-entry" data-log-index="${j}"><div class="ai-log-fields"><div class="ai-log-date-wrap"><input class="log-date" type="date" value="${esc(log.log_date)}" aria-label="Work date"><small class="ai-date-narration" data-date-for="log" data-log-index="${j}">${esc(dateNarration(log.log_date))}</small></div><input class="log-hours" type="number" min="0.25" step="0.25" value="${esc(log.hours)}" placeholder="Hours" aria-label="Hours worked"><button class="ai-log-remove" type="button" aria-label="Remove effort log">Remove</button></div><textarea class="log-notes" rows="2" aria-label="Work description" placeholder="Describe the work completed (at least 80 characters)">${esc(log.notes)}</textarea>${noteCounter(log.notes)}</div>`).join('') : '<span class="ai-no-logs">No actual effort logged</span>';
+      return `<tr data-index="${i}"><td><input class="preview-title" value="${esc(task.title)}" aria-label="Task title"><textarea class="preview-description" rows="2" aria-label="Task description">${esc(task.description)}</textarea></td><td><input class="preview-date preview-start" type="date" value="${esc(task.start_date)}" aria-label="Start date"><small class="ai-date-narration" data-date-for="start">${esc(dateNarration(task.start_date))}</small></td><td><input class="preview-date preview-end" type="date" value="${esc(task.end_date)}" aria-label="Deadline"><small class="ai-date-narration" data-date-for="end">${esc(dateNarration(task.end_date))}</small></td><td><input class="preview-effort" type="number" min="0" step="0.25" value="${esc(task.estimated_hours)}" placeholder="—" aria-label="Planned estimated effort"> h</td><td><div class="ai-log-list">${logMarkup}</div><button class="ai-log-add" type="button">+ Add logged effort</button></td><td><button class="ai-task-remove" type="button">Remove task</button></td></tr>`;
+    }).join('');
     review.hidden = tasks.length === 0;
     rows.querySelectorAll('tr').forEach(row => {
       const i = Number(row.dataset.index);
@@ -77,10 +96,30 @@
         tasks[i].start_date = row.querySelector('.preview-start').value || null;
         tasks[i].end_date = row.querySelector('.preview-end').value || null;
         tasks[i].estimated_hours = row.querySelector('.preview-effort').value || null;
-        row.querySelectorAll('.ai-date-narration').forEach((node,j) => node.textContent = dateNarration(j ? tasks[i].end_date : tasks[i].start_date));
+        tasks[i].time_logs = [...row.querySelectorAll('.ai-log-entry')].map(entry => ({
+          log_date: entry.querySelector('.log-date').value,
+          hours: entry.querySelector('.log-hours').value,
+          notes: entry.querySelector('.log-notes').value,
+        }));
+        row.querySelectorAll('.ai-date-narration').forEach(node => {
+          const value = node.dataset.dateFor === 'start' ? tasks[i].start_date : node.dataset.dateFor === 'end' ? tasks[i].end_date : tasks[i].time_logs?.[Number(node.dataset.logIndex)]?.log_date;
+          node.textContent = dateNarration(value);
+        });
       };
-      row.querySelectorAll('input,textarea').forEach(el => el.addEventListener('input',sync));
+      row.querySelectorAll('input,textarea').forEach(el => el.addEventListener('input',() => {
+        sync();
+        const entry = el.closest('.ai-log-entry');
+        if (entry && el.classList.contains('log-notes')) entry.querySelector('.ai-log-note-count').outerHTML = noteCounter(el.value);
+      }));
       row.querySelector('.ai-task-remove').addEventListener('click',() => { tasks.splice(i,1); render(); });
+      row.querySelectorAll('.ai-log-remove').forEach(button => button.addEventListener('click',() => {
+        const entryIndex = Number(button.closest('.ai-log-entry').dataset.logIndex);
+        tasks[i].time_logs.splice(entryIndex,1); render();
+      }));
+      row.querySelector('.ai-log-add').addEventListener('click',() => {
+        tasks[i].time_logs ||= [];
+        tasks[i].time_logs.push({log_date:todayIso(),hours:'',notes:''}); render();
+      });
     });
   }
   form.addEventListener('submit',async event => {
@@ -94,6 +133,13 @@
   saveButton.addEventListener('click',async () => {
     tasks = tasks.filter(task => String(task.title || '').trim());
     if (!tasks.length) { feedback.textContent = 'Add at least one task with a title.'; render(); return; }
+    for (const task of tasks) {
+      const invalidLog = (task.time_logs || []).find(log => {
+        const hasAnyValue = String(log.log_date || '').trim() || String(log.hours || '').trim() || String(log.notes || '').trim();
+        return hasAnyValue && (!log.log_date || !log.hours || noteLength(log.notes) < notesMinLength);
+      });
+      if (invalidLog) { feedback.textContent = 'Complete each logged effort with a date, hours, and a description of at least 80 characters.'; return; }
+    }
     feedback.textContent = 'Saving tasks…'; saveButton.disabled = true;
     try {
       const response = await fetch(`/${org}/tasks/new/ai/save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tasks})});

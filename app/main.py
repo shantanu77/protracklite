@@ -2240,6 +2240,13 @@ def extract_task_dates_from_line(line: str) -> tuple[date | None, date | None]:
 
 
 def extract_task_effort_from_line(line: str) -> Decimal | None:
+    forecast = re.search(
+        r"\b(?:will take|should take|estimated?(?: effort)?|estimate(?:d)?(?: at)?|plan(?:ned)?(?: for)?|will need|needs?)\b",
+        line,
+        flags=re.IGNORECASE,
+    )
+    if extract_task_time_logs_from_text(line) and not forecast:
+        return None
     match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b", line.lower())
     if not match:
         return None
@@ -2280,6 +2287,26 @@ def extract_task_time_logs_from_text(text: str) -> list[dict[str, Any]]:
                 continue
             seen.add(dedupe_key)
             logs.append({"log_date": log_date, "hours": hours})
+    date_pattern = r"((?:last|this|next)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|yesterday|today|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?|\d{1,2}[- /][a-z]{3,9}(?:[- /]\d{2,4})?)"
+    actual_effort_patterns = [
+        rf"\b(?:(?:i|we)\s+)?(?:worked|spent|booked|logged|put in|added|did)\s+(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s+(?:on|for)\s+{date_pattern})?",
+        rf"\b(?:this|the|a)\s+task\s+took\s+(?:(?:me|us)\s+)?(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s+on\s+{date_pattern})?",
+        rf"\bit\s+took\s+(?:(?:me|us)\s+)?(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s+on\s+{date_pattern})?",
+    ]
+    for pattern in actual_effort_patterns:
+        for match in re.finditer(pattern, source_text, flags=re.IGNORECASE):
+            try:
+                hours = Decimal(match.group(1))
+            except Exception:
+                continue
+            date_raw = match.group(2) if match.lastindex and match.lastindex >= 2 else None
+            log_date = parse_human_date(date_raw) if date_raw else today
+            if not log_date or hours <= 0 or log_date > today:
+                continue
+            dedupe_key = (log_date, f"{hours}")
+            if dedupe_key not in seen:
+                seen.add(dedupe_key)
+                logs.append({"log_date": log_date, "hours": hours})
     logs.sort(key=lambda item: item["log_date"])
     return logs
 
@@ -2308,11 +2335,14 @@ def extract_bulk_tasks_locally(task_lines: list[str]) -> list[dict[str, Any]]:
     for line in task_lines:
         start_date, end_date = extract_task_dates_from_line(line)
         time_logs = extract_task_time_logs_from_text(line)
+        title = extract_task_title_from_line(line)
+        for log in time_logs:
+            log["notes"] = build_ai_import_time_log_notes(title, line, log["log_date"], log["hours"])
         if time_logs and not start_date:
             start_date = min(item["log_date"] for item in time_logs)
         parsed_tasks.append(
             {
-                "title": extract_task_title_from_line(line),
+                "title": title,
                 "description": line.strip(),
                 "start_date": start_date,
                 "end_date": end_date,
@@ -2686,9 +2716,11 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
                     "Rewrite title and description to be concise, professional, and directly actionable. "
                     "Prefer specific dates when the text implies them. Resolve phrases like today, yesterday, tomorrow, this week, next week, last Monday, last Tuesday, Monday, Friday, by Wednesday, and similar scheduling language into dates. "
                     "If the source indicates a due date but no start date, keep start_date null and set end_date. "
-                    "Estimate effort only when the text gives a clear signal or a reasonable small-task inference; otherwise null. "
-                    "If the source says effort was already spent on a specific date, include that in time_logs and split multiple task efforts into separate tasks when needed. "
-                    "Only include time_logs when both a real work date and logged effort are present. "
+                    "Keep planned estimated effort and actual logged effort separate. estimated_hours means future/planned effort only, such as 'will take 4 hours'. "
+                    "Phrases like 'I worked 4 hours', 'spent 4 hours', 'this task took 4 hours', or 'it took me 4 hours' are actual work and must become time_logs, never estimated_hours. "
+                    "If actual work has no date, use today's date for log_date. Write a clear, factual note of at least 80 characters for every time log, based only on the supplied details. "
+                    "Create separate time_logs for distinct actual work dates. Estimate effort only when the text gives a clear signal or a reasonable small-task inference; otherwise null. "
+                    "Use time_logs only for actual work already performed, never for planned effort. "
                     "Set category to the best matching value from the allowed list. "
                     "Set status to not_started unless the source clearly says work has begun, is stalled, or is completed. "
                     "Set is_backlog true only when there is no reliable schedule and no reliable effort estimate. Otherwise set it false. "
@@ -2748,6 +2780,18 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
                     )
             if not normalized_time_logs:
                 normalized_time_logs = inferred["time_logs"]
+            forecast_effort = re.search(
+                r"\b(?:will take|should take|estimated?(?: effort)?|estimate(?:d)?(?: at)?|plan(?:ned)?(?: for)?|will need|needs?)\b",
+                f"{title} {description}", flags=re.IGNORECASE,
+            )
+            if normalized_time_logs and not forecast_effort:
+                estimated_hours = None
+            for log in normalized_time_logs:
+                notes_value = re.sub(r"\s+", " ", str(log.get("notes") or "").strip())
+                if len(notes_value) < TIME_LOG_NOTES_MIN_LENGTH:
+                    log["notes"] = build_ai_import_time_log_notes(title, notes_value or description, log["log_date"], log["hours"])
+                else:
+                    log["notes"] = notes_value
             category = str(item.get("category") or "others").strip()
             status = str(item.get("status") or TaskStatus.NOT_STARTED.value).strip()
             stalled_reason = str(item.get("stalled_reason") or "").strip()
@@ -2756,7 +2800,7 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
             if status not in {item.value for item in TaskStatus}:
                 status = TaskStatus.NOT_STARTED.value
             is_backlog = normalize_ai_boolean(item.get("is_backlog"))
-            if is_backlog and (start_date or end_date or estimated_hours is not None):
+            if is_backlog and (start_date or end_date or estimated_hours is not None or normalized_time_logs):
                 is_backlog = False
             if normalized_time_logs and not start_date:
                 start_date = min(log["log_date"] for log in normalized_time_logs)
@@ -6445,10 +6489,21 @@ def save_bulk_tasks_preview(payload: dict, org_user: tuple[Organization, User] =
             status_value = TaskStatus.NOT_STARTED
         parsed_time_logs = []
         for log in parsed_task.get("time_logs") or []:
-            log_date = parse_optional_date(str(log.get("log_date") or ""))
-            hours_value = parse_optional_decimal(str(log.get("hours") or ""))
-            if log_date and hours_value and hours_value > 0 and log_date <= date.today():
-                parsed_time_logs.append({"log_date": log_date, "hours": hours_value, "notes": str(log.get("notes") or "")})
+            raw_date = str(log.get("log_date") or "").strip()
+            raw_hours = str(log.get("hours") or "").strip()
+            raw_notes = str(log.get("notes") or "").strip()
+            if not raw_date and not raw_hours and not raw_notes:
+                continue
+            if not raw_date or not raw_hours:
+                raise HTTPException(status_code=400, detail="Every logged effort entry needs a work date and hours")
+            log_date = parse_optional_date(raw_date)
+            hours_value = parse_optional_decimal(raw_hours)
+            if not log_date or not hours_value or not hours_value.is_finite() or hours_value <= 0:
+                raise HTTPException(status_code=400, detail="Logged effort needs a valid date and positive number of hours")
+            if log_date > local_today():
+                raise HTTPException(status_code=400, detail="Logged effort cannot use a future date")
+            normalized_notes = normalize_time_log_notes(raw_notes)
+            parsed_time_logs.append({"log_date": log_date, "hours": hours_value, "notes": normalized_notes})
         earliest_log_date = min((item["log_date"] for item in parsed_time_logs), default=None)
         latest_log_date = max((item["log_date"] for item in parsed_time_logs), default=None)
         start_date = parse_optional_date(str(parsed_task.get("start_date") or "")) or earliest_log_date
@@ -6471,7 +6526,7 @@ def save_bulk_tasks_preview(payload: dict, org_user: tuple[Organization, User] =
         for log in parsed_time_logs:
             hours_value = Decimal(str(log["hours"]))
             total_logged_hours += hours_value
-            db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log["log_date"], hours=hours_value, notes=build_ai_import_time_log_notes(title, str(log.get("notes") or parsed_task.get("description") or title), log["log_date"], hours_value)))
+            db.add(TimeLog(task_id=task.id, user_id=user.id, log_date=log["log_date"], hours=hours_value, notes=log["notes"]))
         if total_logged_hours > 0:
             task.logged_hours = total_logged_hours
         created_task_ids.append(task.task_id)

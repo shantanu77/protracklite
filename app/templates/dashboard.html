@@ -10,7 +10,7 @@
     <div class="wd-actions">
       <button type="button" class="wd-btn" data-work-log {% if not wd.latest_effort_day and not groups.all_unclosed %}disabled title="Create or receive an open task to record effort"{% endif %}>◷ Log effort</button>
       <button type="button" class="wd-btn wd-primary" data-quick-task-open>＋ Add task</button>
-      <button type="button" class="wd-btn wd-ai" data-modal-open="dashboard-ai-task-modal" title="Add tasks using AI">✦ <span>Using AI</span></button>
+      <a class="wd-btn wd-ai" href="/{{ org.slug }}/tasks/ai" title="Add tasks using AI">✦ <span>Using AI</span></a>
     </div>
   </section>
   {% if created_task_ids %}<div class="wd-feedback" role="status">Created {% for code in created_task_ids %}<a href="/{{ org.slug }}/tasks/{{ code }}">{{ code }}</a>{{ ', ' if not loop.last else '' }}{% endfor %}.</div>{% endif %}
@@ -215,24 +215,6 @@
       <p class="form-helper full" id="dashboard-log-notes-helper" data-log-notes-helper>Minimum 80 characters. 80 characters left.</p>
       <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
       <button type="submit" data-log-submit-button data-default-text="Add Hours">Add Hours</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="dashboard-ai-task-modal" data-modal aria-hidden="true">
-  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="dashboard-ai-task-title">
-    <div class="modal-head">
-      <div>
-        <h2 id="dashboard-ai-task-title">Add Task Using AI</h2>
-        <p>Paste a full email, meeting notes, or one task per line. AI will extract one or more actionable tasks and save them with your default project and activity type.</p>
-      </div>
-      <button type="button" class="modal-close" data-modal-close aria-label="Close add task using AI modal">×</button>
-    </div>
-    <form method="post" action="/{{ org.slug }}/tasks/new/bulk-backlog-ai" class="form-grid" data-ai-task-form>
-      <label class="full">Tasks<textarea name="freeflow_tasks" rows="12" placeholder="Hi Shantanu, please prepare the client deck for Friday, share the revised hiring tracker, and coordinate with infra to enable VPN access for the new joiners by Wednesday. Also block some time next week to review dashboard options." required></textarea></label>
-      <label class="checkbox"><input name="is_private" type="checkbox">Private tasks</label>
-      <input name="redirect_to" type="hidden" value="/{{ org.slug }}/dashboard">
-      <button type="submit" class="ai-task-submit" data-ai-task-submit>Create Tasks With AI</button>
     </form>
   </div>
 </div>
