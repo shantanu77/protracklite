@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .ai-task-page { max-width:1120px; margin:0 auto; }
+  .ai-task-intro { margin-bottom:1rem; }
+  .ai-task-input-panel { padding:clamp(1rem,2vw,1.5rem); }
+  .ai-task-input-panel textarea { min-height:145px; font-size:.92rem; line-height:1.6; }
+  .ai-task-input-actions { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
+  .ai-task-input-actions .form-helper { margin:0; }
+  .ai-task-review { margin-top:1rem; }
+  .ai-task-review-scroll { overflow:auto; border:1px solid #e2e8eb; border-radius:13px; }
+  .ai-task-review-table { width:100%; min-width:900px; border-collapse:collapse; font-size:12px; }
+  .ai-task-review-table th { padding:10px 11px; background:#f5f8f7; color:#62747e; font-size:10px; font-weight:800; letter-spacing:.055em; text-align:left; text-transform:uppercase; }
+  .ai-task-review-table td { padding:8px 9px; vertical-align:top; border-top:1px solid #edf1f2; }
+  .ai-task-review-table tr:hover td { background:#fbfcfc; }
+  .ai-task-review-table input, .ai-task-review-table textarea { width:100%; min-width:100px; box-sizing:border-box; padding:7px 8px; border:1px solid #dbe3e5; border-radius:8px; background:#fff; color:#253a44; font:500 12px/1.4 Manrope,sans-serif; }
+  .ai-task-review-table textarea { min-height:48px; margin-top:5px; resize:vertical; }
+  .ai-task-review-table input:focus, .ai-task-review-table textarea:focus { outline:2px solid #d5e7df; border-color:#79a792; }
+  .ai-task-review-table .preview-title { min-width:230px; font-weight:750; }
+  .ai-task-review-table .preview-date { min-width:140px; }
+  .ai-date-narration { display:block; margin:4px 1px 0; color:#71818a; font-size:10px; }
+  .ai-task-review-table .preview-effort { min-width:76px; }
+  .ai-task-remove { padding:6px 9px; border:1px solid #ead8d6; border-radius:8px; background:#fff; color:#a3443e; box-shadow:none; font-size:11px; }
+  .ai-task-remove:hover { background:#fcf1f0; }
+  .ai-task-review-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1rem; }
+  .ai-task-review-actions p { margin:0; color:#61717b; font-size:.8rem; }
+  .ai-task-success { margin-top:1rem; }
+  @media (max-width:640px) { .ai-task-review-actions { align-items:stretch; flex-direction:column; } .ai-task-review-actions button { width:100%; } }
+</style>
+<div class="ai-task-page">
+  <section class="page-head ai-task-intro">
+    <div><p class="eyebrow">Task Workspace</p><h1>Create Task with AI</h1><p>Describe the work in plain language. Review the task list, make edits, then save everything together.</p></div>
+    <a class="button secondary" href="/{{ org.slug }}/tasks/new">View all tasks</a>
+  </section>
+  <section class="panel ai-task-input-panel">
+    <div class="panel-head"><div><h2>Describe your tasks</h2><p>Add due dates or estimated effort when you know them. You can review and edit every detail before saving.</p></div></div>
+    <form id="ai-task-input" class="form-grid">
+      <label class="full">Task description<textarea name="freeflow_tasks" placeholder="Prepare the launch checklist by Friday, about 3 hours.\nReview the dashboard tomorrow and note any accessibility issues." required></textarea></label>
+      <div class="full ai-task-input-actions"><button type="submit" id="ai-parse-button">✦ Parse tasks</button><span class="form-helper" id="ai-task-feedback">Parsing creates a preview only. You can edit or remove rows before saving.</span></div>
+    </form>
+  </section>
+  <section class="panel ai-task-review" id="ai-review" hidden>
+    <div class="panel-head"><div><h2>Review tasks</h2><p>Check task details, schedule, and estimated effort. Remove any item you do not want to create.</p></div></div>
+    <div class="ai-task-review-scroll"><table class="ai-task-review-table"><thead><tr><th>Task and description</th><th>Start</th><th>Deadline</th><th>Est. effort</th><th></th></tr></thead><tbody id="ai-preview-rows"></tbody></table></div>
+    <div class="ai-task-review-actions"><p>Tasks will be assigned to you and added to your current workspace.</p><button type="button" id="ai-save-tasks">Save tasks</button></div>
+  </section>
+  <section class="panel ai-summary-feedback ai-summary-feedback-success ai-task-success" id="ai-task-success" hidden></section>
+</div>
+<script>
+(() => {
+  const org = {{ org.slug|tojson }};
+  const form = document.getElementById('ai-task-input');
+  const feedback = document.getElementById('ai-task-feedback');
+  const review = document.getElementById('ai-review');
+  const rows = document.getElementById('ai-preview-rows');
+  const saveButton = document.getElementById('ai-save-tasks');
+  const success = document.getElementById('ai-task-success');
+  let tasks = [];
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function dateNarration(value) {
+    if (!value) return '';
+    const date = new Date(`${value}T12:00:00`), today = new Date(); today.setHours(12,0,0,0);
+    const delta = Math.round((date - today) / 86400000);
+    if (delta === 0) return 'Today'; if (delta === 1) return 'Tomorrow'; if (delta === -1) return 'Yesterday';
+    if (delta >= 2 && delta <= 6) return `This ${date.toLocaleDateString(undefined,{weekday:'long'})}`;
+    if (delta >= -6 && delta <= -2) return date.toLocaleDateString(undefined,{weekday:'long'});
+    return date.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+  }
+  function render() {
+    rows.innerHTML = tasks.map((task,i) => `<tr data-index="${i}"><td><input class="preview-title" value="${esc(task.title)}" aria-label="Task title"><textarea class="preview-description" rows="2" aria-label="Task description">${esc(task.description)}</textarea></td><td><input class="preview-date preview-start" type="date" value="${esc(task.start_date)}" aria-label="Start date"><small class="ai-date-narration">${esc(dateNarration(task.start_date))}</small></td><td><input class="preview-date preview-end" type="date" value="${esc(task.end_date)}" aria-label="Deadline"><small class="ai-date-narration">${esc(dateNarration(task.end_date))}</small></td><td><input class="preview-effort" type="number" min="0" step="0.25" value="${esc(task.estimated_hours)}" placeholder="—" aria-label="Estimated effort in hours"> h</td><td><button class="ai-task-remove" type="button">Remove</button></td></tr>`).join('');
+    review.hidden = tasks.length === 0;
+    rows.querySelectorAll('tr').forEach(row => {
+      const i = Number(row.dataset.index);
+      const sync = () => {
+        tasks[i].title = row.querySelector('.preview-title').value;
+        tasks[i].description = row.querySelector('.preview-description').value;
+        tasks[i].start_date = row.querySelector('.preview-start').value || null;
+        tasks[i].end_date = row.querySelector('.preview-end').value || null;
+        tasks[i].estimated_hours = row.querySelector('.preview-effort').value || null;
+        row.querySelectorAll('.ai-date-narration').forEach((node,j) => node.textContent = dateNarration(j ? tasks[i].end_date : tasks[i].start_date));
+      };
+      row.querySelectorAll('input,textarea').forEach(el => el.addEventListener('input',sync));
+      row.querySelector('.ai-task-remove').addEventListener('click',() => { tasks.splice(i,1); render(); });
+    });
+  }
+  form.addEventListener('submit',async event => {
+    event.preventDefault(); success.hidden = true; feedback.textContent = 'Parsing tasks…';
+    try {
+      const response = await fetch(`/${org}/tasks/new/ai/parse`,{method:'POST',body:new FormData(form)});
+      const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not parse tasks.');
+      tasks = result.tasks || []; render(); feedback.textContent = tasks.length ? `${tasks.length} tasks ready for review.` : 'No tasks found in that description.';
+    } catch(error) { feedback.textContent = error.message; }
+  });
+  saveButton.addEventListener('click',async () => {
+    tasks = tasks.filter(task => String(task.title || '').trim());
+    if (!tasks.length) { feedback.textContent = 'Add at least one task with a title.'; render(); return; }
+    feedback.textContent = 'Saving tasks…'; saveButton.disabled = true;
+    try {
+      const response = await fetch(`/${org}/tasks/new/ai/save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tasks})});
+      const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not save tasks.');
+      success.innerHTML = `<strong>${result.created} tasks saved.</strong> ${result.task_ids.map(id => `<a href="/${org}/tasks/${encodeURIComponent(id)}">${esc(id)}</a>`).join(', ')}`; success.hidden = false;
+      tasks = []; render(); form.reset(); feedback.textContent = 'Ready for another task list.';
+    } catch(error) { feedback.textContent = error.message; }
+    finally { saveButton.disabled = false; }
+  });
+})();
+</script>
+{% endblock %}

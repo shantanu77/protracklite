@@ -7,15 +7,9 @@
     <p>Add new tasks at the top, then scan and manage your existing tasks below.</p>
   </div>
   <div class="page-head-actions">
-    <a class="button secondary" href="#ai-task-workspace" title="Shortcut: Ctrl+Shift+K or Cmd+Shift+K">✦ Add Task Using AI</a>
+    <a class="button secondary" href="/{{ org.slug }}/tasks/ai" title="Shortcut: Alt+Shift+K">✦ Create Task with AI</a>
   </div>
 </section>
-<section class="panel ai-task-workspace" id="ai-task-workspace">
-  <div class="panel-head"><div><h2>Create tasks with AI</h2><p>Describe one or more tasks. Review the titles, descriptions, dates, and estimated effort before saving.</p></div></div>
-  <form id="ai-task-input" class="form-grid"><label class="full">Task description<textarea name="freeflow_tasks" rows="5" placeholder="Prepare the launch checklist by Friday, about 3 hours. Review the dashboard with Alex tomorrow (2h)." required></textarea></label><button type="submit" id="ai-parse-button">Parse tasks</button><span class="form-helper" id="ai-task-feedback">Parsing creates a preview only. You can edit or remove tasks before saving.</span></form>
-  <div id="ai-review" hidden><div class="dashboard-table-wrap"><table class="ai-preview-table"><thead><tr><th>Task and description</th><th>Start date</th><th>Deadline</th><th>Estimated effort</th><th></th></tr></thead><tbody id="ai-preview-rows"></tbody></table></div><div class="task-create-actions"><button type="button" id="ai-save-tasks">Save tasks</button></div></div>
-</section>
-<p class="form-helper">Shortcut: use <strong>Ctrl+Shift+K</strong> or <strong>Cmd+Shift+K</strong> to open this AI task page from anywhere.</p>
 <div class="stack">
   {% if created_count %}
   <section class="panel ai-summary-feedback ai-summary-feedback-success">
@@ -258,76 +252,6 @@
     {% endif %}
   </section>
 </div>
-
-<style>
-  .ai-task-workspace { margin-bottom: 18px; }
-  .ai-preview-table { min-width: 900px; font-size: 12px; }
-  .ai-preview-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
-  .ai-preview-table td { padding: 7px; vertical-align: top; }
-  .ai-preview-table input, .ai-preview-table textarea { font-size: 12px; padding: 6px 8px; min-width: 105px; }
-  .ai-preview-table .preview-title, .ai-preview-table .preview-description { display:block; width:100%; }
-  .ai-preview-table .preview-description { margin-top: 5px; min-height: 42px; }
-  .ai-date-narration { display:block; margin-top:3px; color:#687783; font-size:10px; white-space:nowrap; }
-  .ai-preview-effort { width:90px; }
-</style>
-<script>
-(() => {
-  const org = {{ org.slug|tojson }};
-  const form = document.getElementById('ai-task-input');
-  if (!form) return;
-  const feedback = document.getElementById('ai-task-feedback');
-  const review = document.getElementById('ai-review');
-  const rows = document.getElementById('ai-preview-rows');
-  const saveButton = document.getElementById('ai-save-tasks');
-  let tasks = [];
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  function dateNarration(value) {
-    if (!value) return '';
-    const d = new Date(`${value}T12:00:00`), today = new Date(); today.setHours(12,0,0,0);
-    const diff = Math.round((d - today) / 86400000);
-    if (diff === 0) return 'Today'; if (diff === 1) return 'Tomorrow'; if (diff === -1) return 'Yesterday';
-    if (diff >= -6 && diff <= 6) return d.toLocaleDateString(undefined, {weekday:'long'});
-    return d.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
-  }
-  function render() {
-    rows.innerHTML = tasks.map((task, i) => `<tr data-index="${i}"><td><input class="preview-title" value="${esc(task.title)}" aria-label="Task title"><textarea class="preview-description" rows="2" aria-label="Task description">${esc(task.description)}</textarea></td><td><input class="preview-start" type="date" value="${esc(task.start_date)}" aria-label="Start date"><small class="ai-date-narration">${esc(dateNarration(task.start_date))}</small></td><td><input class="preview-end" type="date" value="${esc(task.end_date)}" aria-label="Deadline"><small class="ai-date-narration">${esc(dateNarration(task.end_date))}</small></td><td><input class="preview-effort" type="number" min="0" step="0.25" value="${esc(task.estimated_hours)}" placeholder="—" aria-label="Estimated effort in hours"> h</td><td><button class="preview-remove" type="button" aria-label="Remove task">Remove</button></td></tr>`).join('');
-    review.hidden = tasks.length === 0;
-    rows.querySelectorAll('tr').forEach(row => {
-      const i = Number(row.dataset.index);
-      const sync = () => {
-        tasks[i].title = row.querySelector('.preview-title').value;
-        tasks[i].description = row.querySelector('.preview-description').value;
-        tasks[i].start_date = row.querySelector('.preview-start').value || null;
-        tasks[i].end_date = row.querySelector('.preview-end').value || null;
-        tasks[i].estimated_hours = row.querySelector('.preview-effort').value || null;
-        row.querySelectorAll('.ai-date-narration').forEach((node, j) => node.textContent = dateNarration(j ? tasks[i].end_date : tasks[i].start_date));
-      };
-      row.querySelectorAll('input, textarea').forEach(el => el.addEventListener('input', sync));
-      row.querySelector('.preview-remove').addEventListener('click', () => { tasks.splice(i, 1); render(); });
-    });
-  }
-  form.addEventListener('submit', async event => {
-    event.preventDefault(); feedback.textContent = 'Parsing tasks…';
-    try {
-      const response = await fetch(`/${org}/tasks/new/ai/parse`, {method:'POST', body:new FormData(form)});
-      const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not parse tasks.');
-      tasks = result.tasks || []; render(); feedback.textContent = tasks.length ? `${tasks.length} tasks ready. Edit any field or remove a row, then save.` : 'No tasks found in that description.';
-    } catch (error) { feedback.textContent = error.message; }
-  });
-  saveButton.addEventListener('click', async () => {
-    tasks = tasks.filter(task => String(task.title || '').trim());
-    if (!tasks.length) { feedback.textContent = 'Add at least one task with a title.'; render(); return; }
-    feedback.textContent = 'Saving tasks…'; saveButton.disabled = true;
-    try {
-      const response = await fetch(`/${org}/tasks/new/ai/save`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tasks})});
-      const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not save tasks.');
-      feedback.textContent = `${result.created} tasks saved. ${result.task_ids.join(', ')}`; tasks = []; render(); form.reset();
-    } catch (error) { feedback.textContent = error.message; }
-    finally { saveButton.disabled = false; }
-  });
-  if (new URLSearchParams(location.search).get('open_ai') === '1') window.addEventListener('load', () => form.querySelector('textarea')?.focus());
-})();
-</script>
 
 <script>
   (() => {

@@ -6290,6 +6290,12 @@ def api_list_summaries(
     return work_list_summaries(db, org.id, user.id)
 
 
+@app.get("/{org_slug}/tasks/ai", response_class=HTMLResponse)
+def create_task_with_ai_page(request: Request, org_slug: str, org_user: tuple[Organization, User] = Depends(get_org_user)):
+    org, user = org_user
+    return templates.TemplateResponse("create_task_ai.html", {"request": request, "org": org, "user": user})
+
+
 @app.get("/{org_slug}/tasks/new", response_class=HTMLResponse)
 def new_task_page(
     request: Request,
