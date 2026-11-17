@@ -1,41 +1,53 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head"><div><p class="eyebrow">{{ org.name }} · Goal planning</p><h1>Quick create a goal plan</h1><p>Select the employee first so their department and role can guide the plan. Preview the hierarchy before creating a draft.</p></div><a class="button ghost" href="/{{ org.slug }}/goals">Back to Goals</a></section>
-<form method="post" action="/{{ org.slug }}/goals/quick-create" id="quick-goals-form" class="stack">
-  <section class="panel form-grid">
-    <div class="panel-head full"><div><h2>1. Plan context</h2><p>These details identify the employee and appraisal cycle.</p></div></div>
-    <label class="full">Employee
-      <select name="user_id" id="employee-select" required><option value="">Select an employee</option>{% for person in people %}<option value="{{ person.id }}" data-department="{{ person.department.name if person.department else 'No department assigned' }}">{{ person.full_name }}</option>{% endfor %}</select>
-      <small id="employee-context" class="muted">Department context will appear here.</small>
-    </label>
-    <label>Financial year starts<input type="number" name="year" value="{{ current_year }}" min="2024" max="2100" required></label>
-    <label>Cycle label<input name="cycle_label" value="{{ cycle_label }}" required></label>
-    <label>Cycle start<input type="date" name="cycle_start" value="{{ cycle_start }}" required></label>
-    <label>Cycle end<input type="date" name="cycle_end" value="{{ cycle_end }}" required></label>
-    <label>Reviewer<select name="reviewer_id"><option value="">Assigning manager</option>{% for reviewer in reviewers %}<option value="{{ reviewer.id }}">{{ reviewer.full_name }}</option>{% endfor %}</select></label>
-    <label>Plan title<input name="plan_title" value="Annual Performance Plan" required></label>
-    <label>Goal category<select name="kra_type">{% for key,label in kra_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+<section class="page-head quick-goals-head"><div><p class="eyebrow">{{ org.name }} · Goal planning</p><h1>Build a goal plan</h1><p>Choose an employee, write the outline, review it, and create a draft.</p></div><a class="button ghost" href="/{{ org.slug }}/goals">Back to Goals</a></section>
+<form method="post" action="/{{ org.slug }}/goals/quick-create" id="quick-goals-form" class="quick-goals-layout">
+  <section class="panel quick-context">
+    <div class="quick-section-title"><span>1</span><div><h2>Plan context</h2><p>Who is this plan for, and when does it apply?</p></div></div>
+    <div class="quick-context-grid">
+      <label class="quick-field employee-field">Employee
+        <div class="quick-combobox" data-combobox data-placeholder="Search employee…">
+          <input type="search" id="employee-search" autocomplete="off" placeholder="Search employee…" aria-label="Search employee" aria-expanded="false" aria-controls="employee-options">
+          <input type="hidden" name="user_id" id="employee-id">
+          <div class="quick-options" id="employee-options" role="listbox" hidden>{% for person in people %}<button type="button" role="option" data-value="{{ person.id }}" data-label="{{ person.full_name }}" data-extra="{{ person.department.name if person.department else 'No department' }}"><strong>{{ person.full_name }}</strong><small>{{ person.department.name if person.department else 'No department assigned' }}</small></button>{% endfor %}</div>
+        </div><small id="employee-context" class="quick-hint">Search by name to see department context.</small>
+      </label>
+      <label class="quick-field reviewer-field">Reviewer <span class="optional">Optional</span>
+        <div class="quick-combobox" data-combobox data-placeholder="Search reviewer…">
+          <input type="search" id="reviewer-search" autocomplete="off" placeholder="Search reviewer…" aria-label="Search reviewer" aria-expanded="false" aria-controls="reviewer-options">
+          <input type="hidden" name="reviewer_id" id="reviewer-id">
+          <div class="quick-options" id="reviewer-options" role="listbox" hidden><button type="button" role="option" data-value="" data-label="Assigning manager" data-extra="">Assigning manager</button>{% for reviewer in reviewers %}<button type="button" role="option" data-value="{{ reviewer.id }}" data-label="{{ reviewer.full_name }}" data-extra="{{ reviewer.department.name if reviewer.department else '' }}"><strong>{{ reviewer.full_name }}</strong>{% if reviewer.department %}<small>{{ reviewer.department.name }}</small>{% endif %}</button>{% endfor %}</div>
+        </div>
+      </label>
+      <fieldset class="quick-date-range"><legend>Cycle dates</legend><label>From<input type="date" name="cycle_start" value="{{ cycle_start }}" required></label><span aria-hidden="true">→</span><label>To<input type="date" name="cycle_end" value="{{ cycle_end }}" required></label></fieldset>
+      <label class="quick-field plan-title-field">Plan title<input name="plan_title" value="Annual Performance Plan" required></label>
+      <label class="quick-field category-field">Goal category<select name="kra_type">{% for key,label in kra_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+      <input type="hidden" name="year" value="{{ current_year }}">
+      <input type="hidden" name="cycle_label" value="{{ cycle_label }}">
+    </div>
   </section>
 
-  <section class="panel form-grid">
-    <div class="panel-head full"><div><h2>2. Write the plan</h2><p>Use headings for goals and KPIs, then bullets for tasks. Your browser’s built in spelling checker is enabled.</p></div></div>
-    <label class="full">Markdown outline
-      <textarea id="goal-markdown" name="markdown" rows="16" spellcheck="true" required># Improve delivery outcomes
+  <section class="panel quick-writing">
+    <div class="quick-section-title"><span>2</span><div><h2>Write the plan</h2><p>Markdown headings create goals and KPIs; bullets create tasks. Spelling check is on.</p></div><button type="button" class="button secondary quick-preview-button" id="preview-button">Preview plan</button></div>
+    <label class="quick-field">Goal · KPI · task outline
+      <div class="quick-markdown-editor" id="markdown-editor">
+        <pre class="markdown-highlight" aria-hidden="true"><code id="markdown-highlight-code"></code></pre>
+        <textarea id="goal-markdown" name="markdown" rows="14" spellcheck="true" required># Improve delivery outcomes
 ## Increase on-time delivery
 - Review project milestones every week
 - Resolve delivery blockers within two business days
 ## Improve release quality
 - Add automated checks to critical workflows
 - Document release readiness before each launch</textarea>
+      </div>
     </label>
-    <details class="full"><summary>Markdown format</summary><p><code># Goal</code> starts a goal. <code>## KPI</code> starts a checklist KPI under that goal. <code>- Task</code> adds a task under the current KPI. Plain text below a goal or KPI becomes its description.</p></details>
-    <button type="button" class="button secondary" id="preview-button">Preview plan</button>
+    <details class="quick-format-help"><summary>Markdown guide</summary><span><code># Goal</code></span><span><code>## KPI</code></span><span><code>- Task</code></span><small>Plain text under a heading becomes its description.</small></details>
   </section>
 
-  <section class="panel" id="preview-panel" hidden>
-    <div class="panel-head"><div><h2>3. Review the plan</h2><p>Weights are shared evenly across goals, and separately across KPIs within each goal. KPIs use checklist measurement.</p></div></div>
+  <section class="panel quick-review" id="preview-panel" hidden>
+    <div class="quick-section-title"><span>3</span><div><h2>Review and create</h2><p>Weights are assigned evenly. Each KPI is created as a checklist.</p></div></div>
     <div id="goal-preview" class="stack"></div>
-    <button type="submit" id="create-button" disabled>Create draft plan</button>
+    <div class="quick-create-actions"><small>Nothing is saved until you create the draft.</small><button type="submit" id="create-button" disabled>Create draft plan</button></div>
   </section>
 </form>
 <script>
@@ -46,12 +58,40 @@
   const output = document.getElementById('goal-preview');
   const create = document.getElementById('create-button');
   const context = document.getElementById('employee-context');
-  const select = document.getElementById('employee-select');
-  const esc = value => { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; };
-  select.addEventListener('change', () => {
-    const option = select.selectedOptions[0];
-    context.textContent = option && option.value ? `Department: ${option.dataset.department}` : 'Department context will appear here.';
+  const employeeId = document.getElementById('employee-id');
+  const cycleStart = form.querySelector('[name="cycle_start"]');
+  cycleStart.addEventListener('change', () => {
+    const year = Number(cycleStart.value.slice(0, 4));
+    form.querySelector('[name="year"]').value = year;
+    form.querySelector('[name="cycle_label"]').value = `FY ${year}-${String(year + 1).slice(-2)}`;
   });
+  const esc = value => { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; };
+  document.querySelectorAll('[data-combobox]').forEach(box => {
+    const search = box.querySelector('input[type="search"]');
+    const value = box.querySelector('input[type="hidden"]');
+    const list = box.querySelector('[role="listbox"]');
+    const options = [...list.querySelectorAll('[role="option"]')];
+    const close = () => { list.hidden = true; search.setAttribute('aria-expanded', 'false'); };
+    search.addEventListener('focus', () => { list.hidden = false; search.setAttribute('aria-expanded', 'true'); options.forEach(option => option.hidden = false); });
+    search.addEventListener('input', () => { value.value = ''; if (value.id === 'employee-id') { context.textContent = 'Choose an employee to load department context.'; create.disabled = true; } options.forEach(option => { option.hidden = !`${option.dataset.label} ${option.dataset.extra}`.toLowerCase().includes(search.value.toLowerCase()); }); list.hidden = false; search.setAttribute('aria-expanded', 'true'); });
+    options.forEach(option => option.addEventListener('click', () => { value.value = option.dataset.value; search.value = option.dataset.label; close(); if (value.id === 'employee-id') { context.textContent = option.dataset.extra ? `Department: ${option.dataset.extra}` : 'No department assigned'; create.disabled = true; } }));
+    search.addEventListener('keydown', event => { if (event.key === 'Escape') close(); if (event.key === 'ArrowDown') { event.preventDefault(); (options.find(option => !option.hidden))?.focus(); } });
+    options.forEach((option, index) => option.addEventListener('keydown', event => { if (event.key === 'ArrowDown') { event.preventDefault(); (options[index + 1] || options[0]).focus(); } if (event.key === 'ArrowUp') { event.preventDefault(); (options[index - 1] || search).focus(); } }));
+    document.addEventListener('click', event => { if (!box.contains(event.target)) close(); });
+  });
+  const highlightCode = document.getElementById('markdown-highlight-code');
+  const syncEditor = () => {
+    const esc = value => { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; };
+    highlightCode.innerHTML = input.value.split('\n').map(line => {
+      if (line.startsWith('# ')) return `<span class="md-goal">${esc(line)}</span>`;
+      if (line.startsWith('## ')) return `<span class="md-kpi">${esc(line)}</span>`;
+      if (/^[-*] /.test(line)) return `<span class="md-task">${esc(line)}</span>`;
+      return esc(line) || ' ';
+    }).join('\n');
+  };
+  input.addEventListener('input', () => { syncEditor(); create.disabled = true; });
+  input.addEventListener('scroll', () => { const mirror = document.querySelector('.markdown-highlight'); mirror.scrollTop = input.scrollTop; mirror.scrollLeft = input.scrollLeft; });
+  syncEditor();
   document.getElementById('preview-button').addEventListener('click', () => {
     const goals = []; let goal = null, kpi = null;
     input.value.split(/\r?\n/).forEach(raw => {
@@ -72,11 +112,11 @@
         card.appendChild(section);
       }); output.appendChild(card);
     });
-    const valid = select.value && goals.length && goals.every(g => g.title && g.kpis.length && g.kpis.every(k => k.title));
+    const valid = employeeId.value && goals.length && goals.every(g => g.title && g.kpis.length && g.kpis.every(k => k.title));
     if (!valid) output.innerHTML = '<p class="empty">Add an employee, at least one <code># Goal</code>, and at least one <code>## KPI</code> under every goal.</p>';
     create.disabled = !valid; panel.hidden = false;
   });
-  form.addEventListener('submit', event => { if (create.disabled) event.preventDefault(); });
+  form.addEventListener('submit', event => { if (create.disabled || !employeeId.value) { event.preventDefault(); document.getElementById('employee-search').focus(); } });
 })();
 </script>
 {% endblock %}
