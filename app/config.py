@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     zoho_earned_leave_type_id: str = ""
     zoho_unpaid_leave_type_id: str = ""
     zoho_work_from_home_leave_type_id: str = ""
-    dev_release_upload_dir: str = "/var/lib/protracklite/uploads/dev-releases"
     user_content_dir: str = "/var/lib/protracklite/user-content"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

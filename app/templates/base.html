@@ -26,7 +26,7 @@
           <button class="nav-toggle" aria-label="Toggle menu" onclick="document.querySelector('.nav-drawer').classList.toggle('open')">&#9776;</button>
         </div>
         {% set current_path = request.url.path if request else "" %}
-        {% set planning_active = current_path.startswith('/' ~ org.slug ~ '/releases') or current_path.startswith('/' ~ org.slug ~ '/goals') %}
+        {% set planning_active = current_path.startswith('/' ~ org.slug ~ '/goals') %}
         {% set manager_active = current_path.startswith('/' ~ org.slug ~ '/manager/') or current_path == '/' ~ org.slug ~ '/admin/leaderboard' or current_path == '/' ~ org.slug ~ '/reports/monthly' %}
         {% set admin_active = current_path.startswith('/' ~ org.slug ~ '/admin/') and current_path != '/' ~ org.slug ~ '/admin/leaderboard' %}
         <nav class="nav-drawer">
@@ -81,7 +81,6 @@
               <span class="nav-section-caret" aria-hidden="true"></span>
             </button>
             <div class="nav-group-body">
-              <a class="nav-link{% if current_path.startswith('/' ~ org.slug ~ '/releases') %} primary{% endif %}" href="/{{ org.slug }}/releases" {% if current_path.startswith('/' ~ org.slug ~ '/releases') %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">◇</span><span>Releases</span></a>
               <a class="nav-link{% if current_path.startswith('/' ~ org.slug ~ '/goals') %} primary{% endif %}" href="/{{ org.slug }}/goals" {% if current_path.startswith('/' ~ org.slug ~ '/goals') %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">◎</span><span>Goals</span></a>
             </div>
           </div>
