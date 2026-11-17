@@ -32,7 +32,10 @@
 
   <section class="goal-workspace" aria-label="Write and preview goal plan">
     <div class="goal-editor-pane">
-      <div class="workspace-heading"><div><h2>Write the plan</h2><p>Use Markdown headings for goals and KPIs, and bullets for tasks.</p></div></div>
+      <div class="workspace-heading">
+        <div><h2>Write the plan</h2><p>Use Markdown headings for goals and KPIs, and bullets for tasks.</p></div>
+        <button type="button" class="rewrite-plan-button" id="rewrite-plan" data-rewrite-url="/{{ org.slug }}/goals/quick-create/rewrite" data-ai-configured="{{ 'true' if ai_configured else 'false' }}" {% if not ai_configured %}disabled title="AI plan completion is not configured"{% endif %}>Rewrite and Complete</button>
+      </div>
       <div class="markdown-toolbar" aria-label="Insert Markdown structure">
         <span>Insert</span>
         <button type="button" data-insert="# ">Goal</button>
@@ -44,7 +47,8 @@
         <pre class="composer-highlight" aria-hidden="true"><code id="markdown-highlight-code"></code></pre>
         <textarea id="goal-markdown" name="markdown" rows="12" spellcheck="true" lang="en" aria-label="Markdown goal plan" placeholder="# Goal title&#10;## KPI title&#10;- First task&#10;- Second task&#10;&#10;Add another ## KPI or # Goal when needed…" required></textarea>
       </div>
-      <div class="editor-help"><span><code>#</code> Goal</span><span><code>##</code> KPI</span><span><code>-</code> Task</span><small>Plain text under a heading becomes its description.</small></div>
+      <div class="editor-help"><span><code>#</code> Goal</span><span><code>##</code> KPI</span><span><code>-</code> Task</span><small>Employee notes before the first goal stay as context. Text under a heading becomes its description.</small></div>
+      <p id="rewrite-status" class="rewrite-status" role="status" aria-live="polite" {% if ai_configured %}hidden{% endif %}>AI completion is not configured right now. You can still write tasks and create the draft.</p>
     </div>
     <aside class="goal-preview-pane" aria-label="Live plan preview">
       <div class="workspace-heading preview-heading"><div><h2>Plan preview</h2><p id="preview-owner">Your goal hierarchy appears here as you write.</p></div><span class="preview-live"><i aria-hidden="true"></i>Live</span></div>
@@ -71,6 +75,10 @@
   const previewOwner = document.getElementById('preview-owner');
   const employeeSearch = document.getElementById('employee-search');
   const highlightCode = document.getElementById('markdown-highlight-code');
+  const rewriteButton = document.getElementById('rewrite-plan');
+  const rewriteStatus = document.getElementById('rewrite-status');
+  const workspace = document.querySelector('.goal-workspace');
+  const markdownEditor = document.querySelector('.composer-markdown-editor');
   const esc = value => { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; };
 
   const closeCombo = (list, search) => { list.hidden = true; search.setAttribute('aria-expanded', 'false'); };
@@ -106,7 +114,8 @@
     const goals = []; let goal = null, kpi = null;
     input.value.split(/\r?\n/).forEach(raw => {
       const line = raw.trim(); if (!line) return;
-      if (line.startsWith('# ')) { goal = {title: line.slice(2).trim(), description: '', kpis: []}; goals.push(goal); kpi = null; }
+      if (/^#\s+(?:employee|employee name|owner|assignee)\b/i.test(line)) { goal = null; kpi = null; }
+      else if (line.startsWith('# ')) { goal = {title: line.slice(2).trim(), description: '', kpis: []}; goals.push(goal); kpi = null; }
       else if (line.startsWith('## ')) { if (!goal) return; kpi = {title: line.slice(3).trim(), description: '', tasks: []}; goal.kpis.push(kpi); }
       else if (/^[-*] /.test(line)) { if (kpi) kpi.tasks.push(line.slice(2).trim()); }
       else if (kpi) kpi.description += (kpi.description ? '\n' : '') + line;
@@ -144,8 +153,10 @@
       });
       preview.appendChild(goalBlock);
     });
-    const valid = Boolean(employeeId.value && goals.length && goals.every(item => item.title && item.kpis.length && item.kpis.every(kpi => kpi.title)));
+    const outlineReady = Boolean(goals.length && goals.every(item => item.title && item.kpis.length && item.kpis.every(kpi => kpi.title)));
+    const valid = Boolean(employeeId.value && outlineReady);
     create.disabled = !valid;
+    rewriteButton.disabled = rewriteButton.dataset.aiConfigured !== 'true' || !employeeId.value || !outlineReady;
     validation.hidden = valid;
     if (!employeeId.value) validation.textContent = 'Select an employee, then add a # Goal and at least one ## KPI under each goal.';
     else validation.innerHTML = 'Add a <code># Goal</code> and at least one <code>## KPI</code> under each goal.';
@@ -154,10 +165,47 @@
   function syncHighlight() {
     highlightCode.innerHTML = input.value.split('\n').map((line, index) => {
       const content = line || ' ';
-      const kind = line.startsWith('# ') ? 'md-goal' : line.startsWith('## ') ? 'md-kpi' : /^[-*] /.test(line) ? 'md-task' : '';
+      const employeeContextLine = /^#\s+(?:employee|employee name|owner|assignee)\b/i.test(line);
+      const kind = employeeContextLine ? 'md-context' : line.startsWith('# ') ? 'md-goal' : line.startsWith('## ') ? 'md-kpi' : /^[-*] /.test(line) ? 'md-task' : '';
       return `<span class="md-line ${kind}">${esc(content)}</span>`;
     }).join('');
   }
+
+  function showRewriteStatus(message, isError = false) {
+    rewriteStatus.textContent = message;
+    rewriteStatus.classList.toggle('is-error', isError);
+    rewriteStatus.hidden = false;
+  }
+
+  rewriteButton.addEventListener('click', async () => {
+    if (rewriteButton.disabled) return;
+    const previousLabel = rewriteButton.textContent;
+    rewriteButton.disabled = true;
+    rewriteButton.textContent = 'Completing…';
+    showRewriteStatus('Completing the outline using the selected employee and department context…');
+    try {
+      const response = await fetch(rewriteButton.dataset.rewriteUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({user_id: Number(employeeId.value), markdown: input.value})
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || 'Could not complete this plan. Please try again.');
+      if (!result.markdown) throw new Error('AI returned an empty outline. Please try again.');
+      input.value = result.markdown;
+      syncHighlight(); renderPlan();
+      workspace.classList.add('is-expanded');
+      const expandedHeight = Math.min(900, Math.max(360, input.scrollHeight + 8));
+      markdownEditor.style.height = `${expandedHeight}px`;
+      input.focus(); input.setSelectionRange(0, 0); input.scrollTop = 0;
+      showRewriteStatus('Tasks added. Review the completed plan, edit anything you want, then select Create draft plan to save it.');
+    } catch (error) {
+      showRewriteStatus(error.message || 'Could not complete this plan. Please try again.', true);
+    } finally {
+      rewriteButton.textContent = previousLabel;
+      renderPlan();
+    }
+  });
 
   input.addEventListener('input', () => { syncHighlight(); renderPlan(); });
   input.addEventListener('scroll', () => { const mirror = document.querySelector('.composer-highlight'); mirror.scrollTop = input.scrollTop; mirror.scrollLeft = input.scrollLeft; });

@@ -8351,6 +8351,15 @@ code {
 .quick-options button:hover, .quick-options button:focus { background: #edf7f1; transform: none; }
 .quick-options small { color: #6d7d84; font-size: .68rem; }
 .goal-workspace { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: .7rem; margin-top: .9rem; }
+.goal-editor-pane .workspace-heading { align-items: center; }
+.rewrite-plan-button { flex: 0 0 auto; width: auto; min-height: 2.3rem; padding: .45rem .8rem; border: 1px solid #087943; border-radius: 6px; background: #fff; color: #087943; font-size: .76rem; font-weight: 750; box-shadow: none; }
+.rewrite-plan-button:hover:not(:disabled) { background: #eff8f2; transform: none; }
+.rewrite-plan-button:disabled { border-color: #cbd5d1; color: #89968f; background: #f5f7f6; cursor: not-allowed; }
+.rewrite-status { margin: .55rem 0 0; color: #43745b; font-size: .72rem; line-height: 1.45; }
+.rewrite-status.is-error { color: #a33c36; }
+.goal-workspace.is-expanded { align-items: start; }
+.goal-workspace.is-expanded .composer-markdown-editor { height: min(68vh, 900px); min-height: 360px; }
+.goal-workspace.is-expanded .goal-preview-pane { max-height: min(68vh, 900px); }
 .goal-editor-pane, .goal-preview-pane { min-width: 0; overflow: visible; border: 1px solid #d4dee3; border-radius: 7px; background: #fff; }
 .goal-editor-pane { padding: .8rem; }
 .workspace-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 2.2rem; margin-bottom: .55rem; }
@@ -8369,6 +8378,7 @@ code {
 .composer-highlight .md-line { position: relative; display: block; min-height: 1.72em; padding-left: 2.45rem; }
 .composer-highlight .md-line::before { position: absolute; left: 0; width: 1.6rem; color: #9aa8ae; content: counter(editor-line); counter-increment: editor-line; text-align: right; font-size: .72rem; }
 .composer-highlight .md-goal { color: #08723c; font-weight: 800; }
+.composer-highlight .md-context { color: #7a6b4f; font-weight: 700; }
 .composer-highlight .md-kpi { color: #2364cf; font-weight: 750; }
 .composer-highlight .md-task { color: #243944; }
 .composer-markdown-editor textarea { z-index: 1; display: block; resize: none; overflow: auto; padding: .8rem .75rem .8rem 3.2rem; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: #102d3c; spellcheck: true; }
@@ -8422,6 +8432,8 @@ code {
   .plan-title-field { grid-column: 1 / -1; }
   .kra-field { grid-column: 1 / -1; }
   .goal-workspace { grid-template-columns: minmax(0, 1fr); }
+  .goal-editor-pane .workspace-heading { align-items: flex-start; }
+  .rewrite-plan-button { align-self: flex-start; }
   .goal-preview-pane { max-height: 410px; }
   .composer-markdown-editor { height: 390px; }
 }
