@@ -13,7 +13,7 @@ import secrets
 import smtplib
 from calendar import monthrange
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -4971,6 +4971,103 @@ def goals_page(
             "measurement_types": PERFORMANCE_MEASUREMENT_TYPES,
         },
     )
+
+
+@app.get("/{org_slug}/goals/quick-create", response_class=HTMLResponse)
+def quick_create_goals_page(
+    request: Request,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    people = org_people(db, org.id) if user.role == Role.ADMIN else managed_people(db, org.id, user)
+    reviewers = [person for person in org_people(db, org.id) if person.role in {Role.ADMIN, Role.MANAGER}]
+    cycle_start, cycle_end, cycle_label = financial_cycle_for_year(date.today().year if date.today().month >= 4 else date.today().year - 1)
+    return templates.TemplateResponse("goal_quick_create.html", {
+        "request": request, "org": org, "user": user, "people": people,
+        "reviewers": reviewers, "current_year": cycle_start.year,
+        "cycle_start": cycle_start.isoformat(), "cycle_end": cycle_end.isoformat(),
+        "cycle_label": cycle_label, "kra_types": PERFORMANCE_KRA_TYPES,
+    })
+
+
+@app.post("/{org_slug}/goals/quick-create")
+def quick_create_goals_submit(
+    org_slug: str,
+    user_id: int = Form(...), year: int = Form(...), cycle_label: str = Form(""),
+    cycle_start: str = Form(""), cycle_end: str = Form(""), reviewer_id: int | None = Form(None),
+    plan_title: str = Form("Annual Performance Plan"), markdown: str = Form(...),
+    kra_type: str = Form("delivery_execution"),
+    org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
+):
+    org, user = org_user
+    must_be_admin_or_manager(user)
+    owner = db.scalar(select(User).where(User.id == user_id, User.org_id == org.id, User.is_active.is_(True)))
+    if not owner or (user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, owner.id)):
+        raise HTTPException(status_code=404, detail="Employee not found")
+    if kra_type not in PERFORMANCE_KRA_TYPES:
+        raise HTTPException(status_code=400, detail="Select a valid goal category")
+    parsed_start = parse_optional_date(cycle_start)
+    parsed_end = parse_optional_date(cycle_end)
+    default_start, default_end, default_label = financial_cycle_for_year(year)
+    parsed_start, parsed_end = parsed_start or default_start, parsed_end or default_end
+    if parsed_end < parsed_start:
+        raise HTTPException(status_code=400, detail="Cycle end must be after cycle start")
+    if db.scalar(select(PerformancePlan.id).where(PerformancePlan.org_id == org.id, PerformancePlan.user_id == owner.id, PerformancePlan.year == year)):
+        raise HTTPException(status_code=400, detail="A performance plan already exists for this employee and year")
+    if reviewer_id and not db.scalar(select(User.id).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True), User.role.in_([Role.ADMIN, Role.MANAGER]))):
+        raise HTTPException(status_code=400, detail="Select a valid reviewer")
+    # Markdown outline: # Goal, ## KPI, and - Task. Text between headings is retained as descriptions.
+    goals = []
+    current_goal = current_kpi = None
+    for raw in markdown.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            current_goal = {"title": line[2:].strip(), "description": "", "kpis": []}
+            goals.append(current_goal); current_kpi = None
+        elif line.startswith("## "):
+            if not current_goal:
+                raise HTTPException(status_code=400, detail="Add a # Goal heading before each KPI")
+            current_kpi = {"title": line[3:].strip(), "description": "", "tasks": []}
+            current_goal["kpis"].append(current_kpi)
+        elif line.startswith(("- ", "* ")):
+            if not current_kpi:
+                raise HTTPException(status_code=400, detail="Add a ## KPI heading before tasks")
+            current_kpi["tasks"].append(line[2:].strip())
+        elif current_kpi:
+            current_kpi["description"] += ("\n" if current_kpi["description"] else "") + line
+        elif current_goal:
+            current_goal["description"] += ("\n" if current_goal["description"] else "") + line
+    goals = [g for g in goals if g["title"]]
+    if not goals or any(not g["kpis"] or any(not k["title"] for k in g["kpis"]) for g in goals):
+        raise HTTPException(status_code=400, detail="Add at least one goal and one KPI under every goal")
+    plan = PerformancePlan(org_id=org.id, user_id=owner.id, year=year, cycle_label=cycle_label.strip()[:40] or default_label,
+        cycle_start=parsed_start, cycle_end=parsed_end, title=plan_title.strip()[:200] or "Annual Performance Plan",
+        status=PERFORMANCE_PLAN_STATUS_DRAFT, created_by=user.id, reviewer_id=reviewer_id or user.id)
+    db.add(plan); db.flush()
+    def even_weights(count: int) -> list[Decimal]:
+        base = (Decimal("100") / count).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        result = [base] * count
+        result[-1] += Decimal("100.00") - sum(result)
+        return result
+
+    for gi, goal_data in enumerate(goals):
+        goal = PerformanceGoal(performance_plan_id=plan.id, title=goal_data["title"][:200], description=goal_data["description"],
+            kra_type=kra_type, weightage=even_weights(len(goals))[gi], sort_order=gi + 1)
+        db.add(goal); db.flush()
+        for ki, kpi_data in enumerate(goal_data["kpis"]):
+            kpi = PerformanceKPI(performance_goal_id=goal.id, title=kpi_data["title"][:200], description=kpi_data["description"],
+                measurement_type="checklist", weightage=even_weights(len(goal_data["kpis"]))[ki], measurement_frequency="annual", sort_order=ki + 1)
+            db.add(kpi); db.flush()
+            for ti, task in enumerate(kpi_data["tasks"]):
+                if task:
+                    db.add(PerformanceKPIItem(performance_kpi_id=kpi.id, title=task[:300], created_by=user.id, sort_order=ti + 1))
+    record_performance_event(db, plan, user, "plan_created", f"Quick-created for {owner.full_name}")
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
 
 @app.get("/{org_slug}/goals/plans/{plan_id}/report", response_class=HTMLResponse)

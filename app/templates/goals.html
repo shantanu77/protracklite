@@ -8,6 +8,13 @@
   </div>
 </section>
 
+{% if user.role.value in ["admin", "manager"] %}
+<section class="panel" style="margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:1rem">
+  <div><h2>Build a plan from Markdown</h2><p>Choose an employee, write goals, KPIs, and tasks in one editor, then preview before creating.</p></div>
+  <a class="button" href="/{{ org.slug }}/goals/quick-create">Quick create goals</a>
+</section>
+{% endif %}
+
 <section class="goals-layout">
   <div class="stack">
     {% if user.role.value in ["admin", "manager"] %}
