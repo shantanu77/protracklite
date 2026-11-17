@@ -316,7 +316,7 @@
               {% endif %}
 
               <div class="list-item-stack compact-list-items">
-                {% for item in kpi.items %}
+                {% for item in kpi["items"] %}
                 <article class="card list-item-card compact-row{% if item.is_completed %} is-completed{% endif %}">
                   {% if selected_plan.can_update_progress %}
                   <form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/toggle" class="list-item-toggle-form">
