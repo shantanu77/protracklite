@@ -9588,12 +9588,14 @@ def zoho_profile_attendance_feed(
 def regularization_attendance_context(
     db: Session, org_id: int, user_id: int, attendance: dict[str, Any], start: date, end: date,
     *, include_missing_rows: bool = False, excluded_dates: set[date] | None = None,
+    leave_calendar: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Show missing working days only when Zoho attendance was loaded successfully."""
-    if attendance.get("status") != "synced":
+    """Add leave-aware workday statuses and mark absence only with a synced feed."""
+    if attendance.get("status") != "synced" and not include_missing_rows:
         return attendance
     working_dates, _ = leave_working_dates(db, org_id, start, end)
-    marked = {row["date"] for row in attendance["rows"] if row["first_in_label"] != "—" or row["last_out_label"] != "—"}
+    attendance_rows = attendance.get("rows", [])
+    marked = {row["date"] for row in attendance_rows if row["first_in_label"] != "—" or row["last_out_label"] != "—"}
     requests = db.scalars(select(AttendanceRegularization).where(
         AttendanceRegularization.org_id == org_id, AttendanceRegularization.user_id == user_id,
         AttendanceRegularization.attendance_date >= start, AttendanceRegularization.attendance_date <= end,
@@ -9609,21 +9611,64 @@ def regularization_attendance_context(
             attendance["remote_days"] = round(attendance["remote_days"] - old_remote + 1, 2)
             row.update(mode="remote", mode_label="Remote", attendance_location="Noida",
                        attendance_source="Regularization", office_count=0.0, remote_count=1.0)
-    expected_dates = [day for day in working_dates if day not in (excluded_dates or set())]
-    attendance["working_day_count"] = len(expected_dates)
-    attendance["missing_days"] = [
+    leave_dates = excluded_dates or set()
+    attendance["working_day_count"] = len(working_dates)
+    attendance["missing_days"] = [] if attendance.get("status") != "synced" else [
         {"date": day, "label": day.strftime("%a, %d %b"), "request": request_by_day.get(day)}
-        for day in expected_dates if day not in marked and day < local_today()
+        for day in working_dates if day not in leave_dates and day not in marked and day < local_today()
         and (not request_by_day.get(day) or request_by_day[day].status != "approved")
     ]
     if include_missing_rows:
-        attendance["rows"].extend({
-            "date": day, "date_label": day.strftime("%a, %d %b"),
-            "first_in_label": "—", "last_out_label": "—",
-            "mode": "missing", "mode_label": "No attendance",
-            "attendance_location": "", "attendance_source": "",
-            "is_open": False, "request": request_by_day.get(day),
-        } for day in expected_dates if day not in marked)
+        rows_by_day = {row["date"]: row for row in attendance_rows}
+        attendance["rows"] = []
+        for day in working_dates:
+            leave = (leave_calendar or {}).get(day.isoformat())
+            row = rows_by_day.get(day)
+            request = request_by_day.get(day)
+            has_punch = day in marked
+            if leave:
+                leave_status = leave.get("status")
+                label = "Approved leave" if leave_status == "approved" else "Leave pending"
+                leave_type = str(leave.get("type") or "Leave")
+                if float(leave.get("count") or 0) < 1:
+                    label += " · Half day"
+                label += f" · {leave_type}"
+                row = {"date": day, "date_label": day.strftime("%a, %d %b"),
+                       "first_in_label": row.get("first_in_label", "—") if has_punch and row else "—",
+                       "last_out_label": row.get("last_out_label", "—") if has_punch and row else "—",
+                       "mode": f"leave-{leave_status}", "mode_label": label,
+                       "attendance_location": row.get("attendance_location", "") if has_punch and row else "",
+                       "attendance_source": "Attendance + leave" if has_punch else "Leave request",
+                       "is_open": False, "request": request}
+            elif has_punch and row:
+                row["request"] = request
+            elif request and request.status == "approved":
+                def format_regularization_time(value: str) -> str:
+                    try:
+                        return datetime_time.fromisoformat(value).strftime("%I:%M %p")
+                    except ValueError:
+                        return "—"
+                row = {"date": day, "date_label": day.strftime("%a, %d %b"),
+                       "first_in_label": format_regularization_time(request.start_time),
+                       "last_out_label": format_regularization_time(request.end_time), "mode": "remote",
+                       "mode_label": "Regularized", "attendance_location": request.location.title(),
+                       "attendance_source": "Regularization", "is_open": False, "request": request}
+            elif day >= local_today():
+                row = {"date": day, "date_label": day.strftime("%a, %d %b"),
+                       "first_in_label": "—", "last_out_label": "—", "mode": "upcoming",
+                       "mode_label": "Upcoming workday", "attendance_location": "", "attendance_source": "",
+                       "is_open": False, "request": request}
+            elif attendance.get("status") == "synced":
+                row = {"date": day, "date_label": day.strftime("%a, %d %b"),
+                       "first_in_label": "—", "last_out_label": "—", "mode": "missing",
+                       "mode_label": "No attendance", "attendance_location": "", "attendance_source": "",
+                       "is_open": False, "request": request}
+            else:
+                row = {"date": day, "date_label": day.strftime("%a, %d %b"),
+                       "first_in_label": "—", "last_out_label": "—", "mode": "unavailable",
+                       "mode_label": "Attendance unavailable", "attendance_location": "", "attendance_source": "",
+                       "is_open": False, "request": request}
+            attendance["rows"].append(row)
         attendance["rows"].sort(key=lambda row: row["date"], reverse=True)
     attendance["unmarked_count"] = len(attendance["missing_days"])
     return attendance
@@ -10572,10 +10617,16 @@ def manager_team_leaves_page(
                     })
                 weeks.append(cells)
             year_calendar.append({"label": date(int(year_value), month_number, 1).strftime("%B"), "weeks": weeks})
-        if feed["attendance"]:
-            feed["attendance"] = regularization_attendance_context(
-                db, org.id, selected_member.id, feed["attendance"], month_start, min(month_end, today),
-                include_missing_rows=True, excluded_dates=team_leave_attendance_exclusions(feed))
+        if feed["attendance"] is None:
+            feed["attendance"] = {
+                "status": "upcoming", "message": "Attendance will appear as the selected month progresses.",
+                "total_days": 0, "office_days": 0, "remote_days": 0, "rows": [],
+            }
+        feed["attendance"] = regularization_attendance_context(
+            db, org.id, selected_member.id, feed["attendance"], month_start, month_end,
+            include_missing_rows=True, excluded_dates=team_leave_attendance_exclusions(feed),
+            leave_calendar=feed.get("calendar_days", {}),
+        )
         if month_start <= today:
             working_dates, _ = leave_working_dates(db, org.id, month_start, min(month_end, today))
             working_day_count = len(working_dates)
@@ -10649,13 +10700,15 @@ def download_team_attendance(
     attendance = feed["attendance"]
     if not attendance or attendance["status"] != "synced":
         raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
+    calendar_end = start.replace(day=monthrange(start.year, start.month)[1])
     attendance = regularization_attendance_context(
-        db, org.id, member.id, attendance, start, end, include_missing_rows=True,
+        db, org.id, member.id, attendance, start, calendar_end, include_missing_rows=True,
         excluded_dates=team_leave_attendance_exclusions(feed),
+        leave_calendar=feed.get("calendar_days", {}),
     )
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Date", "First login", "Last logout", "Work mode", "Location", "Source"])
+    writer.writerow(["Date", "First login", "Last logout", "Work mode / status", "Location", "Source"])
     def safe_cell(value: object) -> str:
         label = str(value)
         return f"'{label}" if label.lstrip().startswith(("=", "+", "-", "@")) else label
@@ -10692,10 +10745,11 @@ def download_team_attendance_excel(
     if not attendance or attendance["status"] != "synced":
         raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
     attendance = regularization_attendance_context(
-        db, org.id, member.id, attendance, start, end, include_missing_rows=True,
+        db, org.id, member.id, attendance, start, start.replace(day=monthrange(start.year, start.month)[1]), include_missing_rows=True,
         excluded_dates=team_leave_attendance_exclusions(feed),
+        leave_calendar=feed.get("calendar_days", {}),
     )
-    headings = ("Date", "First login", "Last logout", "Work mode", "Location", "Source")
+    headings = ("Date", "First login", "Last logout", "Work mode / status", "Location", "Source")
     rows = [headings]
     rows.extend((
         row["date"].isoformat(), row["first_in_label"], row["last_out_label"],
@@ -10746,8 +10800,9 @@ def manager_send_attendance_reminder(
     if not attendance or attendance["status"] != "synced":
         raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
     attendance = regularization_attendance_context(
-        db, org.id, member.id, attendance, start, end,
+        db, org.id, member.id, attendance, start, start.replace(day=monthrange(start.year, start.month)[1]),
         excluded_dates=team_leave_attendance_exclusions(feed),
+        leave_calendar=feed.get("calendar_days", {}),
     )
     missing_days = attendance.get("missing_days", [])
     if not missing_days:
