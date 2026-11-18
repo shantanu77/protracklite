@@ -11,10 +11,12 @@
   --warning: #b7791f;
   --danger: #c2413b;
   --line: #d5dfe5;
-  --sidebar-bg: #142c32;
+  --sidebar-bg: #111827;
+  --sidebar-active: #00855d;
+  --sidebar-action: #dfecc6;
   --sidebar-surface: #ffffff12;
-  --sidebar-text: #d4dfdc;
-  --sidebar-muted: #a2b7b4;
+  --sidebar-text: #e5e7eb;
+  --sidebar-muted: #a9b2c0;
   --shadow: 0 18px 44px rgba(17, 24, 39, 0.08);
   --shadow-soft: 0 10px 24px rgba(17, 24, 39, 0.06);
   --sidebar-w: 252px;
@@ -824,7 +826,7 @@ textarea {
   padding: 0.85rem;
   background: var(--sidebar-bg);
   backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(25, 52, 46, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: none;
 }
 
@@ -852,7 +854,7 @@ textarea {
   border-radius: 11px;
   display: inline-grid;
   place-items: center;
-  background: #173f37;
+  background: var(--sidebar-active);
   color: #ffffff;
   border: 1px solid rgba(23, 63, 55, 0.12);
   font-weight: 800;
@@ -886,7 +888,7 @@ textarea {
   min-width: 2.55rem;
   padding: 0.58rem 0;
   border-radius: 10px;
-  background: rgba(25, 52, 46, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--sidebar-text);
   border: 1px solid rgba(25, 52, 46, 0.08);
   box-shadow: none;
@@ -900,7 +902,8 @@ textarea {
   padding: 0.42rem 0.5rem;
   border: 0;
   border-radius: 12px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
 }
 
 .sidebar-user-copy {
@@ -945,16 +948,16 @@ textarea {
   max-width: 100%;
   padding: 0.45rem 0.7rem;
   border-radius: 15px;
-  background: #d7eee5;
-  color: #123d34;
-  font-size: 0.84rem;
+  background: var(--sidebar-action);
+  color: #142c32;
+  font-size: 0.76rem;
   font-weight: 800;
   box-shadow: 0 3px 9px rgba(25, 52, 46, 0.08);
 }
 
 .sidebar-compose:hover {
-  background: #c9e7dc;
-  color: #0e342b;
+  background: #d3e4b5;
+  color: #142c32;
 }
 
 .sidebar-compose-mark {
@@ -965,7 +968,7 @@ textarea {
 
 .sidebar-compose kbd {
   margin-left: auto;
-  color: rgba(18, 61, 52, 0.58);
+  color: rgba(20, 44, 50, 0.68);
   font-family: inherit;
   font-size: 0.58rem;
   font-weight: 700;
@@ -1021,7 +1024,7 @@ textarea {
 }
 
 .nav-section-toggle:hover {
-  background: rgba(25, 52, 46, 0.04);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .nav-subsection-toggle {
@@ -1030,7 +1033,7 @@ textarea {
 }
 
 .nav-section {
-  font-size: 0.62rem;
+  font-size: 0.59rem;
   font-weight: 800;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -1053,28 +1056,29 @@ textarea {
 }
 
 .nav-subsection {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
   gap: 0.58rem;
-  min-height: 2rem;
-  padding: 0.3rem 0.72rem;
+  min-height: 1.85rem;
+  padding: 0.24rem 0.62rem;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 650;
-  color: rgba(25, 52, 46, 0.86);
+  color: var(--sidebar-text);
 }
 
 .nav-link:hover {
-  background: rgba(25, 52, 46, 0.06);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .nav-link.primary {
-  background: #dbeae4;
-  color: #123d34;
+  background: var(--sidebar-active);
+  color: #fff;
   font-weight: 800;
 }
 
@@ -1104,21 +1108,21 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  min-height: 1.85rem;
-  padding: 0.26rem 0.72rem;
+  min-height: 1.7rem;
+  padding: 0.2rem 0.62rem;
   border-radius: 999px;
-  font-size: 0.75rem;
-  color: rgba(25, 52, 46, 0.72);
+  font-size: 0.7rem;
+  color: var(--sidebar-text);
 }
 
 .nav-sublink:hover {
-  background: rgba(25, 52, 46, 0.06);
-  color: #123d34;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .nav-sublink.active {
-  background: #dbeae4;
-  color: #123d34;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 
 .nav-list-link {
@@ -8046,7 +8050,7 @@ code {
   .sidebar {
     height: 100vh;
     padding: 0.72rem 0.58rem;
-    border-right: 1px solid rgba(25, 52, 46, 0.09);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
     border-bottom: 0;
   }
 
@@ -8247,23 +8251,6 @@ code {
   }
 }
 
-/* Shared navigation theme across every application page. */
-.sidebar { border-color: #ffffff12; }
-.sidebar .nav-link, .sidebar .nav-sublink { color: #d4dfdc; }
-.sidebar .nav-link.primary { color: white; }
-.sidebar .brand-name, .sidebar .brand-name .lite { color: white; }
-.sidebar .brand-mark { background: #dfecc6; color: #142c32; }
-.sidebar .sidebar-user, .sidebar .nav-link.primary { background: #ffffff0f; border-color: #ffffff16; color: white; }
-.sidebar .nav-link:hover, .sidebar .logout-btn:hover { background: #ffffff13; color: white; }
-.sidebar .sidebar-compose { background: #dfecc6; color: #142c32; width:100%; box-sizing:border-box; justify-content:flex-start; }
-.sidebar .sidebar-compose kbd { color: #142c32; }
-.sidebar .sidebar-account-link { color:white; }
-.sidebar .sidebar-account-link:hover, .sidebar .sidebar-account-link[aria-current="page"] { color:white; }
-.sidebar .nav-section-toggle, .sidebar .nav-section { color: #a9bdb7; }
-
-.sidebar .nav-sublink.active { background: #ffffff0f; color: white; }
-.sidebar .nav-sublink:hover { background: #ffffff13; color: white; }
-
 /* Leave and capacity: quiet rows, marks only for leave and holidays. */
 .capacity-page { --primary: #334155; --primary-light: #475569; }
 .capacity-page .capacity-page-head h1 { font-size: clamp(1.65rem, 3vw, 2.3rem); letter-spacing: -.04em; }
@@ -8306,10 +8293,6 @@ code {
 
 /* My Goals: compact progress workspace based on the Executive Goal Orchestrator design. */
 .my-goals-page { --goal-primary:#006948; --goal-primary-hover:#047857; --goal-canvas:#f9f9ff; --goal-surface:#fff; --goal-soft:#f0f3ff; --goal-soft-strong:#e7eefe; --goal-text:#151c27; --goal-muted:#5e6876; --goal-line:#e1e5ed; --goal-indigo:#e9edfb; background:var(--goal-canvas); font-family:Inter,"Manrope","Segoe UI",sans-serif; }
-.my-goals-page .sidebar { background:#111827; border-color:#2a313d; }
-.my-goals-page .sidebar .brand-mark { background:#006948; color:#fff; }
-.my-goals-page .sidebar .nav-link.primary { background:#00855d; color:#f5fff7; }
-.my-goals-page .sidebar .nav-link.primary:hover { background:#006948; }
 .my-goals-page .content { width:100%; max-width:1600px; padding:1.25rem clamp(1rem,2.2vw,2rem) 2.5rem; background:var(--goal-canvas); }
 .goals-page-shell { display:grid; gap:1rem; color:var(--goal-text); }
 .goals-page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; padding:0 0 1rem; border-bottom:1px solid var(--goal-line); }
