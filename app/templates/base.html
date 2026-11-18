@@ -32,7 +32,7 @@
         {% set user_department = user.department.name|lower if user.department else '' %}
         {% set can_manage_assets = user.role.value == 'admin' or user_department in ['it', 'information technology'] %}
         {% set can_view_asset_reports = can_manage_assets or user_department in ['human resource', 'human resources', 'hr'] %}
-        {% set assets_active = current_path.startswith('/' ~ org.slug ~ '/inventory') or current_path.startswith('/' ~ org.slug ~ '/assets') or current_path.startswith('/' ~ org.slug ~ '/hr-reports') %}
+        {% set assets_active = current_path.startswith('/' ~ org.slug ~ '/inventory') or current_path.startswith('/' ~ org.slug ~ '/assets') %}
         <nav class="nav-drawer">
           <a class="sidebar-compose" href="/{{ org.slug }}/tasks/ai" title="Create tasks with AI · Alt+Shift+K">
             <span class="sidebar-compose-mark" aria-hidden="true">+</span>
@@ -61,6 +61,7 @@
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/overview' %} primary{% endif %}" href="/{{ org.slug }}/reports/overview" {% if current_path == '/' ~ org.slug ~ '/reports/overview' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">▤</span><span>My Reports</span></a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %} primary{% endif %}" href="/{{ org.slug }}/reports/work-rate" {% if current_path == '/' ~ org.slug ~ '/reports/work-rate' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">%</span><span>Work Rate</span></a>
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/reports/calendar' %} primary{% endif %}" href="/{{ org.slug }}/reports/calendar" {% if current_path == '/' ~ org.slug ~ '/reports/calendar' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">□</span><span>Calendar</span></a>
+              {% if can_view_asset_reports %}<a class="nav-link{% if current_path.startswith('/' ~ org.slug ~ '/hr-reports') %} primary{% endif %}" href="/{{ org.slug }}/hr-reports" {% if current_path.startswith('/' ~ org.slug ~ '/hr-reports') %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">♙</span><span>HR Reports</span></a>{% endif %}
             </div>
           </div>
           <div class="nav-group nav-lists-group is-expanded" data-nav-group>
@@ -91,7 +92,6 @@
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/inventory/allocations' %} primary{% endif %}" href="/{{ org.slug }}/inventory/allocations" {% if current_path == '/' ~ org.slug ~ '/inventory/allocations' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">⇄</span><span>Manage Allocations</span></a>
               {% endif %}
               <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/assets/reports' %} primary{% endif %}" href="/{{ org.slug }}/assets/reports" {% if current_path == '/' ~ org.slug ~ '/assets/reports' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">▤</span><span>Asset Reports</span></a>
-              <a class="nav-link{% if current_path.startswith('/' ~ org.slug ~ '/hr-reports') %} primary{% endif %}" href="/{{ org.slug }}/hr-reports" {% if current_path.startswith('/' ~ org.slug ~ '/hr-reports') %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">♙</span><span>HR Reports</span></a>
             </div>
           </div>
           {% endif %}

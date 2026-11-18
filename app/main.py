@@ -4729,7 +4729,7 @@ def hr_reports_page(
 
     lists = db.scalars(select(WorkList).options(selectinload(WorkList.items), selectinload(WorkList.members)).where(
         WorkList.org_id == org.id, WorkList.is_archived.is_(False)
-    ).order_by(WorkList.target_date.asc().nullslast(), WorkList.title.asc())).all()
+    ).order_by(case((WorkList.target_date.is_(None), 1), else_=0), WorkList.target_date.asc(), WorkList.title.asc())).all()
     lifecycle_rows = []
     for work_list in lists:
         title = work_list.title.casefold()
