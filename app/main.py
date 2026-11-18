@@ -4693,7 +4693,7 @@ def hr_reports_page(
     except ValueError:
         raise HTTPException(400, "Choose a valid report month") from None
     people = db.scalars(select(User).options(selectinload(User.department)).where(
-        User.org_id == org.id
+        User.org_id == org.id, User.is_active.is_(True)
     ).order_by(User.full_name.asc())).all()
     managers = {person.id: person.full_name for person in people}
     active_allocations = db.scalars(select(InventoryAllocation).where(
@@ -4737,11 +4737,13 @@ def hr_reports_page(
         if not kind:
             continue
         person = people_by_id.get(work_list.owner_user_id)
+        if not person:
+            continue
         total = len(work_list.items)
         complete = sum(1 for item in work_list.items if item.is_completed)
         lifecycle_rows.append({"list": work_list, "kind": kind, "person": person,
                                "total": total, "complete": complete,
-                               "assets": assets_by_employee.get(person.id, 0) if person else 0})
+                               "assets": assets_by_employee.get(person.id, 0)})
 
     if export:
         output = io.StringIO(newline="")

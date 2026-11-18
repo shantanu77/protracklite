@@ -8,8 +8,8 @@
 </nav>
 
 {% if report == 'workforce' %}
-<div class="hr-report-actions"><span>All employees, including inactive accounts</span><a class="button secondary" href="/{{ org.slug }}/hr-reports?export=workforce">Download CSV</a></div>
-<div class="hr-report-stats"><article><strong>{{ people_count }}</strong><span>Total employees</span></article><article><strong>{{ active_count }}</strong><span>Active</span></article><article><strong>{{ people_count - active_count }}</strong><span>Inactive</span></article><article><strong>{{ department_count }}</strong><span>Departments</span></article></div>
+<div class="hr-report-actions"><span>Active employees only</span><a class="button secondary" href="/{{ org.slug }}/hr-reports?export=workforce">Download CSV</a></div>
+<div class="hr-report-stats"><article><strong>{{ people_count }}</strong><span>Active employees</span></article><article><strong>{{ department_count }}</strong><span>Departments</span></article></div>
 <section class="panel hr-report-panel"><div class="inventory-table-wrap"><table class="hr-report-table"><thead><tr><th>Employee</th><th>Department</th><th>Manager</th><th>Role</th><th>Status</th><th>Location</th><th>Start date</th><th>End date</th><th>Assets</th></tr></thead><tbody>
 {% for row in workforce_rows %}{% set person = row.person %}<tr><td><strong>{{ person.full_name }}</strong><small>{{ person.email }}</small></td><td>{{ person.department.name if person.department else '—' }}</td><td>{{ row.manager }}</td><td>{{ person.role.value|title }}</td><td>{{ 'Active' if person.is_active else 'Inactive' }}</td><td>{{ person.location or 'Noida' }}</td><td>{{ person.employment_start_date or '—' }}</td><td>{{ person.employment_end_date or '—' }}</td><td>{{ row.asset_count }}</td></tr>
 {% else %}<tr><td colspan="9" class="empty">No employees found.</td></tr>{% endfor %}</tbody></table></div></section>
