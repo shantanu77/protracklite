@@ -117,7 +117,7 @@
                 type="button"
                 class="button secondary small"
                 data-modal-open="user-edit-modal"
-                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "department_id": person.department_id, "manager_id": person.manager_id, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "reset_password": false}|tojson|e }}'
+                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "department_id": person.department_id, "manager_id": person.manager_id, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "employment_start_date": person.employment_start_date.isoformat() if person.employment_start_date else "", "employment_end_date": person.employment_end_date.isoformat() if person.employment_end_date else "", "reset_password": false}|tojson|e }}'
               >
                 Edit
               </button>
@@ -174,6 +174,8 @@
           {% endfor %}
         </select>
       </label>
+      <label>Employment start date<input name="employment_start_date" type="date"></label>
+      <label>Employment end date<input name="employment_end_date" type="date"></label>
       <button type="submit">Create User</button>
     </form>
   </div>
@@ -212,6 +214,8 @@
           {% endfor %}
         </select>
       </label>
+      <label>Employment start date<input name="employment_start_date" type="date"></label>
+      <label>Employment end date<input name="employment_end_date" type="date"></label>
       <label class="checkbox"><input type="checkbox" name="is_active">Active</label>
       <label class="checkbox"><input type="checkbox" name="send_effort_reminder">Send Effort Reminder</label>
       <label class="checkbox"><input type="checkbox" name="reset_password">Reset Password</label>

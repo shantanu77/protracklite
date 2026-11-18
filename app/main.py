@@ -966,6 +966,8 @@ def ensure_users_schema() -> None:
         "manager_id": "ALTER TABLE users ADD COLUMN manager_id INTEGER NULL",
         "last_login_at": "ALTER TABLE users ADD COLUMN last_login_at DATETIME NULL",
         "location": "ALTER TABLE users ADD COLUMN location VARCHAR(120) NOT NULL DEFAULT 'Noida'",
+        "employment_start_date": "ALTER TABLE users ADD COLUMN employment_start_date DATE NULL",
+        "employment_end_date": "ALTER TABLE users ADD COLUMN employment_end_date DATE NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -4671,6 +4673,132 @@ def inventory_reports_page(
         "request": request, "org": org, "user": user, "inventory_rows": inventory_rows,
         "employee_rows": employee_rows,
     })
+
+
+@app.get("/{org_slug}/hr-reports", response_class=HTMLResponse)
+def hr_reports_page(
+    request: Request,
+    report: str = "workforce",
+    month: str = "",
+    export: str = "",
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_report_access(user)
+    if report not in {"workforce", "leave-attendance", "lifecycle"}:
+        raise HTTPException(400, "Choose a valid HR report")
+    try:
+        anchor = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
+    except ValueError:
+        raise HTTPException(400, "Choose a valid report month") from None
+    people = db.scalars(select(User).options(selectinload(User.department)).where(
+        User.org_id == org.id
+    ).order_by(User.full_name.asc())).all()
+    managers = {person.id: person.full_name for person in people}
+    active_allocations = db.scalars(select(InventoryAllocation).where(
+        InventoryAllocation.org_id == org.id, InventoryAllocation.returned_at.is_(None)
+    )).all()
+    assets_by_employee: dict[int, int] = {}
+    for allocation in active_allocations:
+        assets_by_employee[allocation.user_id] = assets_by_employee.get(allocation.user_id, 0) + 1
+    workforce_rows = [{"person": person, "manager": managers.get(person.manager_id, "Unassigned"),
+                       "asset_count": assets_by_employee.get(person.id, 0)} for person in people]
+
+    period_start, period_end, _, _ = capacity_period("month", anchor)
+    snapshot = capacity_snapshots(db, org.id, period_start, period_end).get((anchor.year, anchor.month))
+    people_by_id = {person.id: person for person in people}
+    leave_totals: dict[int, float] = {}
+    leave_rows = []
+    if snapshot:
+        for entry in snapshot.leave_days_json or []:
+            person = people_by_id.get(entry.get("user_id"))
+            if not person:
+                continue
+            count = float(entry.get("count") or 0)
+            leave_totals[person.id] = leave_totals.get(person.id, 0) + count
+            leave_rows.append({"person": person, "date": entry.get("date", ""), "type": entry.get("type", "Leave"),
+                               "approval": entry.get("approval", ""), "days": count})
+    regularizations = db.scalars(select(AttendanceRegularization).where(
+        AttendanceRegularization.org_id == org.id,
+        AttendanceRegularization.attendance_date >= period_start,
+        AttendanceRegularization.attendance_date <= period_end,
+    ).order_by(AttendanceRegularization.attendance_date.desc())).all()
+    attendance_rows = [{"person": people_by_id.get(item.user_id), "item": item} for item in regularizations
+                       if item.user_id in people_by_id]
+
+    lists = db.scalars(select(WorkList).options(selectinload(WorkList.items), selectinload(WorkList.members)).where(
+        WorkList.org_id == org.id, WorkList.is_archived.is_(False)
+    ).order_by(WorkList.target_date.asc().nullslast(), WorkList.title.asc())).all()
+    lifecycle_rows = []
+    for work_list in lists:
+        title = work_list.title.casefold()
+        kind = "Onboarding" if "onboard" in title else "Offboarding" if "offboard" in title else ""
+        if not kind:
+            continue
+        person = people_by_id.get(work_list.owner_user_id)
+        total = len(work_list.items)
+        complete = sum(1 for item in work_list.items if item.is_completed)
+        lifecycle_rows.append({"list": work_list, "kind": kind, "person": person,
+                               "total": total, "complete": complete,
+                               "assets": assets_by_employee.get(person.id, 0) if person else 0})
+
+    if export:
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        if export == "workforce":
+            writer.writerow(["Employee", "Email", "Department", "Manager", "Role", "Status", "Location", "Employment start", "Employment end", "Active assets"])
+            for row in workforce_rows:
+                person = row["person"]
+                writer.writerow([safe_csv_value(value) for value in [person.full_name, person.email,
+                    person.department.name if person.department else "", row["manager"], person.role.value,
+                    "Active" if person.is_active else "Inactive", person.location,
+                    person.employment_start_date, person.employment_end_date, row["asset_count"]]])
+            filename = "hr-workforce-directory.csv"
+        elif export == "leave-attendance":
+            writer.writerow(["Employee", "Date", "Leave type", "Approval", "Leave days"])
+            for row in leave_rows:
+                writer.writerow([safe_csv_value(value) for value in [row["person"].full_name, row["date"], row["type"], row["approval"], row["days"]]])
+            filename = f"hr-leave-{anchor:%Y-%m}.csv"
+        elif export == "lifecycle":
+            writer.writerow(["Process", "Employee", "Checklist", "Target date", "Completed", "Total", "Assets currently allocated"])
+            for row in lifecycle_rows:
+                writer.writerow([safe_csv_value(value) for value in [row["kind"], row["person"].full_name if row["person"] else "",
+                    row["list"].title, row["list"].target_date, row["complete"], row["total"], row["assets"]]])
+            filename = "hr-onboarding-offboarding.csv"
+        else:
+            raise HTTPException(400, "Choose a valid HR report export")
+        return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+    return templates.TemplateResponse("hr_reports.html", {
+        "request": request, "org": org, "user": user, "report": report, "month": anchor.strftime("%Y-%m"),
+        "workforce_rows": workforce_rows, "people_count": len(people),
+        "active_count": sum(1 for person in people if person.is_active),
+        "department_count": len({person.department_id for person in people if person.department_id}),
+        "leave_rows": leave_rows, "leave_totals": leave_totals, "snapshot": snapshot,
+        "attendance_rows": attendance_rows, "lifecycle_rows": lifecycle_rows,
+        "sync_status": capacity_sync_status(db, org.id),
+    })
+
+
+@app.post("/{org_slug}/hr-reports/sync-leave", status_code=202)
+def hr_reports_sync_leave(
+    background_tasks: BackgroundTasks,
+    month: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_report_access(user)
+    try:
+        anchor = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
+    except ValueError:
+        raise HTTPException(400, "Choose a valid report month") from None
+    start, end, _, _ = capacity_period("month", anchor)
+    stamp = start_capacity_sync(db, org.id)
+    background_tasks.add_task(run_capacity_sync, org.id, start, end, stamp)
+    return RedirectResponse(url=f"/{org.slug}/hr-reports?report=leave-attendance&month={anchor:%Y-%m}&sync=started", status_code=303)
 
 
 @app.post("/api/v1/auth/login")
@@ -10959,12 +11087,18 @@ def admin_create_user(
     email: str = Form(...),
     department_id: int | None = Form(None),
     manager_id: str = Form(""),
+    employment_start_date: str = Form(""),
+    employment_end_date: str = Form(""),
     role: Role = Form(Role.EMPLOYEE),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     must_be_admin(user)
+    parsed_start_date = parse_optional_date(employment_start_date)
+    parsed_end_date = parse_optional_date(employment_end_date)
+    if parsed_start_date and parsed_end_date and parsed_end_date < parsed_start_date:
+        raise HTTPException(400, "Employment end date cannot be before the start date")
     parsed_manager_id = parse_optional_form_int(manager_id, "Manager")
     departments = org_departments(db, org.id)
     department = next((item for item in departments if item.id == department_id), None)
@@ -10997,6 +11131,8 @@ def admin_create_user(
         temp_password_expires=datetime.utcnow() + timedelta(hours=24),
         is_active=True,
         send_effort_reminder=True,
+        employment_start_date=parsed_start_date,
+        employment_end_date=parsed_end_date,
     )
     db.add(new_user)
     db.commit()
@@ -11017,12 +11153,18 @@ def admin_update_user(
     role: Role = Form(...),
     is_active: bool = Form(False),
     send_effort_reminder: bool = Form(False),
+    employment_start_date: str = Form(""),
+    employment_end_date: str = Form(""),
     reset_password: str | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     must_be_admin(user)
+    parsed_start_date = parse_optional_date(employment_start_date)
+    parsed_end_date = parse_optional_date(employment_end_date)
+    if parsed_start_date and parsed_end_date and parsed_end_date < parsed_start_date:
+        raise HTTPException(400, "Employment end date cannot be before the start date")
     parsed_manager_id = parse_optional_form_int(manager_id, "Manager")
     target = db.get(User, user_id)
     if not target or target.org_id != org.id:
@@ -11066,6 +11208,8 @@ def admin_update_user(
     target.role = role
     target.is_active = is_active
     target.send_effort_reminder = send_effort_reminder
+    target.employment_start_date = parsed_start_date
+    target.employment_end_date = parsed_end_date
     if reset_password:
         temp_password = generate_temp_password()
         target.password_hash = hash_password(temp_password)

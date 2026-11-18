@@ -104,6 +104,8 @@ class User(Base):
     avatar_24_url: Mapped[str] = mapped_column(String(255), default="")
     avatar_emoji: Mapped[str] = mapped_column(String(16), default="")
     location: Mapped[str] = mapped_column(String(120), default="Noida")
+    employment_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    employment_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     zoho_employee_id: Mapped[str] = mapped_column(String(40), default="")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
