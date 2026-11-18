@@ -9205,6 +9205,25 @@ def reporting_tree_people(db: Session, org_id: int, user: User) -> list[dict[str
     return result
 
 
+def can_review_team_leaves(user: User) -> bool:
+    return user.role in {Role.ADMIN, Role.MANAGER} or user_is_department(
+        user, "Human Resource", "Human Resources", "HR"
+    )
+
+
+def require_team_leave_access(user: User) -> None:
+    if not can_review_team_leaves(user):
+        raise HTTPException(status_code=403, detail="Team leave access is available to managers, Human Resource, and admin users")
+
+
+def team_leave_people(db: Session, org_id: int, user: User) -> list[dict[str, Any]]:
+    require_team_leave_access(user)
+    if user_is_department(user, "Human Resource", "Human Resources", "HR"):
+        return [{"user": person, "depth": 1, "relationship_label": "Organization member"}
+                for person in org_people(db, org_id)]
+    return reporting_tree_people(db, org_id, user)
+
+
 def team_profile_leave_requests(
     db: Session,
     org_id: int,
@@ -10498,8 +10517,8 @@ def manager_team_leaves_page(
     import calendar as calendar_module
 
     org, user = org_user
-    must_be_admin_or_manager(user)
-    people = reporting_tree_people(db, org.id, user)
+    require_team_leave_access(user)
+    people = team_leave_people(db, org.id, user)
     members = [item["user"] for item in people]
     today = local_today()
     year_value = year or (month[:4] if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month) else str(today.year))
@@ -10519,10 +10538,13 @@ def manager_team_leaves_page(
     year_holidays = []
     year_calendar = []
     working_day_count = None
-    pending_requests = db.scalars(select(AttendanceRegularization).where(
-        AttendanceRegularization.org_id == org.id, AttendanceRegularization.manager_id == user.id,
+    pending_query = select(AttendanceRegularization).where(
+        AttendanceRegularization.org_id == org.id,
         AttendanceRegularization.status == "pending",
-    ).order_by(AttendanceRegularization.requested_at.desc())).all()
+    )
+    if user.role != Role.ADMIN and not user_is_department(user, "Human Resource", "Human Resources", "HR"):
+        pending_query = pending_query.where(AttendanceRegularization.manager_id == user.id)
+    pending_requests = db.scalars(pending_query.order_by(AttendanceRegularization.requested_at.desc())).all()
     request_people = {person.id: person for person in members}
     if member_id is not None:
         selected_member = next((person for person in members if person.id == member_id), None)
@@ -10575,6 +10597,7 @@ def manager_team_leaves_page(
             "feed": feed, "working_day_count": working_day_count,
             "pending_requests": [item for item in pending_requests if item.user_id in request_people],
             "request_people": request_people,
+            "team_leave_scope_label": "Organization employees" if user_is_department(user, "Human Resource", "Human Resources", "HR") else "Your reports",
             "zoho_portal_url": get_settings().zoho_portal_url.strip() or get_settings().zoho_people_url.rstrip("/"),
         },
     )
@@ -10584,8 +10607,8 @@ def manager_team_leaves_page(
 def manager_approve_leave(request_id: int = Form(...), member_id: int = Form(...),
                           org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, manager = org_user
-    must_be_admin_or_manager(manager)
-    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+    require_team_leave_access(manager)
+    member = next((item["user"] for item in team_leave_people(db, org.id, manager)
                    if item["user"].id == member_id), None)
     if member is None:
         raise HTTPException(404, "Team member not found")
@@ -10613,8 +10636,8 @@ def download_team_attendance(
     org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
 ):
     org, manager = org_user
-    must_be_admin_or_manager(manager)
-    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+    require_team_leave_access(manager)
+    member = next((item["user"] for item in team_leave_people(db, org.id, manager)
                    if item["user"].id == member_id), None)
     if member is None:
         raise HTTPException(status_code=404, detail="Team member not found")
@@ -10653,8 +10676,8 @@ def download_team_attendance_excel(
     org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
 ):
     org, manager = org_user
-    must_be_admin_or_manager(manager)
-    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+    require_team_leave_access(manager)
+    member = next((item["user"] for item in team_leave_people(db, org.id, manager)
                    if item["user"].id == member_id), None)
     if member is None:
         raise HTTPException(status_code=404, detail="Team member not found")
@@ -10704,8 +10727,8 @@ def manager_send_attendance_reminder(
     db: Session = Depends(get_db),
 ):
     org, manager = org_user
-    must_be_admin_or_manager(manager)
-    member = next((item["user"] for item in reporting_tree_people(db, org.id, manager)
+    require_team_leave_access(manager)
+    member = next((item["user"] for item in team_leave_people(db, org.id, manager)
                    if item["user"].id == member_id), None)
     if member is None:
         raise HTTPException(status_code=404, detail="Team member not found")
@@ -10774,8 +10797,8 @@ def manager_regularize_attendance(
     org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db),
 ):
     org, manager = org_user
-    must_be_admin_or_manager(manager)
-    members = {item["user"].id: item["user"] for item in reporting_tree_people(db, org.id, manager)}
+    require_team_leave_access(manager)
+    members = {item["user"].id: item["user"] for item in team_leave_people(db, org.id, manager)}
     member = members.get(member_id)
     if member is None:
         raise HTTPException(status_code=404, detail="Team member not found")

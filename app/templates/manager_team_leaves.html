@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head team-leaves-page-head"><div><p class="eyebrow">Manager · People</p><h1>Team Leave Review</h1><p>Review employee leave, requests, and attendance.</p></div></section>
+<section class="page-head team-leaves-page-head"><div><p class="eyebrow">{{ 'Human Resources · Organization' if team_leave_scope_label == 'Organization employees' else 'Manager · People' }}</p><h1>Team Leave Review</h1><p>Review employee leave, requests, and attendance.</p></div></section>
 
 {% if pending_requests %}
 <section class="panel team-leaves-attention" aria-labelledby="team-leaves-attention-title">
@@ -10,16 +10,16 @@
 {% endif %}
 
 <div class="team-leaves-layout">
-  <aside class="panel team-leaves-roster" aria-label="Direct team">
-    <div class="team-leaves-roster-head"><div><p class="eyebrow">Your reports</p><h2>Team members</h2></div><span>{{ members|length }}</span></div>
-    <label class="team-leaves-roster-search"><span class="sr-only">Search team members</span><input type="search" placeholder="Search team" data-team-member-search></label>
+  <aside class="panel team-leaves-roster" aria-label="{{ team_leave_scope_label }}">
+    <div class="team-leaves-roster-head"><div><p class="eyebrow">{{ team_leave_scope_label }}</p><h2>{{ 'Employees' if team_leave_scope_label == 'Organization employees' else 'Team members' }}</h2></div><span>{{ members|length }}</span></div>
+    <label class="team-leaves-roster-search"><span class="sr-only">Search team members</span><input type="search" placeholder="Search employees" data-team-member-search></label>
     <nav class="team-leaves-roster-list" aria-label="Select an employee">
       {% for member in members %}
       <a class="team-leaves-roster-person{% if selected_member and selected_member.id == member.id %} is-selected{% endif %}" href="/{{ org.slug }}/manager/team-leaves?member_id={{ member.id }}&amp;year={{ year_value }}&amp;month={{ month_value }}" data-team-member-name="{{ (member.full_name ~ ' ' ~ member.email)|lower }}" {% if selected_member and selected_member.id == member.id %}aria-current="page"{% endif %}>
         {{ user_avatar(member, 24) }}<span class="team-leaves-roster-copy"><strong>{{ member.full_name }}</strong><small>{{ member.email }}</small></span><b aria-hidden="true">›</b>
       </a>
-      {% else %}<p class="empty">No active team members are available.</p>{% endfor %}
-      <p class="empty team-leaves-search-empty" data-team-search-empty hidden>No team members match that search.</p>
+      {% else %}<p class="empty">No active employees are available.</p>{% endfor %}
+      <p class="empty team-leaves-search-empty" data-team-search-empty hidden>No employees match that search.</p>
     </nav>
   </aside>
 
@@ -53,6 +53,12 @@
       <p class="team-leaves-calendar-note">{{ feed.leave_message }} Hover a marked date to see its leave or holiday details.</p>
     </section>
 
+    <details class="panel team-leaves-attendance-details" {% if regularized or regularization_error %}open{% endif %}><summary><span><small>Attendance record</small><strong>{{ month_label }}</strong></span><span class="team-leaves-attendance-summary">{% if feed.attendance and feed.attendance.status == 'synced' %}{{ feed.attendance.total_days }} worked days{% else %}Attendance details{% endif %}<b aria-hidden="true">⌄</b></span></summary>
+      {% if feed.attendance and feed.attendance.status == 'synced' %}<div class="team-leaves-attendance-actions"><form method="post" action="/{{ org.slug }}/manager/team-leaves/attendance-reminder" data-attendance-reminder-form><input type="hidden" name="member_id" value="{{ selected_member.id }}"><input type="hidden" name="month" value="{{ month_value }}"><button type="submit" class="button secondary small" data-attendance-reminder-button>Send reminder</button></form><a class="button secondary small" href="/{{ org.slug }}/manager/team-leaves/attendance.xlsx?member_id={{ selected_member.id }}&amp;month={{ month_value }}">Export to Excel</a></div><p class="team-leaves-reminder-status" role="status" data-attendance-reminder-status hidden></p>{% endif %}
+      {% if feed.attendance %}<div class="profile-zoho-status{% if feed.attendance.status != 'synced' %} is-error{% endif %}">{{ feed.attendance.message }}{% if feed.attendance.status == 'synced' %} Missing working days are shown in red.{% endif %}</div><div class="profile-leave-table-wrap"><table class="profile-leave-table profile-attendance-table"><thead><tr><th>Date</th><th>First login</th><th>Last logout</th><th>Work mode</th></tr></thead><tbody>{% for row in feed.attendance.rows %}<tr{% if row.mode == 'missing' %} class="attendance-missing-row"{% endif %}><td><strong>{{ row.date_label }}</strong></td><td>{{ row.first_in_label }}</td><td>{{ row.last_out_label }}{% if row.is_open %}<small>Open attendance entry</small>{% endif %}</td><td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% elif row.mode == 'missing' and row.request %}<small>{{ row.request.status|title }} regularization</small>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="empty">No attendance entries for this month.</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">Attendance will appear when the selected month begins.</p>{% endif %}
+    </details>
+
+
     <section class="panel profile-leaves-panel team-leaves-requests">
       <div class="team-leaves-section-head"><div><p class="eyebrow">Action items</p><h2>Leave requests</h2><p>Upcoming and recent requests for {{ year_value }}.</p></div><span class="team-leaves-count">{{ feed.leaves|length }} request{{ '' if feed.leaves|length == 1 else 's' }}</span></div>
       <div class="profile-zoho-status{% if feed.leave_status != 'synced' %} is-error{% endif %}">{{ feed.leave_message }}</div>
@@ -61,18 +67,13 @@
       </tbody></table></div>
     </section>
 
-    <details class="panel team-leaves-attendance-details" {% if regularized or regularization_error %}open{% endif %}><summary><span><small>Attendance record</small><strong>{{ month_label }}</strong></span><span class="team-leaves-attendance-summary">{% if feed.attendance and feed.attendance.status == 'synced' %}{{ feed.attendance.total_days }} worked days{% else %}Attendance details{% endif %}<b aria-hidden="true">⌄</b></span></summary>
-      {% if feed.attendance and feed.attendance.status == 'synced' %}<div class="team-leaves-attendance-actions"><form method="post" action="/{{ org.slug }}/manager/team-leaves/attendance-reminder" data-attendance-reminder-form><input type="hidden" name="member_id" value="{{ selected_member.id }}"><input type="hidden" name="month" value="{{ month_value }}"><button type="submit" class="button secondary small" data-attendance-reminder-button>Send reminder</button></form><a class="button secondary small" href="/{{ org.slug }}/manager/team-leaves/attendance.xlsx?member_id={{ selected_member.id }}&amp;month={{ month_value }}">Export to Excel</a></div><p class="team-leaves-reminder-status" role="status" data-attendance-reminder-status hidden></p>{% endif %}
-      {% if feed.attendance %}<div class="profile-zoho-status{% if feed.attendance.status != 'synced' %} is-error{% endif %}">{{ feed.attendance.message }}{% if feed.attendance.status == 'synced' %} Missing working days are shown in red.{% endif %}</div><div class="profile-leave-table-wrap"><table class="profile-leave-table profile-attendance-table"><thead><tr><th>Date</th><th>First login</th><th>Last logout</th><th>Work mode</th></tr></thead><tbody>{% for row in feed.attendance.rows %}<tr{% if row.mode == 'missing' %} class="attendance-missing-row"{% endif %}><td><strong>{{ row.date_label }}</strong></td><td>{{ row.first_in_label }}</td><td>{{ row.last_out_label }}{% if row.is_open %}<small>Open attendance entry</small>{% endif %}</td><td><span class="profile-work-mode is-{{ row.mode }}">{{ row.mode_label }}</span>{% if row.attendance_location or row.attendance_source %}<small>{{ row.attendance_location }}{% if row.attendance_location and row.attendance_source %} · {% endif %}{{ row.attendance_source }}</small>{% elif row.mode == 'missing' and row.request %}<small>{{ row.request.status|title }} regularization</small>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="empty">No attendance entries for this month.</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">Attendance will appear when the selected month begins.</p>{% endif %}
-    </details>
-
     {% if feed.attendance and feed.attendance.status == 'synced' %}
     <div class="modal-backdrop" aria-hidden="true" data-regularization-modal><div class="modal-card wide manager-attendance-modal" role="dialog" aria-modal="true" aria-labelledby="regularization-title"><div class="modal-head"><div><h2 id="regularization-title">Regularize attendance</h2><p>{{ selected_member.full_name }} · {{ month_label }}</p></div><button type="button" class="modal-close" aria-label="Close" data-modal-close>×</button></div><form method="post" action="/{{ org.slug }}/manager/team-leaves/regularize" data-regularization-form><input type="hidden" name="member_id" value="{{ selected_member.id }}"><input type="hidden" name="month" value="{{ month_value }}"><p>Select past working days to regularize. The times apply to every selected day. Regularization is always remote work in Noida.</p><label class="regularization-select-all"><input type="checkbox" data-select-all> Select all missing days</label><div class="regularization-day-list">{% for missing in feed.attendance.missing_days %}<label class="regularization-day"><input type="checkbox" name="attendance_dates" value="{{ missing.date.isoformat() }}" data-regularization-day><span>{{ missing.label }}</span>{% if missing.request and missing.request.status == 'pending' %}<small>Employee requested approval</small>{% endif %}</label>{% endfor %}</div><div class="regularization-form"><label>Login<input type="time" name="start_time" value="10:00" required></label><label>Logout<input type="time" name="end_time" value="19:00" required></label><label>Work mode / location<input type="text" value="Remote · Noida" readonly></label></div><div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Cancel</button><button type="submit" data-regularization-submit disabled>Regularize selected days</button></div></form></div></div>
     {% endif %}
 
     <div class="modal-backdrop" aria-hidden="true" data-leave-review-modal><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-review-title"><div class="modal-head"><div><h2 id="leave-review-title">Review leave request</h2><p>{{ selected_member.full_name }}</p></div><button type="button" class="modal-close" aria-label="Close" data-modal-close>×</button></div><dl class="leave-review-details"><div><dt>Dates</dt><dd data-review-date></dd></div><div><dt>Type</dt><dd data-review-type></dd></div><div><dt>Duration</dt><dd data-review-duration></dd></div><div><dt>Days this year</dt><dd data-review-days></dd></div><div><dt>Reason</dt><dd data-review-reason></dd></div></dl><form method="post" action="/{{ org.slug }}/manager/team-leaves/approve" data-leave-approve-form><input type="hidden" name="member_id" value="{{ selected_member.id }}"><input type="hidden" name="request_id" data-leave-request-id><p class="form-helper">Approve this request in ProTrack. Your name and approval time will be recorded.</p><p role="status" data-leave-approval-message hidden></p><div class="manager-modal-actions"><button type="button" class="button secondary" data-modal-close>Cancel</button><button type="submit" data-leave-approve-submit>Approve request</button></div></form></div></div>
     {% else %}
-    <section class="panel team-leaves-empty-state"><span aria-hidden="true">◷</span><h2>Choose a team member</h2><p>Select someone from your team to see their annual leave calendar, requests, and attendance.</p></section>
+    <section class="panel team-leaves-empty-state"><span aria-hidden="true">◷</span><h2>Choose an employee</h2><p>Select someone from {{ 'the organization' if team_leave_scope_label == 'Organization employees' else 'your team' }} to see their annual leave calendar, requests, and attendance.</p></section>
     {% endif %}
   </div>
 </div>
