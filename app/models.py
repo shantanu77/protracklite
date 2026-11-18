@@ -103,6 +103,7 @@ class User(Base):
     avatar_128_url: Mapped[str] = mapped_column(String(255), default="")
     avatar_24_url: Mapped[str] = mapped_column(String(255), default="")
     avatar_emoji: Mapped[str] = mapped_column(String(16), default="")
+    location: Mapped[str] = mapped_column(String(120), default="Noida")
     zoho_employee_id: Mapped[str] = mapped_column(String(40), default="")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -145,6 +146,43 @@ class Project(Base):
 
     organization: Mapped[Organization] = relationship(back_populates="projects")
     tasks: Mapped[list["Task"]] = relationship(back_populates="project")
+
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+    __table_args__ = (UniqueConstraint("org_id", "asset_tag", name="uq_inventory_asset_tag_per_org"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    asset_tag: Mapped[str] = mapped_column(String(100))
+    asset_type: Mapped[str] = mapped_column(String(20), default="hardware")
+    name: Mapped[str] = mapped_column(String(200))
+    manufacturer: Mapped[str] = mapped_column(String(120), default="")
+    model: Mapped[str] = mapped_column(String(120), default="")
+    serial_number: Mapped[str] = mapped_column(String(160), default="")
+    license_reference: Mapped[str] = mapped_column(String(180), default="")
+    purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    warranty_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class InventoryAllocation(Base):
+    __tablename__ = "inventory_allocations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    inventory_item_id: Mapped[int] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    allocated_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    allocated_at: Mapped[date] = mapped_column(Date, default=date.today)
+    returned_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ProjectActivityType(Base):

@@ -41,12 +41,7 @@
   <div class="stack">
     <section class="panel task-detail-summary">
       <div class="task-detail-summary-head">
-        <div>
-          <div class="task-card-headline">
-            <span class="chip">{{ task.task_id }}</span>
-          </div>
-          <h2>{{ task.name }}</h2>
-        </div>
+        <h2>Task overview</h2>
         <div class="dashboard-task-badges">
           {% if task.is_shared %}
           <span class="badge muted">Shared</span>
@@ -98,13 +93,9 @@
     </section>
 
     {% if can_edit_task %}
-    <form method="post" class="panel form-grid task-detail-form" id="edit-task">
-      <div class="panel-head full">
-        <div>
-          <h2>Edit Task</h2>
-          <p>Compact task details with planning and assignment controls.</p>
-        </div>
-      </div>
+    <details class="panel task-detail-edit" id="edit-task">
+      <summary><span><strong>Edit task details</strong><small>Project, schedule, assignment and description</small></span><span class="task-detail-edit-caret" aria-hidden="true">⌄</span></summary>
+      <form method="post" class="form-grid task-detail-form">
       <label>Project
         <select name="project_id" data-project-select required>
           {% for project in projects %}
@@ -164,7 +155,8 @@
       <label class="full">Description<textarea name="description" rows="6">{{ task.description|safe }}</textarea></label>
       <p class="full empty">Backlog tasks do not carry schedule or effort until they are planned.</p>
       <button type="submit">Update Task</button>
-    </form>
+      </form>
+    </details>
     {% elif task.is_shared %}
     <section class="panel" id="edit-task">
       <div class="panel-head">
@@ -278,6 +270,10 @@
 
 <script>
   (() => {
+    const editDetails = document.getElementById("edit-task");
+    if (editDetails instanceof HTMLDetailsElement && window.location.hash === "#edit-task") {
+      editDetails.open = true;
+    }
     const projectActivityMap = {{ project_activity_map|tojson }};
     const form = document.querySelector(".task-detail-form");
     const projectSelect = form?.querySelector("[data-project-select]");

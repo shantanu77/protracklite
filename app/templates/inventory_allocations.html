@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">IT · Asset management</p><h1>Manage Allocations</h1><p>Assign available assets to employees, update active allocations, and record returns.</p></div><div class="page-head-actions"><a class="button secondary" href="/{{ org.slug }}/inventory">Manage inventory</a><a class="button secondary" href="/{{ org.slug }}/assets/reports">Asset reports</a></div></section>
+<section class="panel allocation-panel">
+  <div class="panel-head"><div><h2>Allocate an asset</h2><p>Only available, active inventory items can be assigned.</p></div></div>
+  <form method="post" action="/{{ org.slug }}/inventory/allocations" class="form-grid allocation-form">
+    <label>Asset<select name="inventory_item_id" required><option value="">Choose an asset</option>{% for item in available_items %}<option value="{{ item.id }}">{{ item.asset_tag }} · {{ item.name }} · {{ item.asset_type|title }}</option>{% endfor %}</select></label>
+    <label>Employee<select name="user_id" required><option value="">Choose an employee</option>{% for person in people %}<option value="{{ person.id }}">{{ person.full_name }}{% if person.department %} · {{ person.department.name }}{% endif %}</option>{% endfor %}</select></label>
+    <label>Allocation date<input type="date" name="allocated_at" value="{{ today.isoformat() }}" max="{{ today.isoformat() }}" required></label>
+    <label class="full">Notes<textarea name="notes" rows="2" placeholder="Hand-off condition, software seat, or instructions"></textarea></label>
+    <button type="submit" {% if not available_items or not people %}disabled{% endif %}>Allocate asset</button>
+  </form>
+  {% if not available_items %}<p class="empty">There are no available inventory items. Add an item or return an existing allocation first.</p>{% endif %}
+  {% if not people %}<p class="empty">There are no active employees to assign assets to.</p>{% endif %}
+</section>
+
+<section class="panel allocation-panel">
+  <div class="panel-head"><div><h2>Allocation history</h2><p>Current allocations appear first; returned assets remain in the record for reporting.</p></div></div>
+  <div class="inventory-table-wrap"><table class="allocation-table">
+    <thead><tr><th>Asset</th><th>Employee</th><th>Location</th><th>Allocated</th><th>Returned</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for allocation in allocations %}
+      {% set item = item_map.get(allocation.inventory_item_id) %}{% set person = people_map.get(allocation.user_id) %}
+      <tr>
+        <td><strong>{{ item.asset_tag if item else 'Removed item' }} · {{ item.name if item else '' }}</strong><small>{{ item.asset_type|title if item else '' }}</small></td>
+        <td>{{ person.full_name if person else 'Former employee' }}</td>
+        <td>{{ person.location or 'Noida' if person else '—' }}</td>
+        <td>{{ allocation.allocated_at.strftime('%d %b %Y') }}</td>
+        <td>{{ allocation.returned_at.strftime('%d %b %Y') if allocation.returned_at else '—' }}</td>
+        <td>{{ allocation.notes or '—' }}</td>
+        <td>
+          {% if not allocation.returned_at %}
+          <details class="allocation-edit"><summary>Edit</summary>
+            <form method="post" action="/{{ org.slug }}/inventory/allocations/{{ allocation.id }}/update" class="form-grid allocation-edit-form">
+              <label>Asset<select name="inventory_item_id" required>{% for option in items %}{% if option.is_active or option.id == allocation.inventory_item_id %}<option value="{{ option.id }}" {% if option.id == allocation.inventory_item_id %}selected{% endif %}>{{ option.asset_tag }} · {{ option.name }}</option>{% endif %}{% endfor %}</select></label>
+              <label>Employee<select name="user_id" required>{% for option in people %}<option value="{{ option.id }}" {% if option.id == allocation.user_id %}selected{% endif %}>{{ option.full_name }}{% if option.department %} · {{ option.department.name }}{% endif %}</option>{% endfor %}</select></label>
+              <label>Allocated<input type="date" name="allocated_at" value="{{ allocation.allocated_at.isoformat() }}" max="{{ today.isoformat() }}" required></label>
+              <label class="full">Notes<textarea name="notes" rows="2">{{ allocation.notes }}</textarea></label>
+              <button type="submit">Save allocation</button>
+            </form>
+          </details>
+          <form method="post" action="/{{ org.slug }}/inventory/allocations/{{ allocation.id }}/return" class="allocation-return-form"><input type="hidden" name="returned_at" value="{{ today.isoformat() }}"><button type="submit" class="button secondary small">Return</button></form>
+          {% else %}<span class="inventory-status is-retired">Returned</span>{% endif %}
+          <form method="post" action="/{{ org.slug }}/inventory/allocations/{{ allocation.id }}/delete" class="allocation-delete-form" onsubmit="return confirm('Delete this allocation record permanently?')"><button type="submit" class="button danger small">Delete</button></form>
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="7" class="empty">No asset allocations have been recorded.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<style>
+  .allocation-panel { display:grid; gap:.8rem; margin-top:1rem; padding:1rem; }
+  .allocation-form { grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; }
+  .allocation-form label,.allocation-edit-form label { display:grid; gap:.28rem; color:var(--muted); font-size:.7rem; font-weight:700; }
+  .allocation-form input,.allocation-form select,.allocation-form textarea,.allocation-edit-form input,.allocation-edit-form select,.allocation-edit-form textarea { padding:.58rem .68rem; font-size:.77rem; }
+  .allocation-table { min-width:1020px; }
+  .allocation-table th,.allocation-table td { padding:.55rem .65rem; font-size:.7rem; vertical-align:middle; }
+  .allocation-table td small { display:block; color:var(--muted); font-size:.62rem; }
+  .allocation-edit summary { color:var(--primary); cursor:pointer; font-size:.68rem; font-weight:700; }
+  .allocation-edit-form { width:min(540px,75vw); grid-template-columns:repeat(2,minmax(0,1fr)); padding:.7rem; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .allocation-return-form,.allocation-delete-form { margin-top:.3rem; }
+  @media(max-width:760px) { .allocation-form,.allocation-edit-form { grid-template-columns:1fr; } .allocation-form .full,.allocation-edit-form .full { grid-column:auto; } .allocation-edit-form { width:min(82vw,450px); } }
+</style>
+{% endblock %}

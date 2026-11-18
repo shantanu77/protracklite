@@ -1,55 +1,149 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .team-task-review { overflow-x:auto; border:1px solid #e4e9ec; border-radius:12px; }
-  .team-task-review table { width:100%; min-width:650px; border-collapse:collapse; font-size:12px; }
-  .team-task-review th { padding:9px 11px; color:#647582; background:#f6f8f9; font-size:10px; font-weight:800; letter-spacing:.055em; text-align:left; text-transform:uppercase; }
-  .team-task-review td { padding:7px 10px; border-top:1px solid #edf0f2; }
-  .team-task-review tr:hover td { background:#fbfcfc; }
-  .team-task-review input, .team-task-review select { min-width:115px; width:100%; padding:6px 8px; border:1px solid #dce3e6; border-radius:7px; background:#fff; color:#233943; font:500 12px/1.35 Manrope,sans-serif; }
-  .team-task-review input:focus, .team-task-review select:focus { outline:2px solid #c6ded4; border-color:#7ea995; }
-  .team-task-review .task-title { min-width:220px; font-weight:700; }
-  .team-task-review .task-date { min-width:140px; }
-  .team-task-review .remove-task { padding:5px 8px; border-radius:7px; background:#fff; color:#9c3c38; border:1px solid #ead5d4; box-shadow:none; font-size:11px; }
-  .team-task-review .remove-task:hover { background:#fbefee; }
-  #save-tasks { margin-top:14px; }
+  .team-ai-page { max-width:1240px; margin:0 auto; }
+  .team-ai-intro { margin-bottom:1rem; }
+  .team-ai-input { padding:clamp(1rem,2vw,1.5rem); }
+  .team-ai-input textarea { min-height:145px; font-size:.92rem; line-height:1.6; }
+  .team-ai-actions { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
+  .team-ai-actions .form-helper { margin:0; }
+  .team-ai-review { margin-top:1rem; }
+  .team-ai-scroll { overflow:auto; border:1px solid #e2e8eb; border-radius:13px; }
+  .team-ai-table { width:100%; min-width:1450px; border-collapse:collapse; font-size:12px; }
+  .team-ai-table th { padding:10px 11px; background:#f5f8f7; color:#62747e; font-size:10px; font-weight:800; letter-spacing:.055em; text-align:left; text-transform:uppercase; }
+  .team-ai-table td { padding:8px 9px; vertical-align:top; border-top:1px solid #edf1f2; }
+  .team-ai-table tr:hover td { background:#fbfcfc; }
+  .team-ai-table input,.team-ai-table select,.team-ai-table textarea { width:100%; min-width:90px; box-sizing:border-box; padding:7px 8px; border:1px solid #dbe3e5; border-radius:8px; background:#fff; color:#253a44; font:500 12px/1.4 Manrope,sans-serif; }
+  .team-ai-table textarea { min-height:56px; margin-top:5px; resize:vertical; }
+  .team-ai-table input:focus,.team-ai-table select:focus,.team-ai-table textarea:focus { outline:2px solid #d5e7df; border-color:#79a792; }
+  .team-ai-table .team-title { min-width:210px; font-weight:750; }
+  .team-ai-table .team-owner { min-width:150px; }
+  .team-ai-table .team-date { min-width:130px; }
+  .team-ai-table .team-hours { min-width:80px; }
+  .team-ai-logs { display:grid; gap:7px; min-width:285px; }
+  .team-ai-log { padding:8px; border:1px solid #e6ebed; border-radius:9px; background:#fafcfc; }
+  .team-ai-log-fields { display:grid; grid-template-columns:minmax(120px,1fr) 78px auto; gap:6px; align-items:center; }
+  .team-ai-log-fields input { min-width:0; }
+  .team-ai-log textarea { min-height:56px; font-size:11px; }
+  .team-ai-note-count { display:block; margin:3px 2px 0; color:#73818a; font-size:10px; }
+  .team-ai-note-count.is-short { color:#a34b38; font-weight:700; }
+  .team-ai-log-remove,.team-ai-log-add,.team-ai-remove { padding:5px 8px; border:1px solid #e1e7e9; border-radius:7px; background:#fff; color:#50636e; box-shadow:none; font-size:10px; }
+  .team-ai-log-add { margin-top:7px; }
+  .team-ai-remove { color:#a3443e; border-color:#ead8d6; font-size:11px; }
+  .team-ai-remove:hover { background:#fcf1f0; }
+  .team-ai-actions-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1rem; }
+  .team-ai-actions-row p { margin:0; color:#61717b; font-size:.8rem; }
+  .team-ai-success { margin-top:1rem; }
+  @media (max-width:640px) { .team-ai-actions-row { align-items:stretch; flex-direction:column; } .team-ai-actions-row button { width:100%; } }
 </style>
-<section class="page-head"><div><p class="eyebrow">Manager</p><h1>Create Team Task</h1><p>Paste assignments in plain text. AI will match owners and deadlines; review every task before creating it.</p></div></section>
-<section class="panel"><form id="team-task-input"><label class="full">Task list<textarea name="freeflow_tasks" rows="8" placeholder="Alex: prepare the release notes by Friday&#10;Mina to review the onboarding flow next Tuesday" required></textarea></label><button type="submit">Parse tasks</button><span id="feedback" class="form-helper">{% if not ai_configured %}AI parsing is not configured for this workspace.{% endif %}</span></form></section>
-<section class="panel" id="review-panel" hidden><div class="panel-head"><div><h2>Review tasks</h2><p>Edit titles, owners, and deadlines, or remove rows before creating.</p></div></div><div class="team-task-review"><table><thead><tr><th>Task</th><th>Owner</th><th>Deadline</th><th></th></tr></thead><tbody id="task-rows"></tbody></table></div><button id="save-tasks" type="button">Create tasks</button></section>
+<div class="team-ai-page">
+  <section class="page-head team-ai-intro">
+    <div><p class="eyebrow">Manager</p><h1>Create Team Tasks</h1><p>Describe work in plain language. AI extracts task details and owners; review and edit each field before saving.</p></div>
+    <a class="button secondary" href="/{{ org.slug }}/tasks/new">View all tasks</a>
+  </section>
+  <section class="panel team-ai-input">
+    <div class="panel-head"><div><h2>Describe the assignments</h2><p>Include owner, dates, planned effort, or completed work when known. You can edit every detail before creating tasks.</p></div></div>
+    <form id="team-task-input" class="form-grid">
+      <label class="full">Task description<textarea name="freeflow_tasks" placeholder="Alex: prepare the release notes by Friday; estimate 3 hours.&#10;Mina: review the onboarding flow tomorrow, about 2 hours.&#10;Dev: finished the API review today, spent 1.5 hours on it." required></textarea></label>
+      <div class="full team-ai-actions"><button type="submit" id="team-parse-button">✦ Parse tasks</button><span class="form-helper" id="team-task-feedback">Parsing creates a preview only. You can edit or remove tasks before saving.{% if not ai_configured %} AI is not configured; basic task details can still be reviewed and assigned manually.{% endif %}</span></div>
+    </form>
+  </section>
+  <section class="panel team-ai-review" id="team-review" hidden>
+    <div class="panel-head"><div><h2>Review team tasks</h2><p>Check task details, ownership, status, schedule, and effort before creating.</p></div></div>
+    <div class="team-ai-scroll"><table class="team-ai-table"><thead><tr><th>Task and description</th><th>Owner</th><th>Category</th><th>Status</th><th>Start</th><th>Deadline</th><th>Planned effort</th><th>Logged effort</th><th></th></tr></thead><tbody id="team-preview-rows"></tbody></table></div>
+    <div class="team-ai-actions-row"><p>Any logged effort is recorded as entered by you, the manager.</p><button type="button" id="team-save-tasks">Create tasks</button></div>
+  </section>
+  <section class="panel ai-summary-feedback ai-summary-feedback-success team-ai-success" id="team-task-success" hidden></section>
+</div>
 <script>
 (() => {
   const org = {{ org.slug|tojson }};
   const form = document.getElementById('team-task-input');
-  const feedback = document.getElementById('feedback');
-  const panel = document.getElementById('review-panel');
-  const rows = document.getElementById('task-rows');
-  let people = [];
-  const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  function render(tasks) {
-    rows.innerHTML = tasks.map((task, i) => `<tr data-index="${i}"><td><input class="task-title" value="${escapeHtml(task.title)}" aria-label="Task title"></td><td><select class="task-owner" aria-label="Owner"><option value="">Choose owner</option>${people.map(p => `<option value="${p.id}" ${Number(task.owner_id) === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}</select></td><td><input class="task-date" type="date" value="${escapeHtml(task.due_date)}" aria-label="Deadline"></td><td><button class="remove-task" type="button">Remove</button></td></tr>`).join('');
-    panel.hidden = !tasks.length;
-    rows.querySelectorAll('.remove-task').forEach(button => button.addEventListener('click', () => button.closest('tr').remove()));
+  const feedback = document.getElementById('team-task-feedback');
+  const review = document.getElementById('team-review');
+  const rows = document.getElementById('team-preview-rows');
+  const saveButton = document.getElementById('team-save-tasks');
+  const success = document.getElementById('team-task-success');
+  const notesMinLength = 80;
+  let tasks = [], people = [], categories = [], statuses = [];
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const noteLength = value => String(value || '').trim().replace(/\s+/g,' ').length;
+  const todayIso = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; };
+  const noteCounter = value => { const count = noteLength(value); return `<small class="team-ai-note-count ${count < notesMinLength ? 'is-short' : ''}">${count} / ${notesMinLength} characters${count < notesMinLength ? ` · Add ${notesMinLength-count} more` : ' · Ready to save'}</small>`; };
+  function syncRow(row) {
+    const task = tasks[Number(row.dataset.index)];
+    if (!task) return;
+    task.title = row.querySelector('.team-title').value;
+    task.description = row.querySelector('.team-description').value;
+    task.owner_id = row.querySelector('.team-owner').value || null;
+    task.category = row.querySelector('.team-category').value;
+    task.status = row.querySelector('.team-status').value;
+    task.start_date = row.querySelector('.team-start').value || null;
+    task.end_date = row.querySelector('.team-end').value || null;
+    task.estimated_hours = row.querySelector('.team-hours').value || null;
+    task.stalled_reason = row.querySelector('.team-stalled-reason')?.value || task.stalled_reason || '';
+    task.time_logs = [...row.querySelectorAll('.team-ai-log')].map(entry => ({
+      log_date: entry.querySelector('.team-log-date').value,
+      hours: entry.querySelector('.team-log-hours').value,
+      notes: entry.querySelector('.team-log-notes').value,
+    }));
+  }
+  function render() {
+    rows.innerHTML = tasks.map((task,i) => {
+      const logs = task.time_logs || [];
+      const logMarkup = logs.length ? logs.map((log,j) => `<div class="team-ai-log" data-log-index="${j}"><div class="team-ai-log-fields"><input class="team-log-date" type="date" value="${esc(log.log_date)}" aria-label="Work date"><input class="team-log-hours" type="number" min="0.25" step="0.25" value="${esc(log.hours)}" placeholder="Hours" aria-label="Hours worked"><button class="team-ai-log-remove" type="button" aria-label="Remove logged effort">Remove</button></div><textarea class="team-log-notes" rows="2" aria-label="Work description" placeholder="Describe completed work (at least 80 characters)">${esc(log.notes)}</textarea>${noteCounter(log.notes)}</div>`).join('') : '<span class="ai-no-logs">No actual effort logged</span>';
+      const categoryOptions = categories.map(item => `<option value="${esc(item.value)}" ${task.category === item.value ? 'selected' : ''}>${esc(item.label)}</option>`).join('');
+      const statusOptions = statuses.map(item => `<option value="${esc(item.value)}" ${task.status === item.value ? 'selected' : ''}>${esc(item.label)}</option>`).join('');
+      const ownerOptions = `<option value="">Choose owner</option>${people.map(person => `<option value="${person.id}" ${Number(task.owner_id) === person.id ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}`;
+      return `<tr data-index="${i}"><td><input class="team-title" value="${esc(task.title)}" aria-label="Task title"><textarea class="team-description" rows="2" aria-label="Task description">${esc(task.description)}</textarea>${task.status === 'stalled' ? `<textarea class="team-stalled-reason" rows="2" placeholder="Why is this task stalled?" aria-label="Stalled reason">${esc(task.stalled_reason)}</textarea>` : ''}</td><td><select class="team-owner" aria-label="Owner">${ownerOptions}</select></td><td><select class="team-category" aria-label="Activity category">${categoryOptions}</select></td><td><select class="team-status" aria-label="Task status">${statusOptions}</select></td><td><input class="team-date team-start" type="date" value="${esc(task.start_date)}" aria-label="Start date"></td><td><input class="team-date team-end" type="date" value="${esc(task.end_date)}" aria-label="Deadline"></td><td><input class="team-hours" type="number" min="0" step="0.25" value="${esc(task.estimated_hours)}" placeholder="—" aria-label="Estimated effort"> h</td><td><div class="team-ai-logs">${logMarkup}</div><button class="team-ai-log-add" type="button">+ Add logged effort</button></td><td><button class="team-ai-remove" type="button">Remove task</button></td></tr>`;
+    }).join('');
+    review.hidden = tasks.length === 0;
+    rows.querySelectorAll('tr').forEach(row => {
+      const index = Number(row.dataset.index);
+      row.querySelectorAll('input,textarea,select').forEach(element => element.addEventListener('input', () => {
+        syncRow(row);
+        if (element.classList.contains('team-log-notes')) element.parentElement.querySelector('.team-ai-note-count').outerHTML = noteCounter(element.value);
+      }));
+      row.querySelector('.team-status').addEventListener('change', () => { syncRow(row); render(); });
+      row.querySelector('.team-owner').addEventListener('change', () => syncRow(row));
+      row.querySelector('.team-category').addEventListener('change', () => syncRow(row));
+      row.querySelector('.team-ai-remove').addEventListener('click', () => { syncRow(row); tasks.splice(index,1); render(); });
+      row.querySelector('.team-ai-log-add').addEventListener('click', () => { syncRow(row); tasks[index].time_logs ||= []; tasks[index].time_logs.push({log_date:todayIso(),hours:'',notes:''}); render(); });
+      row.querySelectorAll('.team-ai-log-remove').forEach(button => button.addEventListener('click', () => {
+        syncRow(row); tasks[index].time_logs.splice(Number(button.closest('.team-ai-log').dataset.logIndex),1); render();
+      }));
+    });
   }
   form.addEventListener('submit', async event => {
-    event.preventDefault(); feedback.textContent = 'Parsing assignments…';
+    event.preventDefault(); success.hidden = true; feedback.textContent = 'Parsing assignments…';
     try {
-      const data = new FormData(form);
-      const response = await fetch(`/${org}/manager/create-team-tasks/parse`, {method:'POST', body:data});
+      const response = await fetch(`/${org}/manager/create-team-tasks/parse`, {method:'POST',body:new FormData(form)});
       const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not parse tasks.');
-      people = result.people; render(result.tasks); feedback.textContent = result.tasks.length ? `${result.tasks.length} tasks ready for review.` : 'No tasks found.';
-    } catch (error) { feedback.textContent = error.message; }
+      tasks = result.tasks || []; people = result.people || []; categories = result.categories || []; statuses = result.statuses || []; render();
+      feedback.textContent = tasks.length ? `${tasks.length} tasks ready for review.` : 'No tasks found in that description.';
+    } catch(error) { feedback.textContent = error.message; }
   });
-  document.getElementById('save-tasks').addEventListener('click', async () => {
-    const tasks = [...rows.querySelectorAll('tr')].map(row => ({title:row.querySelector('.task-title').value.trim(), owner_id:row.querySelector('.task-owner').value, due_date:row.querySelector('.task-date').value}));
-    if (!tasks.length) return;
-    if (tasks.some(task => !task.title || !task.owner_id)) { feedback.textContent = 'Add a title and choose an owner for every task.'; return; }
-    feedback.textContent = 'Creating tasks…';
+  saveButton.addEventListener('click', async () => {
+    rows.querySelectorAll('tr').forEach(syncRow);
+    tasks = tasks.filter(task => String(task.title || '').trim());
+    if (!tasks.length) { feedback.textContent = 'Add at least one task with a title.'; render(); return; }
+    if (tasks.some(task => !task.owner_id)) { feedback.textContent = 'Choose an owner for every task.'; return; }
+    if (tasks.some(task => task.status === 'stalled' && !String(task.stalled_reason || '').trim())) { feedback.textContent = 'Add a reason for every stalled task.'; return; }
+    for (const task of tasks) {
+      const invalidLog = (task.time_logs || []).find(log => {
+        const hasAnyValue = String(log.log_date || '').trim() || String(log.hours || '').trim() || String(log.notes || '').trim();
+        return hasAnyValue && (!log.log_date || !log.hours || noteLength(log.notes) < notesMinLength);
+      });
+      if (invalidLog) { feedback.textContent = 'Complete each logged effort with a date, hours, and a description of at least 80 characters.'; return; }
+    }
+    feedback.textContent = 'Creating tasks…'; saveButton.disabled = true;
     try {
-      const response = await fetch(`/${org}/manager/create-team-tasks/save`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tasks})});
+      const response = await fetch(`/${org}/manager/create-team-tasks/save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tasks})});
       const result = await response.json(); if (!response.ok) throw new Error(result.detail || 'Could not create tasks.');
-      rows.innerHTML = ''; panel.hidden = true; feedback.textContent = `${result.created} tasks created and assigned.`;
-    } catch (error) { feedback.textContent = error.message; }
+      success.innerHTML = `<strong>${result.created} tasks created.</strong> ${result.task_ids.map(id => `<a href="/${org}/tasks/${encodeURIComponent(id)}">${esc(id)}</a>`).join(', ')}`; success.hidden = false;
+      tasks = []; render(); form.reset(); feedback.textContent = 'Ready for another assignment list.';
+    } catch(error) { feedback.textContent = error.message; }
+    finally { saveButton.disabled = false; }
   });
 })();
 </script>

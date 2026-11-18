@@ -55,6 +55,8 @@ from app.models import (
     ActivityType,
     Department,
     Holiday,
+    InventoryAllocation,
+    InventoryItem,
     Leave,
     LeaveType,
     MonthlyWorkReport,
@@ -963,6 +965,7 @@ def ensure_users_schema() -> None:
         "department_id": "ALTER TABLE users ADD COLUMN department_id INTEGER NULL",
         "manager_id": "ALTER TABLE users ADD COLUMN manager_id INTEGER NULL",
         "last_login_at": "ALTER TABLE users ADD COLUMN last_login_at DATETIME NULL",
+        "location": "ALTER TABLE users ADD COLUMN location VARCHAR(120) NOT NULL DEFAULT 'Noida'",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
@@ -1718,6 +1721,31 @@ def must_be_admin(user: User) -> None:
 def must_be_admin_or_manager(user: User) -> None:
     if user.role not in {Role.ADMIN, Role.MANAGER}:
         raise HTTPException(status_code=403, detail="Manager access required")
+
+
+def user_is_department(user: User, *names: str) -> bool:
+    department_name = (user.department.name if user.department else "").strip().casefold()
+    normalized = re.sub(r"[^a-z0-9]+", " ", department_name).strip()
+    allowed = {re.sub(r"[^a-z0-9]+", " ", name.casefold()).strip() for name in names}
+    return normalized in allowed
+
+
+def can_manage_inventory(user: User) -> bool:
+    return user.role == Role.ADMIN or user_is_department(user, "IT", "Information Technology")
+
+
+def can_view_inventory_reports(user: User) -> bool:
+    return can_manage_inventory(user) or user_is_department(user, "Human Resource", "Human Resources", "HR")
+
+
+def require_inventory_manager(user: User) -> None:
+    if not can_manage_inventory(user):
+        raise HTTPException(status_code=403, detail="Inventory management is available to IT and admin users")
+
+
+def require_inventory_report_access(user: User) -> None:
+    if not can_view_inventory_reports(user):
+        raise HTTPException(status_code=403, detail="Asset reports are available to IT, Human Resource, and admin users")
 
 
 def managed_people(db: Session, org_id: int, user: User) -> list[User]:
@@ -2612,7 +2640,7 @@ def select_activity_type_for_ai_task(
     return default_activity_type
 
 
-def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
+def extract_bulk_tasks_with_openai(raw_content: str, include_owner: bool = False) -> list[dict[str, Any]]:
     task_lines = split_freeflow_task_input(raw_content)
     if not task_lines:
         return []
@@ -2634,7 +2662,8 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
                     "{\"title\":\"...\",\"description\":\"...\",\"start_date\":\"YYYY-MM-DD or null\",\"end_date\":\"YYYY-MM-DD or null\","
                     "\"estimated_hours\":number or null,\"category\":\"software_development|project_delivery_management|product_management|it_tasks|infra_management|people_management|others\","
                     "\"status\":\"not_started|started|stalled|closed\",\"is_backlog\":boolean,\"stalled_reason\":\"string or empty\","
-                    "\"time_logs\":[{\"log_date\":\"YYYY-MM-DD\",\"hours\":number,\"notes\":\"string\"}]}. "
+                    "\"time_logs\":[{\"log_date\":\"YYYY-MM-DD\",\"hours\":number,\"notes\":\"string\"}]"
+                    + (",\"owner_name\":\"name as written, or empty\"" if include_owner else "") + "}. "
                     "Extract every actionable task. Split multiple asks into separate tasks. Ignore greetings, signatures, and non-actionable chatter. "
                     "Rewrite title and description to be concise, professional, and directly actionable. "
                     "Prefer specific dates when the text implies them. Resolve phrases like today, yesterday, tomorrow, this week, next week, last Monday, last Tuesday, Monday, Friday, by Wednesday, and similar scheduling language into dates. "
@@ -2648,6 +2677,7 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
                     "Set status to not_started unless the source clearly says work has begun, is stalled, or is completed. "
                     "Set is_backlog true only when there is no reliable schedule and no reliable effort estimate. Otherwise set it false. "
                     "If status is stalled, include a short stalled_reason; otherwise use an empty string."
+                    + (" Preserve each task owner's name exactly as written in owner_name; do not guess or assign a name when none is stated." if include_owner else "")
                 ),
             },
             {
@@ -2729,8 +2759,7 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
                 start_date = min(log["log_date"] for log in normalized_time_logs)
             if normalized_time_logs and status == TaskStatus.NOT_STARTED.value:
                 status = TaskStatus.STARTED.value
-            normalized_tasks.append(
-                {
+            normalized_task = {
                     "title": title,
                     "description": description or title,
                     "start_date": None if is_backlog else start_date,
@@ -2742,7 +2771,9 @@ def extract_bulk_tasks_with_openai(raw_content: str) -> list[dict[str, Any]]:
                     "stalled_reason": stalled_reason if status == TaskStatus.STALLED.value else "",
                     "time_logs": [] if is_backlog else normalized_time_logs,
                 }
-            )
+            if include_owner:
+                normalized_task["owner_name"] = str(item.get("owner_name") or "").strip()[:160]
+            normalized_tasks.append(normalized_task)
         if normalized_tasks:
             return normalized_tasks
         logger.warning("Bulk task AI returned no usable tasks, using local fallback")
@@ -4125,6 +4156,30 @@ def profile_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
+    active_asset_allocations = db.scalars(
+        select(InventoryAllocation)
+        .where(
+            InventoryAllocation.org_id == org.id,
+            InventoryAllocation.user_id == user.id,
+            InventoryAllocation.returned_at.is_(None),
+        )
+        .order_by(InventoryAllocation.allocated_at.desc(), InventoryAllocation.id.desc())
+    ).all()
+    profile_asset_ids = [allocation.inventory_item_id for allocation in active_asset_allocations]
+    profile_asset_items = {
+        item.id: item
+        for item in db.scalars(
+            select(InventoryItem).where(
+                InventoryItem.org_id == org.id,
+                InventoryItem.id.in_(profile_asset_ids),
+            )
+        ).all()
+    } if profile_asset_ids else {}
+    profile_assets = [
+        {"item": profile_asset_items[allocation.inventory_item_id], "allocated_at": allocation.allocated_at}
+        for allocation in active_asset_allocations
+        if allocation.inventory_item_id in profile_asset_items
+    ]
     team_people = reporting_tree_people(db, org.id, user)
     today = local_today()
     current_year = today.year
@@ -4164,6 +4219,7 @@ def profile_page(
             "request": request,
             "org": org,
             "user": user,
+            "profile_assets": profile_assets,
             "leave_requests": leave_requests,
             "team_people": team_people,
             "team_leave_requests": team_leave_requests,
@@ -4184,6 +4240,22 @@ def profile_page(
             "selected_avatar_emoji": user_avatar_emoji(user),
         },
     )
+
+
+@app.post("/{org_slug}/profile/location")
+def update_profile_location_page(
+    org_slug: str,
+    location: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    _, user = org_user
+    normalized_location = re.sub(r"\s+", " ", location).strip()
+    if not normalized_location or len(normalized_location) > 120:
+        raise HTTPException(status_code=400, detail="Enter a location of up to 120 characters")
+    user.location = normalized_location
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/profile", status_code=303)
 
 
 @app.post("/{org_slug}/profile/photo")
@@ -4215,6 +4287,390 @@ def update_profile_emoji_page(
     user.avatar_24_url = ""
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/profile", status_code=303)
+
+
+@app.get("/{org_slug}/inventory", response_class=HTMLResponse)
+def inventory_page(
+    request: Request,
+    org_slug: str,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_manager(user)
+    items = db.scalars(
+        select(InventoryItem).where(InventoryItem.org_id == org.id).order_by(InventoryItem.asset_type, InventoryItem.name)
+    ).all()
+    item_ids = [item.id for item in items]
+    active_allocations = db.scalars(
+        select(InventoryAllocation).where(
+            InventoryAllocation.org_id == org.id,
+            InventoryAllocation.inventory_item_id.in_(item_ids),
+            InventoryAllocation.returned_at.is_(None),
+        )
+    ).all() if item_ids else []
+    history_item_ids = set(db.scalars(
+        select(InventoryAllocation.inventory_item_id).where(
+            InventoryAllocation.org_id == org.id,
+            InventoryAllocation.inventory_item_id.in_(item_ids),
+        )
+    ).all()) if item_ids else set()
+    allocations_by_item = {allocation.inventory_item_id: allocation for allocation in active_allocations}
+    person_ids = {allocation.user_id for allocation in active_allocations}
+    people_by_id = {
+        person.id: person for person in db.scalars(
+            select(User).where(User.org_id == org.id, User.id.in_(person_ids))
+        ).all()
+    } if person_ids else {}
+    item_rows = [
+        {"item": item, "allocation": allocations_by_item.get(item.id), "person": people_by_id.get(allocations_by_item[item.id].user_id) if item.id in allocations_by_item else None, "has_history": item.id in history_item_ids}
+        for item in items
+    ]
+    return templates.TemplateResponse("inventory.html", {
+        "request": request, "org": org, "user": user, "item_rows": item_rows,
+        "today": local_today(), "error": request.query_params.get("error", ""),
+    })
+
+
+@app.post("/{org_slug}/inventory")
+def create_inventory_item_page(
+    org_slug: str,
+    asset_tag: str = Form(...),
+    asset_type: str = Form(...),
+    name: str = Form(...),
+    manufacturer: str = Form(""),
+    model: str = Form(""),
+    serial_number: str = Form(""),
+    license_reference: str = Form(""),
+    purchase_date: str = Form(""),
+    warranty_end: str = Form(""),
+    notes: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_manager(user)
+    normalized_tag = re.sub(r"\s+", " ", asset_tag).strip()
+    normalized_name = re.sub(r"\s+", " ", name).strip()
+    normalized_type = asset_type.strip().lower()
+    if not normalized_tag or not normalized_name or normalized_type not in {"hardware", "software"}:
+        raise HTTPException(status_code=400, detail="Enter an asset tag, name, and valid asset type")
+    if db.scalar(select(InventoryItem.id).where(InventoryItem.org_id == org.id, InventoryItem.asset_tag == normalized_tag)):
+        raise HTTPException(status_code=400, detail="That asset tag is already in use")
+    parsed_purchase = parse_optional_date(purchase_date)
+    parsed_warranty = parse_optional_date(warranty_end)
+    if purchase_date and not parsed_purchase or warranty_end and not parsed_warranty:
+        raise HTTPException(status_code=400, detail="Enter valid purchase and warranty dates")
+    item = InventoryItem(
+        org_id=org.id, asset_tag=normalized_tag[:100], asset_type=normalized_type,
+        name=normalized_name[:200], manufacturer=manufacturer.strip()[:120], model=model.strip()[:120],
+        serial_number=serial_number.strip()[:160], license_reference=license_reference.strip()[:180],
+        purchase_date=parsed_purchase, warranty_end=parsed_warranty,
+        notes=notes.strip(), is_active=True, created_by_id=user.id,
+    )
+    db.add(item)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory", status_code=303)
+
+
+@app.post("/{org_slug}/inventory/{item_id}/update")
+def update_inventory_item_page(
+    org_slug: str,
+    item_id: int,
+    asset_tag: str = Form(...),
+    asset_type: str = Form(...),
+    name: str = Form(...),
+    manufacturer: str = Form(""),
+    model: str = Form(""),
+    serial_number: str = Form(""),
+    license_reference: str = Form(""),
+    purchase_date: str = Form(""),
+    warranty_end: str = Form(""),
+    notes: str = Form(""),
+    is_active: bool = Form(False),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_manager(user)
+    item = db.scalar(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.org_id == org.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    normalized_tag = re.sub(r"\s+", " ", asset_tag).strip()
+    normalized_name = re.sub(r"\s+", " ", name).strip()
+    normalized_type = asset_type.strip().lower()
+    if not normalized_tag or not normalized_name or normalized_type not in {"hardware", "software"}:
+        raise HTTPException(status_code=400, detail="Enter an asset tag, name, and valid asset type")
+    duplicate = db.scalar(select(InventoryItem.id).where(
+        InventoryItem.org_id == org.id, InventoryItem.asset_tag == normalized_tag, InventoryItem.id != item.id
+    ))
+    if duplicate:
+        raise HTTPException(status_code=400, detail="That asset tag is already in use")
+    if not is_active and db.scalar(select(InventoryAllocation.id).where(
+        InventoryAllocation.inventory_item_id == item.id, InventoryAllocation.returned_at.is_(None)
+    )):
+        raise HTTPException(status_code=400, detail="Return the allocated asset before retiring it")
+    parsed_purchase = parse_optional_date(purchase_date)
+    parsed_warranty = parse_optional_date(warranty_end)
+    if purchase_date and not parsed_purchase or warranty_end and not parsed_warranty:
+        raise HTTPException(status_code=400, detail="Enter valid purchase and warranty dates")
+    item.asset_tag = normalized_tag[:100]
+    item.asset_type = normalized_type
+    item.name = normalized_name[:200]
+    item.manufacturer = manufacturer.strip()[:120]
+    item.model = model.strip()[:120]
+    item.serial_number = serial_number.strip()[:160]
+    item.license_reference = license_reference.strip()[:180]
+    item.purchase_date = parsed_purchase
+    item.warranty_end = parsed_warranty
+    item.notes = notes.strip()
+    item.is_active = is_active
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory", status_code=303)
+
+
+@app.post("/{org_slug}/inventory/{item_id}/delete")
+def delete_inventory_item_page(
+    org_slug: str,
+    item_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_manager(user)
+    item = db.scalar(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.org_id == org.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    if db.scalar(select(InventoryAllocation.id).where(InventoryAllocation.inventory_item_id == item.id)):
+        raise HTTPException(status_code=400, detail="This item has allocation history. Retire it to preserve the asset record.")
+    db.delete(item)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory", status_code=303)
+
+
+@app.get("/{org_slug}/inventory/allocations", response_class=HTMLResponse)
+def inventory_allocations_page(
+    request: Request,
+    org_slug: str,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_manager(user)
+    items = db.scalars(select(InventoryItem).where(InventoryItem.org_id == org.id).order_by(InventoryItem.asset_tag)).all()
+    all_people = db.scalars(select(User).where(User.org_id == org.id).order_by(User.full_name)).all()
+    people = [person for person in all_people if person.is_active]
+    allocations = db.scalars(
+        select(InventoryAllocation).where(InventoryAllocation.org_id == org.id)
+        .order_by(InventoryAllocation.returned_at.is_not(None), InventoryAllocation.allocated_at.desc(), InventoryAllocation.id.desc())
+    ).all()
+    item_map = {item.id: item for item in items}
+    people_map = {person.id: person for person in all_people}
+    allocated_item_ids = {allocation.inventory_item_id for allocation in allocations if allocation.returned_at is None}
+    available_items = [item for item in items if item.is_active and item.id not in allocated_item_ids]
+    return templates.TemplateResponse("inventory_allocations.html", {
+        "request": request, "org": org, "user": user, "items": items, "available_items": available_items,
+        "people": people, "allocations": allocations, "item_map": item_map, "people_map": people_map,
+        "today": local_today(),
+    })
+
+
+def validate_inventory_allocation(
+    db: Session, org_id: int, item_id: int, user_id: int, exclude_allocation_id: int | None = None,
+) -> tuple[InventoryItem, User]:
+    item = db.scalar(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.org_id == org_id))
+    person = db.scalar(select(User).where(User.id == user_id, User.org_id == org_id, User.is_active.is_(True)))
+    if not item or not item.is_active:
+        raise HTTPException(status_code=400, detail="Choose an active inventory item")
+    if not person:
+        raise HTTPException(status_code=400, detail="Choose an active employee")
+    conflict_query = select(InventoryAllocation.id).where(
+        InventoryAllocation.org_id == org_id,
+        InventoryAllocation.inventory_item_id == item.id,
+        InventoryAllocation.returned_at.is_(None),
+    )
+    if exclude_allocation_id:
+        conflict_query = conflict_query.where(InventoryAllocation.id != exclude_allocation_id)
+    if db.scalar(conflict_query):
+        raise HTTPException(status_code=400, detail="This item is already allocated. Return it before reallocating.")
+    return item, person
+
+
+@app.post("/{org_slug}/inventory/allocations")
+def create_inventory_allocation_page(
+    org_slug: str,
+    inventory_item_id: int = Form(...),
+    user_id: int = Form(...),
+    allocated_at: str = Form(...),
+    notes: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    require_inventory_manager(manager)
+    item, person = validate_inventory_allocation(db, org.id, inventory_item_id, user_id)
+    allocation_date = parse_optional_date(allocated_at)
+    if not allocation_date or allocation_date > local_today():
+        raise HTTPException(status_code=400, detail="Enter a valid allocation date no later than today")
+    db.add(InventoryAllocation(
+        org_id=org.id, inventory_item_id=item.id, user_id=person.id,
+        allocated_by_id=manager.id, allocated_at=allocation_date, notes=notes.strip(),
+    ))
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
+
+
+@app.post("/{org_slug}/inventory/allocations/{allocation_id}/update")
+def update_inventory_allocation_page(
+    org_slug: str,
+    allocation_id: int,
+    inventory_item_id: int = Form(...),
+    user_id: int = Form(...),
+    allocated_at: str = Form(...),
+    returned_at: str = Form(""),
+    notes: str = Form(""),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    require_inventory_manager(manager)
+    allocation = db.scalar(select(InventoryAllocation).where(
+        InventoryAllocation.id == allocation_id, InventoryAllocation.org_id == org.id
+    ))
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    allocation_date = parse_optional_date(allocated_at)
+    return_date = parse_optional_date(returned_at)
+    if not allocation_date or allocation_date > local_today() or (return_date and (return_date < allocation_date or return_date > local_today())):
+        raise HTTPException(status_code=400, detail="Enter valid allocation and return dates")
+    item, person = validate_inventory_allocation(db, org.id, inventory_item_id, user_id, allocation.id)
+    if return_date is None and not item.is_active:
+        raise HTTPException(status_code=400, detail="A retired item cannot have an active allocation")
+    allocation.inventory_item_id = item.id
+    allocation.user_id = person.id
+    allocation.allocated_at = allocation_date
+    allocation.returned_at = return_date
+    allocation.notes = notes.strip()
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
+
+
+@app.post("/{org_slug}/inventory/allocations/{allocation_id}/return")
+def return_inventory_allocation_page(
+    org_slug: str,
+    allocation_id: int,
+    returned_at: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    require_inventory_manager(manager)
+    allocation = db.scalar(select(InventoryAllocation).where(
+        InventoryAllocation.id == allocation_id, InventoryAllocation.org_id == org.id
+    ))
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    return_date = parse_optional_date(returned_at)
+    if not return_date or return_date < allocation.allocated_at or return_date > local_today():
+        raise HTTPException(status_code=400, detail="Enter a valid return date")
+    allocation.returned_at = return_date
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
+
+
+@app.post("/{org_slug}/inventory/allocations/{allocation_id}/delete")
+def delete_inventory_allocation_page(
+    org_slug: str,
+    allocation_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, manager = org_user
+    require_inventory_manager(manager)
+    allocation = db.scalar(select(InventoryAllocation).where(
+        InventoryAllocation.id == allocation_id, InventoryAllocation.org_id == org.id
+    ))
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    db.delete(allocation)
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
+
+
+def asset_report_rows(db: Session, org_id: int) -> tuple[list[InventoryItem], dict[int, InventoryAllocation], dict[int, User], list[User]]:
+    items = db.scalars(select(InventoryItem).where(InventoryItem.org_id == org_id).order_by(InventoryItem.asset_tag)).all()
+    item_ids = [item.id for item in items]
+    active_allocations = db.scalars(select(InventoryAllocation).where(
+        InventoryAllocation.org_id == org_id,
+        InventoryAllocation.inventory_item_id.in_(item_ids),
+        InventoryAllocation.returned_at.is_(None),
+    )).all() if item_ids else []
+    allocation_map = {allocation.inventory_item_id: allocation for allocation in active_allocations}
+    employee_ids = {allocation.user_id for allocation in active_allocations}
+    people = db.scalars(select(User).where(User.org_id == org_id, User.is_active.is_(True)).order_by(User.full_name)).all()
+    employees_by_id = {person.id: person for person in people}
+    return items, allocation_map, employees_by_id, people
+
+
+def safe_csv_value(value: Any) -> str:
+    text_value = "" if value is None else str(value)
+    return "'" + text_value if text_value.startswith(("=", "+", "-", "@", "\t", "\r")) else text_value
+
+
+@app.get("/{org_slug}/assets/reports", response_class=HTMLResponse)
+def inventory_reports_page(
+    request: Request,
+    org_slug: str,
+    export: str = "",
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_report_access(user)
+    items, allocation_map, employees_by_id, employees = asset_report_rows(db, org.id)
+    inventory_rows = []
+    employee_asset_map: dict[int, list[InventoryItem]] = {}
+    for item in items:
+        allocation = allocation_map.get(item.id)
+        employee = employees_by_id.get(allocation.user_id) if allocation else None
+        inventory_rows.append({"item": item, "allocation": allocation, "employee": employee})
+        if employee:
+            employee_asset_map.setdefault(employee.id, []).append(item)
+    employee_rows = [{"employee": employee, "assets": employee_asset_map.get(employee.id, [])} for employee in employees]
+    if export not in {"", "inventory", "employees"}:
+        raise HTTPException(status_code=400, detail="Choose an inventory or employee report")
+    if export:
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        if export == "inventory":
+            writer.writerow(["Asset tag", "Type", "Name", "Manufacturer", "Model", "Serial number", "License reference", "Status", "Employee", "Department", "Location", "Allocated on", "Purchase date", "Warranty end", "Notes"])
+            for row in inventory_rows:
+                item, allocation, employee = row["item"], row["allocation"], row["employee"]
+                writer.writerow([safe_csv_value(value) for value in [
+                    item.asset_tag, item.asset_type, item.name, item.manufacturer, item.model, item.serial_number,
+                    item.license_reference, "Retired" if not item.is_active else ("Allocated" if allocation else "Available"),
+                    employee.full_name if employee else "", employee.department.name if employee and employee.department else "",
+                    employee.location if employee else "", allocation.allocated_at if allocation else "",
+                    item.purchase_date, item.warranty_end, item.notes,
+                ]])
+            filename = "asset-inventory.csv"
+        else:
+            writer.writerow(["Employee", "Email", "Department", "Location", "Asset tag", "Type", "Asset", "Manufacturer", "Model", "Serial number", "License reference"])
+            for row in employee_rows:
+                employee = row["employee"]
+                if not row["assets"]:
+                    writer.writerow([safe_csv_value(value) for value in [employee.full_name, employee.email, employee.department.name if employee.department else "", employee.location, "", "", "", "", "", "", ""]])
+                for item in row["assets"]:
+                    writer.writerow([safe_csv_value(value) for value in [employee.full_name, employee.email, employee.department.name if employee.department else "", employee.location, item.asset_tag, item.asset_type, item.name, item.manufacturer, item.model, item.serial_number, item.license_reference]])
+            filename = "employee-assets.csv"
+        return Response(
+            content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return templates.TemplateResponse("inventory_reports.html", {
+        "request": request, "org": org, "user": user, "inventory_rows": inventory_rows,
+        "employee_rows": employee_rows,
+    })
 
 
 @app.post("/api/v1/auth/login")
@@ -7463,7 +7919,13 @@ def create_team_tasks_page(request: Request, org_slug: str, org_user: tuple[Orga
     if manager.role not in {Role.MANAGER, Role.ADMIN}:
         raise HTTPException(status_code=403, detail="Manager access required")
     people = [person for person in org_people(db, org.id) if person.id != manager.id and (manager.role == Role.ADMIN or can_manage_user_scope(db, org.id, manager, person.id))]
-    return templates.TemplateResponse("create_team_tasks.html", {"request": request, "org": org, "user": manager, "people": people, "ai_configured": bool(settings.openai_api_key.strip())})
+    return templates.TemplateResponse("create_team_tasks.html", {
+        "request": request,
+        "org": org,
+        "user": manager,
+        "people": people,
+        "ai_configured": bool(settings.openai_api_key.strip()),
+    })
 
 
 @app.post("/{org_slug}/manager/create-team-tasks/parse")
@@ -7472,34 +7934,26 @@ def parse_team_tasks(org_slug: str, freeflow_tasks: str = Form(""), org_user: tu
     if manager.role not in {Role.MANAGER, Role.ADMIN}:
         raise HTTPException(status_code=403, detail="Manager access required")
     people = [person for person in org_people(db, org.id) if person.id != manager.id and (manager.role == Role.ADMIN or can_manage_user_scope(db, org.id, manager, person.id))]
-    if not freeflow_tasks.strip():
-        return {"tasks": [], "people": [{"id": p.id, "name": p.full_name} for p in people]}
-    prompt = {"model": settings.openai_backlog_model, "temperature": 0.1, "response_format": {"type": "json_object"}, "messages": [
-        {"role": "system", "content": "Extract actionable work assignments as JSON {tasks:[{title,description,owner_name,due_date}]}. Preserve owner names as written and resolve clear deadlines to YYYY-MM-DD. Use null when absent. Return every task. Do not invent owners or dates."},
-        {"role": "user", "content": freeflow_tasks[:20000]},
-    ]}
-    try:
-        if not settings.openai_api_key.strip():
-            raise RuntimeError("AI is not configured")
-        with httpx.Client(timeout=45.0) as client:
-            response = client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}, json=prompt)
-        response.raise_for_status()
-        parsed = parse_json_payload(response.json()["choices"][0]["message"]["content"])
-        result = []
-        for item in parsed.get("tasks", []):
-            title = str(item.get("title") or "").strip()[:300]
-            if not title: continue
-            owner_name = str(item.get("owner_name") or "").strip()
-            owner_match = next((p for p in people if p.full_name.casefold() == owner_name.casefold()), None)
-            if not owner_match and owner_name:
-                matches = [p for p in people if owner_name.casefold() in p.full_name.casefold() or p.full_name.casefold() in owner_name.casefold()]
-                owner_match = matches[0] if len(matches) == 1 else None
-            due = parse_optional_date(str(item.get("due_date") or ""))
-            result.append({"title": title, "description": str(item.get("description") or title), "owner_name": owner_name, "owner_id": owner_match.id if owner_match else None, "due_date": due.isoformat() if due else ""})
-        return {"tasks": result, "people": [{"id": p.id, "name": p.full_name} for p in people]}
-    except Exception as exc:
-        logger.warning("Team task parsing failed: %s", exc.__class__.__name__)
-        raise HTTPException(status_code=502, detail="AI could not parse this list. Please try again or check AI configuration.")
+    tasks = extract_bulk_tasks_with_openai(freeflow_tasks, include_owner=True) if freeflow_tasks.strip() else []
+    for item in tasks:
+        item.setdefault("description", item.get("title") or "")
+        item.setdefault("category", "others")
+        item.setdefault("status", TaskStatus.NOT_STARTED.value)
+        item.setdefault("is_backlog", False)
+        item.setdefault("stalled_reason", "")
+        item.setdefault("time_logs", [])
+        owner_name = str(item.get("owner_name") or "").strip()
+        owner_match = next((person for person in people if person.full_name.casefold() == owner_name.casefold()), None)
+        if not owner_match and owner_name:
+            matches = [person for person in people if owner_name.casefold() in person.full_name.casefold() or person.full_name.casefold() in owner_name.casefold()]
+            owner_match = matches[0] if len(matches) == 1 else None
+        item["owner_id"] = owner_match.id if owner_match else None
+    return {
+        "tasks": tasks,
+        "people": [{"id": person.id, "name": person.full_name} for person in people],
+        "categories": [{"value": key, "label": label} for key, label in ACTIVITY_CATEGORY_CHOICES],
+        "statuses": [{"value": item.value, "label": item.value.replace("_", " ").title()} for item in TaskStatus],
+    }
 
 
 @app.post("/{org_slug}/manager/create-team-tasks/save")
@@ -7507,9 +7961,17 @@ def save_team_tasks(org_slug: str, payload: dict, org_user: tuple[Organization, 
     org, manager = org_user
     if manager.role not in {Role.MANAGER, Role.ADMIN}:
         raise HTTPException(status_code=403, detail="Manager access required")
+    parsed_tasks = payload.get("tasks", [])
+    if not isinstance(parsed_tasks, list) or not parsed_tasks:
+        raise HTTPException(status_code=400, detail="Add at least one task to create")
     created = []
-    for item in payload.get("tasks", []):
-        owner_id = int(item.get("owner_id") or 0)
+    for item in parsed_tasks:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="Invalid task details")
+        try:
+            owner_id = int(item.get("owner_id") or 0)
+        except (TypeError, ValueError):
+            owner_id = 0
         if not can_manage_user_scope(db, org.id, manager, owner_id):
             raise HTTPException(status_code=400, detail="Choose a valid team member for every task")
         owner = db.get(User, owner_id)
@@ -7517,10 +7979,63 @@ def save_team_tasks(org_slug: str, payload: dict, org_user: tuple[Organization, 
             raise HTTPException(status_code=400, detail="Invalid team member")
         project, default_activity = resolve_default_task_targets(db, org.id, owner)
         activity = select_activity_type_for_ai_task(visible_activity_types_for_user(db, org.id, owner), default_activity, str(item.get("category") or "others"))
-        due = parse_optional_date(str(item.get("due_date") or ""))
-        task = Task(task_id=next_task_id(project), org_id=org.id, project_id=project.id, assigned_to=owner.id, created_by=manager.id, name=str(item.get("title") or "").strip()[:300], description=sanitize_html(str(item.get("description") or "")), activity_type_id=activity.id, status=TaskStatus.NOT_STARTED, dashboard_rank=next_dashboard_rank(db, org.id, owner.id), end_date=due)
-        if not task.name: raise HTTPException(status_code=400, detail="Task title is required")
-        db.add(task); db.flush(); created.append(task.task_id)
+        title = str(item.get("title") or "").strip()[:300]
+        if not title:
+            raise HTTPException(status_code=400, detail="Every task needs a title")
+        try:
+            status = TaskStatus(str(item.get("status") or TaskStatus.NOT_STARTED.value))
+        except ValueError:
+            status = TaskStatus.NOT_STARTED
+        is_backlog = normalize_ai_boolean(item.get("is_backlog"))
+        parsed_logs = []
+        for log in item.get("time_logs") or []:
+            if not isinstance(log, dict):
+                continue
+            raw_date = str(log.get("log_date") or "").strip()
+            raw_hours = str(log.get("hours") or "").strip()
+            raw_notes = str(log.get("notes") or "").strip()
+            if not raw_date and not raw_hours and not raw_notes:
+                continue
+            log_date = parse_optional_date(raw_date)
+            hours = parse_optional_decimal(raw_hours)
+            if not log_date or hours is None or not hours.is_finite() or hours <= 0:
+                raise HTTPException(status_code=400, detail="Logged effort needs a valid date and positive hours")
+            if log_date > local_today():
+                raise HTTPException(status_code=400, detail="Logged effort cannot use a future date")
+            notes = normalize_time_log_notes(raw_notes)
+            parsed_logs.append({"log_date": log_date, "hours": hours, "notes": notes})
+        earliest_log = min((log["log_date"] for log in parsed_logs), default=None)
+        latest_log = max((log["log_date"] for log in parsed_logs), default=None)
+        start_date = parse_optional_date(str(item.get("start_date") or "")) or earliest_log
+        end_date = parse_optional_date(str(item.get("end_date") or ""))
+        estimated_hours = parse_optional_decimal(str(item.get("estimated_hours") or ""))
+        if is_backlog and (start_date or end_date or estimated_hours is not None or parsed_logs):
+            is_backlog = False
+        if is_backlog:
+            start_date = end_date = estimated_hours = None
+        elif estimated_hours is not None and (not estimated_hours.is_finite() or estimated_hours < 0):
+            raise HTTPException(status_code=400, detail="Estimated effort must be zero or more")
+        if status == TaskStatus.STALLED and not str(item.get("stalled_reason") or "").strip():
+            raise HTTPException(status_code=400, detail="Add a reason for every stalled task")
+        task = Task(
+            task_id=next_task_id(project), org_id=org.id, project_id=project.id,
+            assigned_to=owner.id, created_by=manager.id, name=title,
+            description=sanitize_html(str(item.get("description") or title)),
+            activity_type_id=activity.id, status=status,
+            dashboard_rank=next_dashboard_rank(db, org.id, owner.id),
+            start_date=start_date, end_date=end_date, estimated_hours=estimated_hours,
+            stalled_reason=str(item.get("stalled_reason") or "").strip()[:500] if status == TaskStatus.STALLED else "",
+            closed_at=datetime.combine(latest_log, datetime.max.time().replace(microsecond=0)) if status == TaskStatus.CLOSED and latest_log else (datetime.utcnow() if status == TaskStatus.CLOSED else None),
+        )
+        db.add(task)
+        db.flush()
+        logged_hours = Decimal("0")
+        for log in parsed_logs:
+            logged_hours += log["hours"]
+            db.add(TimeLog(task_id=task.id, user_id=manager.id, log_date=log["log_date"], hours=log["hours"], notes=log["notes"]))
+        if logged_hours:
+            task.logged_hours = logged_hours
+        created.append(task.task_id)
     db.commit()
     return {"ok": True, "created": len(created), "task_ids": created}
 

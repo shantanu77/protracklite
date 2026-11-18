@@ -659,6 +659,16 @@ textarea {
 .profile-leave-table td > small { max-width: 26rem; margin-top: 0.12rem; overflow: hidden; color: var(--muted); font-size: 0.61rem; text-overflow: ellipsis; white-space: nowrap; }
 .profile-leave-row-actions .button { min-height: 1.85rem; padding: 0.3rem 0.48rem; font-size: 0.65rem; }
 .profile-leave-locked { color: var(--muted); white-space: nowrap; }
+.profile-location-panel,
+.profile-assets-panel { display:grid; gap:.75rem; margin-top:1rem; padding:1rem; }
+.profile-location-form { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:.75rem; }
+.profile-location-form label { display:grid; gap:.3rem; color:var(--muted); font-size:.72rem; font-weight:700; }
+.profile-location-form input { padding:.62rem .75rem; font-size:.8rem; }
+.profile-location-form button { min-height:2.4rem; }
+.profile-asset-type { display:inline-flex; padding:.2rem .45rem; border-radius:999px; background:#eef2ff; color:#4338ca; font-size:.62rem; font-weight:800; }
+.profile-asset-type.is-hardware { background:#e8f3ee; color:#176548; }
+.profile-assets-panel .profile-leave-table { min-width:900px; }
+@media (max-width:640px) { .profile-location-form { grid-template-columns:1fr; } .profile-location-form button { width:100%; } }
 
 .profile-leave-sync {
   display: inline-flex;
@@ -5889,7 +5899,58 @@ mark {
 }
 
 .task-detail-summary-head h2 {
-  margin-top: 0.6rem;
+  margin: 0;
+}
+
+.task-detail-edit {
+  padding: 0;
+  overflow: hidden;
+}
+
+.task-detail-edit > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.task-detail-edit > summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-detail-edit > summary > span:first-child {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.task-detail-edit > summary strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.task-detail-edit > summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.task-detail-edit[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.task-detail-edit[open] .task-detail-form {
+  padding: 1.1rem;
+}
+
+.task-detail-edit-caret {
+  color: var(--muted);
+  transition: transform 0.16s ease;
+}
+
+.task-detail-edit[open] .task-detail-edit-caret {
+  transform: rotate(180deg);
 }
 
 .task-create-more {

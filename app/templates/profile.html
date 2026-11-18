@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Account</p>
     <h1>Profile</h1>
-    <p>Manage the photo shown beside your updates, comments, and shared work.</p>
+    <p>Manage your profile, workplace location, and company assets assigned to you.</p>
   </div>
   <form method="get" action="/{{ org.slug }}/profile">
     <button type="submit" name="refresh_zoho" value="true" class="button secondary">↻ Refresh from Zoho</button>
@@ -50,6 +50,43 @@
       {% endfor %}
     </div>
   </form>
+</section>
+
+<section class="panel profile-location-panel">
+  <div class="profile-leaves-head">
+    <div><p class="eyebrow">Workplace</p><h2>My location</h2><p>Keep your current employee location up to date for asset and workplace reports.</p></div>
+  </div>
+  <form method="post" action="/{{ org.slug }}/profile/location" class="profile-location-form">
+    <label>Employee location<input type="text" name="location" value="{{ user.location or 'Noida' }}" maxlength="120" placeholder="Noida" required></label>
+    <button type="submit" class="button small">Save location</button>
+  </form>
+</section>
+
+<section class="panel profile-assets-panel">
+  <div class="profile-leaves-head">
+    <div><p class="eyebrow">My equipment &amp; access</p><h2>My allocated assets</h2><p>Hardware and software currently assigned to you.</p></div>
+    <span class="profile-local-data-note">{{ profile_assets|length }} active allocation{{ '' if profile_assets|length == 1 else 's' }}</span>
+  </div>
+  <div class="profile-leave-table-wrap">
+    <table class="profile-leave-table">
+      <thead><tr><th>Type</th><th>Asset</th><th>Asset tag</th><th>Manufacturer / model</th><th>Serial / license reference</th><th>Allocated</th></tr></thead>
+      <tbody>
+        {% for allocation in profile_assets %}
+        {% set asset = allocation.item %}
+        <tr>
+          <td><span class="profile-asset-type is-{{ asset.asset_type }}">{{ asset.asset_type|title }}</span></td>
+          <td><strong>{{ asset.name }}</strong></td>
+          <td>{{ asset.asset_tag }}</td>
+          <td>{{ [asset.manufacturer, asset.model]|reject('equalto', '')|join(' · ') or '—' }}</td>
+          <td>{{ asset.serial_number or asset.license_reference or '—' }}</td>
+          <td>{{ allocation.allocated_at.strftime('%d %b %Y') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No hardware or software assets are currently assigned to you.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="panel profile-attendance-panel">

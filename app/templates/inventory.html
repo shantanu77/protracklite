@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">IT · Asset management</p><h1>Manage Inventory</h1><p>Register hardware and software assets, track their status, and keep allocation history linked to each item.</p></div><div class="page-head-actions"><a class="button secondary" href="/{{ org.slug }}/inventory/allocations">Manage allocations</a><a class="button secondary" href="/{{ org.slug }}/assets/reports">Asset reports</a></div></section>
+{% if error %}<div class="alert">{{ error|replace('_',' ') }}</div>{% endif %}
+<section class="panel inventory-panel">
+  <div class="panel-head"><div><h2>Add an inventory item</h2><p>Use a unique asset tag for each device or software seat.</p></div></div>
+  <form method="post" action="/{{ org.slug }}/inventory" class="form-grid inventory-form">
+    <label>Asset tag<input name="asset_tag" maxlength="100" required placeholder="HW-1042"></label>
+    <label>Type<select name="asset_type" required><option value="hardware">Hardware</option><option value="software">Software</option></select></label>
+    <label>Name<input name="name" maxlength="200" required placeholder="Laptop, Adobe license…"></label>
+    <label>Manufacturer / vendor<input name="manufacturer" maxlength="120"></label>
+    <label>Model / plan<input name="model" maxlength="120"></label>
+    <label>Serial number<input name="serial_number" maxlength="160"></label>
+    <label>License reference<input name="license_reference" maxlength="180" placeholder="Account or seat reference"></label>
+    <label>Purchase date<input name="purchase_date" type="date"></label>
+    <label>Warranty end<input name="warranty_end" type="date"></label>
+    <label class="full">Notes<textarea name="notes" rows="2" placeholder="Condition, device specs, or license details"></textarea></label>
+    <button type="submit">Add to inventory</button>
+  </form>
+</section>
+
+<section class="panel inventory-panel">
+  <div class="panel-head"><div><h2>Inventory</h2><p>{{ item_rows|length }} registered item{{ '' if item_rows|length == 1 else 's' }}. Retire old items to preserve allocation history.</p></div></div>
+  <div class="inventory-table-wrap"><table class="inventory-table">
+    <thead><tr><th>Tag</th><th>Type</th><th>Asset</th><th>Assigned to</th><th>Status</th><th>Details</th></tr></thead>
+    <tbody>
+      {% for row in item_rows %}
+      {% set item = row.item %}
+      <tr>
+        <td><strong>{{ item.asset_tag }}</strong></td>
+        <td><span class="inventory-type is-{{ item.asset_type }}">{{ item.asset_type|title }}</span></td>
+        <td><strong>{{ item.name }}</strong><small>{{ item.manufacturer }}{% if item.manufacturer and item.model %} · {% endif %}{{ item.model }}</small></td>
+        <td>{{ row.person.full_name if row.person else '—' }}</td>
+        <td><span class="inventory-status {% if not item.is_active %}is-retired{% elif row.allocation %}is-allocated{% else %}is-available{% endif %}">{{ 'Retired' if not item.is_active else ('Allocated' if row.allocation else 'Available') }}</span></td>
+        <td><details class="inventory-edit"><summary>Edit</summary>
+          <form method="post" action="/{{ org.slug }}/inventory/{{ item.id }}/update" class="form-grid inventory-edit-form">
+            <label>Asset tag<input name="asset_tag" maxlength="100" value="{{ item.asset_tag }}" required></label>
+            <label>Type<select name="asset_type"><option value="hardware" {% if item.asset_type == 'hardware' %}selected{% endif %}>Hardware</option><option value="software" {% if item.asset_type == 'software' %}selected{% endif %}>Software</option></select></label>
+            <label>Name<input name="name" maxlength="200" value="{{ item.name }}" required></label>
+            <label>Manufacturer / vendor<input name="manufacturer" maxlength="120" value="{{ item.manufacturer }}"></label>
+            <label>Model / plan<input name="model" maxlength="120" value="{{ item.model }}"></label>
+            <label>Serial number<input name="serial_number" maxlength="160" value="{{ item.serial_number }}"></label>
+            <label>License reference<input name="license_reference" maxlength="180" value="{{ item.license_reference }}"></label>
+            <label>Purchase date<input name="purchase_date" type="date" value="{{ item.purchase_date.isoformat() if item.purchase_date else '' }}"></label>
+            <label>Warranty end<input name="warranty_end" type="date" value="{{ item.warranty_end.isoformat() if item.warranty_end else '' }}"></label>
+            <label class="full">Notes<textarea name="notes" rows="2">{{ item.notes }}</textarea></label>
+            <label class="checkbox full"><input name="is_active" type="checkbox" {% if item.is_active %}checked{% endif %}>Available for allocation</label>
+            <button type="submit">Save changes</button>
+          </form>
+        </details>
+        {% if not row.has_history %}<form method="post" action="/{{ org.slug }}/inventory/{{ item.id }}/delete" class="inventory-delete-form" onsubmit="return confirm('Permanently delete this inventory item?')"><button type="submit" class="button danger small">Delete</button></form>{% endif %}</td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="empty">No assets registered yet. Add hardware and software above.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<style>
+  .inventory-panel { display:grid; gap:.8rem; margin-top:1rem; padding:1rem; }
+  .inventory-form,.inventory-edit-form { grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; }
+  .inventory-form label,.inventory-edit-form label { display:grid; gap:.28rem; color:var(--muted); font-size:.7rem; font-weight:700; }
+  .inventory-form input,.inventory-form select,.inventory-form textarea,.inventory-edit-form input,.inventory-edit-form select,.inventory-edit-form textarea { padding:.58rem .68rem; font-size:.77rem; }
+  .inventory-table-wrap { max-height:65vh; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+  .inventory-table { min-width:950px; }
+  .inventory-table th,.inventory-table td { padding:.55rem .65rem; font-size:.72rem; vertical-align:middle; }
+  .inventory-table td small { display:block; color:var(--muted); font-size:.64rem; }
+  .inventory-type,.inventory-status { display:inline-flex; padding:.18rem .42rem; border-radius:999px; background:#eef2ff; color:#4338ca; font-size:.62rem; font-weight:800; white-space:nowrap; }
+  .inventory-type.is-hardware { background:#e8f3ee; color:#176548; }
+  .inventory-status.is-allocated { background:#eaf2ff; color:#2457a6; }
+  .inventory-status.is-retired { background:#f1f2f4; color:#65717c; }
+  .inventory-status.is-available { background:#eaf7ed; color:#26713d; }
+  .inventory-edit summary { color:var(--primary); cursor:pointer; font-size:.7rem; font-weight:700; }
+  .inventory-edit-form { width:min(620px,80vw); grid-template-columns:repeat(2,minmax(0,1fr)); padding:.75rem; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .inventory-delete-form { margin-top:.35rem; }
+  @media(max-width:760px) { .inventory-form,.inventory-edit-form { grid-template-columns:1fr; } .inventory-form .full,.inventory-edit-form .full { grid-column:auto; } .inventory-edit-form { width:min(84vw,480px); } }
+</style>
+{% endblock %}

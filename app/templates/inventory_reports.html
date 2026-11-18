@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head"><div><p class="eyebrow">Assets · Reports</p><h1>Inventory &amp; Employee Reports</h1><p>Current asset custody by item and employee, with employee workplace locations.</p></div><div class="page-head-actions"><a class="button secondary" href="/{{ org.slug }}/assets/reports?export=inventory">Download inventory CSV</a><a class="button secondary" href="/{{ org.slug }}/assets/reports?export=employees">Download employee CSV</a></div></section>
+<section class="panel asset-report-panel">
+  <div class="panel-head"><div><h2>Inventory report</h2><p>One row per registered hardware or software item.</p></div><a href="/{{ org.slug }}/inventory">Manage inventory ↗</a></div>
+  <div class="inventory-table-wrap"><table class="asset-report-table">
+    <thead><tr><th>Asset tag</th><th>Type</th><th>Asset</th><th>Manufacturer / model</th><th>Serial / license ref.</th><th>Status</th><th>Assigned employee</th><th>Location</th></tr></thead>
+    <tbody>
+      {% for row in inventory_rows %}{% set item = row.item %}
+      <tr><td><strong>{{ item.asset_tag }}</strong></td><td>{{ item.asset_type|title }}</td><td>{{ item.name }}</td><td>{{ [item.manufacturer, item.model]|reject('equalto','')|join(' · ') or '—' }}</td><td>{{ item.serial_number or item.license_reference or '—' }}</td><td>{{ 'Retired' if not item.is_active else ('Allocated' if row.allocation else 'Available') }}</td><td>{{ row.employee.full_name if row.employee else '—' }}</td><td>{{ row.employee.location or 'Noida' if row.employee else '—' }}</td></tr>
+      {% else %}<tr><td colspan="8" class="empty">No inventory items have been registered.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<section class="panel asset-report-panel">
+  <div class="panel-head"><div><h2>Employee asset report</h2><p>Active employees, their saved location, and currently allocated assets.</p></div></div>
+  <div class="inventory-table-wrap"><table class="asset-report-table employee-asset-report">
+    <thead><tr><th>Employee</th><th>Email</th><th>Department</th><th>Location</th><th>Current assets</th></tr></thead>
+    <tbody>
+      {% for row in employee_rows %}
+      <tr><td><strong>{{ row.employee.full_name }}</strong></td><td>{{ row.employee.email }}</td><td>{{ row.employee.department.name if row.employee.department else '—' }}</td><td>{{ row.employee.location or 'Noida' }}</td><td>{% for item in row.assets %}<span class="employee-asset-line"><strong>{{ item.asset_tag }}</strong> · {{ item.name }} <small>{{ item.asset_type|title }}</small></span>{% else %}<span class="empty">No current assets</span>{% endfor %}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">No active employees found.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<style>
+  .asset-report-panel { display:grid; gap:.8rem; margin-top:1rem; padding:1rem; }
+  .asset-report-table { min-width:1000px; }
+  .asset-report-table th,.asset-report-table td { padding:.55rem .65rem; font-size:.7rem; vertical-align:middle; }
+  .employee-asset-report { min-width:900px; }
+  .employee-asset-line { display:block; margin:.12rem 0; }
+  .employee-asset-line small { color:var(--muted); font-size:.62rem; }
+</style>
+{% endblock %}

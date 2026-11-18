@@ -29,6 +29,10 @@
         {% set planning_active = current_path.startswith('/' ~ org.slug ~ '/goals') %}
         {% set manager_active = current_path.startswith('/' ~ org.slug ~ '/manager/') or current_path == '/' ~ org.slug ~ '/admin/leaderboard' or current_path == '/' ~ org.slug ~ '/reports/monthly' %}
         {% set admin_active = current_path.startswith('/' ~ org.slug ~ '/admin/') and current_path != '/' ~ org.slug ~ '/admin/leaderboard' %}
+        {% set user_department = user.department.name|lower if user.department else '' %}
+        {% set can_manage_assets = user.role.value == 'admin' or user_department in ['it', 'information technology'] %}
+        {% set can_view_asset_reports = can_manage_assets or user_department in ['human resource', 'human resources', 'hr'] %}
+        {% set assets_active = current_path.startswith('/' ~ org.slug ~ '/inventory') or current_path.startswith('/' ~ org.slug ~ '/assets') %}
         <nav class="nav-drawer">
           <a class="sidebar-compose" href="/{{ org.slug }}/tasks/ai" title="Create tasks with AI · Alt+Shift+K">
             <span class="sidebar-compose-mark" aria-hidden="true">+</span>
@@ -75,6 +79,21 @@
               </div>
             </div>
           </div>
+          {% if can_view_asset_reports %}
+          <div class="nav-group{% if assets_active %} is-expanded{% endif %}" data-nav-group>
+            <button class="nav-section-toggle" type="button" aria-expanded="{{ 'true' if assets_active else 'false' }}">
+              <span class="nav-section">Assets</span>
+              <span class="nav-section-caret" aria-hidden="true"></span>
+            </button>
+            <div class="nav-group-body">
+              {% if can_manage_assets %}
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/inventory' %} primary{% endif %}" href="/{{ org.slug }}/inventory" {% if current_path == '/' ~ org.slug ~ '/inventory' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">▣</span><span>Manage Inventory</span></a>
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/inventory/allocations' %} primary{% endif %}" href="/{{ org.slug }}/inventory/allocations" {% if current_path == '/' ~ org.slug ~ '/inventory/allocations' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">⇄</span><span>Manage Allocations</span></a>
+              {% endif %}
+              <a class="nav-link{% if current_path == '/' ~ org.slug ~ '/assets/reports' %} primary{% endif %}" href="/{{ org.slug }}/assets/reports" {% if current_path == '/' ~ org.slug ~ '/assets/reports' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">▤</span><span>Asset Reports</span></a>
+            </div>
+          </div>
+          {% endif %}
           <div class="nav-group{% if planning_active %} is-expanded{% endif %}" data-nav-group>
             <button class="nav-section-toggle" type="button" aria-expanded="{{ 'true' if planning_active else 'false' }}">
               <span class="nav-section">Planning</span>
