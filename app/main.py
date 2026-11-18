@@ -4498,6 +4498,71 @@ def validate_inventory_allocation(
     return item, person
 
 
+def send_inventory_assignment_notice(db: Session, org: Organization, person: User) -> None:
+    """Email an employee a complete, current inventory custody summary."""
+    if not person.email:
+        return
+    allocations = db.scalars(select(InventoryAllocation).where(
+        InventoryAllocation.org_id == org.id,
+        InventoryAllocation.user_id == person.id,
+        InventoryAllocation.returned_at.is_(None),
+    ).order_by(InventoryAllocation.allocated_at.asc(), InventoryAllocation.id.asc())).all()
+    items_by_id = {item.id: item for item in db.scalars(select(InventoryItem).where(
+        InventoryItem.org_id == org.id,
+        InventoryItem.id.in_({allocation.inventory_item_id for allocation in allocations}),
+    )).all()} if allocations else {}
+    assets = [(allocation, items_by_id[allocation.inventory_item_id])
+              for allocation in allocations if allocation.inventory_item_id in items_by_id]
+    if not assets:
+        return
+
+    employee_name = html.escape(person.full_name or "Employee")
+    organization_name = html.escape(org.name or "ProtrackLite")
+    asset_rows = []
+    plain_rows = []
+    for allocation, item in assets:
+        details = [
+            ("Asset tag", item.asset_tag), ("Type", (item.asset_type or "hardware").title()),
+            ("Manufacturer", item.manufacturer), ("Model", item.model),
+            ("Serial number", item.serial_number), ("License reference", item.license_reference),
+            ("Allocated on", allocation.allocated_at.strftime("%d %b %Y") if allocation.allocated_at else ""),
+            ("Warranty end", item.warranty_end.strftime("%d %b %Y") if item.warranty_end else ""),
+            ("Notes", allocation.notes or item.notes),
+        ]
+        cells = "".join(
+            f'<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:12px;vertical-align:top">{html.escape(label)}</td>'
+            f'<td style="padding:6px 0;color:#172033;font-size:13px;vertical-align:top">{html.escape(str(value)) if value else "—"}</td></tr>'
+            for label, value in details if value
+        )
+        asset_rows.append(
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            'style="border:1px solid #e2e8f0;border-radius:10px;margin:0 0 14px;padding:12px">'
+            f'<tr><td style="padding-bottom:8px;border-bottom:1px solid #e2e8f0;font-size:15px;font-weight:700;color:#172033">{html.escape(item.name)}</td></tr>'
+            f'<tr><td style="padding-top:8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{cells}</table></td></tr>'
+            '</table>'
+        )
+        plain_rows.append(f"{item.name} ({item.asset_tag}) — " + ", ".join(
+            f"{label}: {value}" for label, value in details if value
+        ))
+
+    subject = f"Your assigned equipment and resources — {org.name}"
+    body = (f"Hello {person.full_name},\n\nHere are the assets currently assigned to you:\n\n"
+            + "\n\n".join(plain_rows)
+            + "\n\nPlease contact your IT team if any details are incorrect or an item needs to be returned.")
+    html_body = f'''<!doctype html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#172033">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:28px 12px"><tr><td align="center">
+<table role="presentation" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden">
+<tr><td style="background:#102a43;padding:24px 28px;color:#ffffff"><div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#bfdbfe">{organization_name} · Asset records</div><h1 style="font-size:22px;line-height:1.3;margin:10px 0 0">Your assigned equipment</h1></td></tr>
+<tr><td style="padding:26px 28px"><p style="font-size:15px;line-height:1.6;margin:0 0 8px">Hello {employee_name},</p><p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 20px">The following items are currently assigned to you. Keep this summary for your records and contact your IT team if anything needs correction or return.</p>
+{''.join(asset_rows)}
+<p style="font-size:12px;line-height:1.6;color:#64748b;margin:18px 0 0">This is an automatically generated asset custody notice from {organization_name}.</p></td></tr>
+</table></td></tr></table></body></html>'''
+    try:
+        send_email(person.email, subject, body, html_body)
+    except Exception:
+        logger.exception("Unable to send inventory assignment notice to user_id=%s", person.id)
+
+
 @app.post("/{org_slug}/inventory/allocations")
 def create_inventory_allocation_page(
     org_slug: str,
@@ -4519,6 +4584,7 @@ def create_inventory_allocation_page(
         allocated_by_id=manager.id, allocated_at=allocation_date, notes=notes.strip(),
     ))
     db.commit()
+    send_inventory_assignment_notice(db, org, person)
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
 
 
@@ -4541,6 +4607,9 @@ def update_inventory_allocation_page(
     ))
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
+    previous_user_id = allocation.user_id
+    previous_item_id = allocation.inventory_item_id
+    was_returned = allocation.returned_at is not None
     allocation_date = parse_optional_date(allocated_at)
     return_date = parse_optional_date(returned_at)
     if not allocation_date or allocation_date > local_today() or (return_date and (return_date < allocation_date or return_date > local_today())):
@@ -4554,6 +4623,8 @@ def update_inventory_allocation_page(
     allocation.returned_at = return_date
     allocation.notes = notes.strip()
     db.commit()
+    if return_date is None and (was_returned or previous_user_id != person.id or previous_item_id != item.id):
+        send_inventory_assignment_notice(db, org, person)
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
 
 
@@ -4686,7 +4757,7 @@ def hr_reports_page(
 ):
     org, user = org_user
     require_inventory_report_access(user)
-    if report not in {"workforce", "leave-attendance", "lifecycle"}:
+    if report not in {"workforce", "leave-attendance"}:
         raise HTTPException(400, "Choose a valid HR report")
     try:
         anchor = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
@@ -4727,24 +4798,6 @@ def hr_reports_page(
     attendance_rows = [{"person": people_by_id.get(item.user_id), "item": item} for item in regularizations
                        if item.user_id in people_by_id]
 
-    lists = db.scalars(select(WorkList).options(selectinload(WorkList.items), selectinload(WorkList.members)).where(
-        WorkList.org_id == org.id, WorkList.is_archived.is_(False)
-    ).order_by(case((WorkList.target_date.is_(None), 1), else_=0), WorkList.target_date.asc(), WorkList.title.asc())).all()
-    lifecycle_rows = []
-    for work_list in lists:
-        title = work_list.title.casefold()
-        kind = "Onboarding" if "onboard" in title else "Offboarding" if "offboard" in title else ""
-        if not kind:
-            continue
-        person = people_by_id.get(work_list.owner_user_id)
-        if not person:
-            continue
-        total = len(work_list.items)
-        complete = sum(1 for item in work_list.items if item.is_completed)
-        lifecycle_rows.append({"list": work_list, "kind": kind, "person": person,
-                               "total": total, "complete": complete,
-                               "assets": assets_by_employee.get(person.id, 0)})
-
     if export:
         output = io.StringIO(newline="")
         writer = csv.writer(output)
@@ -4762,12 +4815,6 @@ def hr_reports_page(
             for row in leave_rows:
                 writer.writerow([safe_csv_value(value) for value in [row["person"].full_name, row["date"], row["type"], row["approval"], row["days"]]])
             filename = f"hr-leave-{anchor:%Y-%m}.csv"
-        elif export == "lifecycle":
-            writer.writerow(["Process", "Employee", "Checklist", "Target date", "Completed", "Total", "Assets currently allocated"])
-            for row in lifecycle_rows:
-                writer.writerow([safe_csv_value(value) for value in [row["kind"], row["person"].full_name if row["person"] else "",
-                    row["list"].title, row["list"].target_date, row["complete"], row["total"], row["assets"]]])
-            filename = "hr-onboarding-offboarding.csv"
         else:
             raise HTTPException(400, "Choose a valid HR report export")
         return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
@@ -4779,7 +4826,7 @@ def hr_reports_page(
         "active_count": sum(1 for person in people if person.is_active),
         "department_count": len({person.department_id for person in people if person.department_id}),
         "leave_rows": leave_rows, "leave_totals": leave_totals, "snapshot": snapshot,
-        "attendance_rows": attendance_rows, "lifecycle_rows": lifecycle_rows,
+        "attendance_rows": attendance_rows,
         "sync_status": capacity_sync_status(db, org.id),
     })
 
