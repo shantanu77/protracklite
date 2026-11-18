@@ -9585,7 +9585,10 @@ def zoho_profile_attendance_feed(
     }
 
 
-def regularization_attendance_context(db: Session, org_id: int, user_id: int, attendance: dict[str, Any], start: date, end: date, *, include_missing_rows: bool = False) -> dict[str, Any]:
+def regularization_attendance_context(
+    db: Session, org_id: int, user_id: int, attendance: dict[str, Any], start: date, end: date,
+    *, include_missing_rows: bool = False, excluded_dates: set[date] | None = None,
+) -> dict[str, Any]:
     """Show missing working days only when Zoho attendance was loaded successfully."""
     if attendance.get("status") != "synced":
         return attendance
@@ -9606,10 +9609,11 @@ def regularization_attendance_context(db: Session, org_id: int, user_id: int, at
             attendance["remote_days"] = round(attendance["remote_days"] - old_remote + 1, 2)
             row.update(mode="remote", mode_label="Remote", attendance_location="Noida",
                        attendance_source="Regularization", office_count=0.0, remote_count=1.0)
-    attendance["working_day_count"] = len(working_dates)
+    expected_dates = [day for day in working_dates if day not in (excluded_dates or set())]
+    attendance["working_day_count"] = len(expected_dates)
     attendance["missing_days"] = [
         {"date": day, "label": day.strftime("%a, %d %b"), "request": request_by_day.get(day)}
-        for day in working_dates if day not in marked and day < local_today()
+        for day in expected_dates if day not in marked and day < local_today()
         and (not request_by_day.get(day) or request_by_day[day].status != "approved")
     ]
     if include_missing_rows:
@@ -9619,10 +9623,19 @@ def regularization_attendance_context(db: Session, org_id: int, user_id: int, at
             "mode": "missing", "mode_label": "No attendance",
             "attendance_location": "", "attendance_source": "",
             "is_open": False, "request": request_by_day.get(day),
-        } for day in working_dates if day not in marked)
+        } for day in expected_dates if day not in marked)
         attendance["rows"].sort(key=lambda row: row["date"], reverse=True)
-    attendance["unmarked_count"] = max(len(working_dates) - attendance["total_days"], 0)
+    attendance["unmarked_count"] = len(attendance["missing_days"])
     return attendance
+
+
+def team_leave_attendance_exclusions(feed: dict[str, Any]) -> set[date]:
+    """Leave days in the request feed should not be reported as missing attendance."""
+    return {
+        date.fromisoformat(day_label)
+        for day_label, leave_day in (feed.get("calendar_days") or {}).items()
+        if leave_day.get("status") in {"approved", "pending"}
+    }
 
 
 @app.post("/{org_slug}/profile/attendance/regularize")
@@ -9701,7 +9714,6 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
     pending_days = 0.0
     remote_dates: dict[date, float] = {}
     calendar_days: dict[str, dict[str, Any]] = {}
-    approved_full_leave_dates: set[date] = set()
     if leave_result.status == "synced":
         settings = get_settings()
         for raw in leave_result.leaves:
@@ -9726,20 +9738,6 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
                     for day, count in remote_day_counts:
                         remote_dates[day] = max(remote_dates.get(day, 0.0), count)
                 continue
-            if status.casefold() == "approved":
-                attendance_counts = year_day_counts
-                if not attendance_counts:
-                    attendance_dates = list(raw.get("day_dates") or ())
-                    if not attendance_dates:
-                        attendance_dates, _ = leave_working_dates(
-                            db, member.org_id, max(start_date, year_start), min(end_date, year_end),
-                        )
-                    daily_count = min(float(raw.get("leave_days") or len(attendance_dates)) / max(len(attendance_dates), 1), 1.0)
-                    attendance_counts = [(day, daily_count) for day in attendance_dates]
-                approved_full_leave_dates.update(
-                    day for day, count in attendance_counts
-                    if month_start <= day <= month_end and float(count) >= 1
-                )
             if year_day_counts:
                 year_days = sum(count for _, count in year_day_counts)
             else:
@@ -9796,7 +9794,6 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
         "approved_days": round(approved_days, 2),
         "pending_days": round(pending_days, 2),
         "calendar_days": calendar_days,
-        "approved_full_leave_dates": approved_full_leave_dates,
         "attendance": attendance,
     }
 
@@ -10578,7 +10575,7 @@ def manager_team_leaves_page(
         if feed["attendance"]:
             feed["attendance"] = regularization_attendance_context(
                 db, org.id, selected_member.id, feed["attendance"], month_start, min(month_end, today),
-                include_missing_rows=True)
+                include_missing_rows=True, excluded_dates=team_leave_attendance_exclusions(feed))
         if month_start <= today:
             working_dates, _ = leave_working_dates(db, org.id, month_start, min(month_end, today))
             working_day_count = len(working_dates)
@@ -10652,8 +10649,10 @@ def download_team_attendance(
     attendance = feed["attendance"]
     if not attendance or attendance["status"] != "synced":
         raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
-    attendance = regularization_attendance_context(db, org.id, member.id, attendance, start, end,
-                                                    include_missing_rows=True)
+    attendance = regularization_attendance_context(
+        db, org.id, member.id, attendance, start, end, include_missing_rows=True,
+        excluded_dates=team_leave_attendance_exclusions(feed),
+    )
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Date", "First login", "Last logout", "Work mode", "Location", "Source"])
@@ -10694,6 +10693,7 @@ def download_team_attendance_excel(
         raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
     attendance = regularization_attendance_context(
         db, org.id, member.id, attendance, start, end, include_missing_rows=True,
+        excluded_dates=team_leave_attendance_exclusions(feed),
     )
     headings = ("Date", "First login", "Last logout", "Work mode", "Location", "Source")
     rows = [headings]
@@ -10745,9 +10745,11 @@ def manager_send_attendance_reminder(
     attendance = feed["attendance"]
     if not attendance or attendance["status"] != "synced":
         raise HTTPException(status_code=503, detail=(attendance or {}).get("message") or "Attendance is unavailable")
-    attendance = regularization_attendance_context(db, org.id, member.id, attendance, start, end)
-    approved_leave_dates = feed.get("approved_full_leave_dates", set())
-    missing_days = [item for item in attendance.get("missing_days", []) if item["date"] not in approved_leave_dates]
+    attendance = regularization_attendance_context(
+        db, org.id, member.id, attendance, start, end,
+        excluded_dates=team_leave_attendance_exclusions(feed),
+    )
+    missing_days = attendance.get("missing_days", [])
     if not missing_days:
         raise HTTPException(status_code=409, detail="No unmarked past working days need a reminder for this month")
 
