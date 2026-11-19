@@ -1032,11 +1032,17 @@ def ensure_tasks_schema() -> None:
         "complexity_weight": "ALTER TABLE tasks ADD COLUMN complexity_weight NUMERIC(2, 1) NOT NULL DEFAULT 1.0",
         "is_high_priority": "ALTER TABLE tasks ADD COLUMN is_high_priority BOOLEAN NOT NULL DEFAULT FALSE",
         "rework_count": "ALTER TABLE tasks ADD COLUMN rework_count INTEGER NOT NULL DEFAULT 0",
+        "assigned_by": "ALTER TABLE tasks ADD COLUMN assigned_by INTEGER NULL",
+        "assigned_at": "ALTER TABLE tasks ADD COLUMN assigned_at DATETIME NULL",
     }
     with engine.begin() as connection:
         for column_name, ddl in ddl_by_column.items():
             if column_name not in columns:
                 connection.execute(text(ddl))
+        if "assigned_by" not in columns:
+            connection.execute(text("UPDATE tasks SET assigned_by = created_by WHERE assigned_by IS NULL"))
+        if "assigned_at" not in columns:
+            connection.execute(text("UPDATE tasks SET assigned_at = created_at WHERE assigned_at IS NULL"))
         if "task_color" in columns:
             connection.execute(text("ALTER TABLE tasks DROP COLUMN task_color"))
         start_date_column = task_columns.get("start_date")
@@ -1211,6 +1217,7 @@ def ensure_query_indexes() -> None:
     inspector = inspect(engine)
     index_plan = {
         "tasks": {
+            "ix_tasks_assigned_by": "CREATE INDEX ix_tasks_assigned_by ON tasks (assigned_by)",
             "ix_tasks_org_assignee_archived_rank_start_created": (
                 "CREATE INDEX ix_tasks_org_assignee_archived_rank_start_created "
                 "ON tasks (org_id, assigned_to, is_archived, dashboard_rank, start_date, created_at)"
@@ -1976,6 +1983,8 @@ def dashboard_task_summary(task: Task, today: date) -> dict[str, Any]:
         "shared_status": task.shared_status or "",
         "shared_status_label": shared_status_label(task),
         "created_by": task.created_by,
+        "assigned_by": task.assigned_by,
+        "assigned_at": task.assigned_at,
         "dashboard_rank": task.dashboard_rank,
         "assigned_to": task.assigned_to,
         "tags": tags,
@@ -3436,6 +3445,9 @@ def recent_task_summaries(db: Session, org_id: int, user_id: int) -> list[dict[s
             "created_by_name": people_map.get(task.created_by).full_name if people_map.get(task.created_by) else "",
             "assigned_to": task.assigned_to,
             "assigned_to_name": people_map.get(task.assigned_to).full_name if people_map.get(task.assigned_to) else "",
+            "assigned_by": task.assigned_by,
+            "assigned_by_name": people_map.get(task.assigned_by).full_name if people_map.get(task.assigned_by) else "",
+            "assigned_at": task.assigned_at,
             "tags": task_tags(task),
             "tags_text": ", ".join(task_tags(task)),
             "project_code": project_map.get(task.project_id).code if project_map.get(task.project_id) else "",
@@ -7086,6 +7098,8 @@ def create_task_page(
         project_id=project.id,
         assigned_to=assignee_id,
         created_by=user.id,
+        assigned_by=user.id,
+        assigned_at=datetime.utcnow(),
         name=name,
         description=sanitize_html(description),
         activity_type_id=activity_type.id,
@@ -7160,6 +7174,7 @@ def save_bulk_tasks_preview(payload: dict, org_user: tuple[Organization, User] =
         task = Task(
             task_id=next_task_id(project), org_id=org.id, project_id=project.id,
             assigned_to=user.id, created_by=user.id, name=title,
+            assigned_by=user.id, assigned_at=datetime.utcnow(),
             description=sanitize_html(str(parsed_task.get("description") or title)),
             activity_type_id=activity_type.id, status=status_value,
             is_private=bool(parsed_task.get("is_private", False)),
@@ -7502,7 +7517,9 @@ def update_task_page(
         if assignee and assignee.org_id == org.id and assignee.is_active:
             old_assignee = task.assigned_to
             task.assigned_to = assignee.id
-            if task.is_shared and old_assignee != assignee.id:
+            if old_assignee != assignee.id:
+                task.assigned_by = user.id
+                task.assigned_at = datetime.utcnow()
                 add_task_event(db, task, user, f"Changed assignee from user #{old_assignee} to user #{assignee.id}.")
     task.closed_at = datetime.utcnow() if status_value == TaskStatus.CLOSED else None
     if task.is_shared:
@@ -7815,6 +7832,8 @@ def api_create_task(payload: dict, org_user: tuple[Organization, User] = Depends
         project_id=project.id,
         assigned_to=user.id,
         created_by=user.id,
+        assigned_by=user.id,
+        assigned_at=datetime.utcnow(),
         name=payload["name"],
         description=sanitize_html(payload.get("description", "")),
         activity_type_id=activity_type.id,
@@ -8070,7 +8089,15 @@ def api_public_tasks(user_id: int, org_user: tuple[Organization, User] = Depends
 
 
 @app.get("/{org_slug}/team/{user_id}/tasks", response_class=HTMLResponse)
-def team_tasks_page(request: Request, org_slug: str, user_id: int, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
+def team_tasks_page(
+    request: Request,
+    org_slug: str,
+    user_id: int,
+    view: str = "all",
+    q: str = "",
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
     org, current_user = org_user
     teammate = db.get(User, user_id)
     if not teammate or teammate.org_id != org.id:
@@ -8083,10 +8110,56 @@ def team_tasks_page(request: Request, org_slug: str, user_id: int, org_user: tup
     )
     if not can_view_all:
         query = query.where(Task.is_private.is_(False))
-    tasks = db.scalars(query.order_by(Task.created_at.desc())).all()
+    all_tasks = db.scalars(query).all()
+    today = local_today()
+    week_end = today + timedelta(days=7)
+    month_start = today.replace(day=1)
+
+    def is_open(task: Task) -> bool:
+        return task.status != TaskStatus.CLOSED
+
+    def is_overdue(task: Task) -> bool:
+        return is_open(task) and task.end_date is not None and task.end_date < today
+
+    def needs_attention(task: Task) -> bool:
+        due_soon = task.end_date is not None and today <= task.end_date <= today + timedelta(days=3)
+        return is_open(task) and (task.status == TaskStatus.STALLED or is_overdue(task) or (task.is_high_priority and due_soon))
+
+    counts = {
+        "open": sum(is_open(task) for task in all_tasks),
+        "attention": sum(needs_attention(task) for task in all_tasks),
+        "due_week": sum(is_open(task) and task.end_date is not None and today <= task.end_date <= week_end for task in all_tasks),
+        "completed_month": sum(task.status == TaskStatus.CLOSED and task.closed_at is not None and task.closed_at.date() >= month_start for task in all_tasks),
+    }
+    attention_tasks = sorted(
+        (task for task in all_tasks if needs_attention(task)),
+        key=lambda task: (not is_overdue(task), task.end_date or date.max, task.created_at or datetime.max),
+    )[:5]
+    valid_views = {"all", "needs-attention", "blocked", "due-week", "complete"}
+    if view not in valid_views:
+        view = "all"
+    tasks = all_tasks
+    if view == "needs-attention":
+        tasks = [task for task in tasks if needs_attention(task)]
+    elif view == "blocked":
+        tasks = [task for task in tasks if is_open(task) and task.status == TaskStatus.STALLED]
+    elif view == "due-week":
+        tasks = [task for task in tasks if is_open(task) and task.end_date is not None and today <= task.end_date <= week_end]
+    elif view == "complete":
+        tasks = [task for task in tasks if task.status == TaskStatus.CLOSED]
+    search_term = q.strip()[:100]
+    if search_term:
+        lowered = search_term.casefold()
+        tasks = [task for task in tasks if lowered in task.name.casefold() or lowered in task.task_id.casefold()]
+    tasks.sort(key=lambda task: (task.status == TaskStatus.CLOSED, not needs_attention(task), task.end_date or date.max, task.created_at or datetime.max))
     return templates.TemplateResponse(
         "team_tasks.html",
-        {"request": request, "org": org, "user": current_user, "teammate": teammate, "tasks": tasks, "show_private_access": can_view_all},
+        {
+            "request": request, "org": org, "user": current_user, "teammate": teammate,
+            "tasks": tasks, "all_tasks": all_tasks, "attention_tasks": attention_tasks,
+            "show_private_access": can_view_all, "can_assign_team_tasks": current_user.role == Role.ADMIN or can_manage_user_scope(db, org.id, current_user, teammate.id),
+            "counts": counts, "view": view, "q": search_term, "today": today,
+        },
     )
 
 
@@ -8197,6 +8270,7 @@ def save_team_tasks(org_slug: str, payload: dict, org_user: tuple[Organization, 
         task = Task(
             task_id=next_task_id(project), org_id=org.id, project_id=project.id,
             assigned_to=owner.id, created_by=manager.id, name=title,
+            assigned_by=manager.id, assigned_at=datetime.utcnow(),
             description=sanitize_html(str(item.get("description") or title)),
             activity_type_id=activity.id, status=status,
             dashboard_rank=next_dashboard_rank(db, org.id, owner.id),

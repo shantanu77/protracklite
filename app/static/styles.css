@@ -8714,3 +8714,101 @@ code {
   .composer-footer { align-items: stretch; flex-direction: column; }
   .composer-footer button { width: 100%; }
 }
+
+/* Team member task view */
+.team-work-page { width: min(1240px, 100%); margin: 0 auto; padding: 1.35rem clamp(1rem, 2vw, 1.75rem) 2.5rem; color: var(--text); font-size: .88rem; }
+.team-work-breadcrumb { display: flex; align-items: center; gap: .55rem; margin-bottom: .8rem; color: var(--muted); font-size: .76rem; font-weight: 600; }
+.team-work-breadcrumb a:hover { color: var(--primary); text-decoration: underline; }
+.team-work-heading, .team-work-person, .team-work-section-heading, .team-work-list-heading, .team-work-controls, .team-work-attention-row { display: flex; align-items: center; }
+.team-work-heading { justify-content: space-between; gap: 1rem; }
+.team-work-person { min-width: 0; gap: .85rem; }
+.team-work-avatar { width: 44px; height: 44px; display: grid; flex: 0 0 44px; place-items: center; border-radius: 13px; background: #dcece7; color: #176c54; font-size: 1.15rem; font-weight: 800; }
+.team-work-person h1 { font-size: clamp(1.35rem, 2vw, 1.7rem); letter-spacing: -.035em; }
+.team-work-person p { margin-top: .3rem; color: var(--muted); font-size: .8rem; }
+.team-work-assign { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; padding: .62rem .9rem; border-radius: 9px; background: var(--sidebar-active); color: #fff; font-size: .8rem; font-weight: 700; white-space: nowrap; }
+.team-work-assign:hover { background: #006d4b; color: #fff; }
+.team-work-tabs { display: flex; align-items: center; gap: 1.35rem; margin: 1.15rem 0 1rem; border-bottom: 1px solid var(--line); }
+.team-work-tabs a { padding: .55rem .08rem .62rem; color: var(--muted); font-size: .8rem; font-weight: 700; }
+.team-work-tabs a.is-active { color: var(--sidebar-active); border-bottom: 2px solid var(--sidebar-active); }
+.team-work-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-bottom: .9rem; }
+.team-work-metric { display: grid; min-height: 94px; grid-template-columns: 1fr auto; align-content: center; gap: .05rem .6rem; padding: .8rem .9rem; border: 1px solid var(--line); border-radius: 12px; background: var(--card-strong); transition: border-color .15s ease, transform .15s ease; }
+.team-work-metric:hover { border-color: #9dbeb3; transform: translateY(-1px); }
+.team-work-metric-label { color: #485762; font-size: .75rem; font-weight: 700; }
+.team-work-metric strong { grid-column: 1; grid-row: 2; align-self: center; font-size: 1.55rem; line-height: 1.15; letter-spacing: -.04em; }
+.team-work-metric-note { grid-column: 1 / -1; margin-top: .28rem; color: var(--muted); font-size: .69rem; }
+.team-work-metric.is-attention { background: #fffaf1; border-color: #eddaa9; }
+.team-work-metric.is-attention .team-work-metric-label { color: #8a5c0c; }
+.team-work-attention { margin-bottom: .9rem; padding: .85rem; border: 1px solid #e8d4a7; border-radius: 12px; background: #fffaf1; }
+.team-work-section-heading { justify-content: space-between; gap: 1rem; padding: 0 .12rem .65rem; }
+.team-work-section-heading > div { display: flex; align-items: center; gap: .65rem; }
+.team-work-attention-icon { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #e9c982; border-radius: 50%; color: #91610e; font-size: .9rem; font-weight: 800; }
+.team-work-section-heading h2, .team-work-list-heading h2, .team-work-clear-state h2 { font-size: .94rem; letter-spacing: -.02em; }
+.team-work-section-heading p, .team-work-list-heading p, .team-work-clear-state p { margin-top: .15rem; color: var(--muted); font-size: .73rem; }
+.team-work-section-heading > a { color: #176c54; font-size: .74rem; font-weight: 700; white-space: nowrap; }
+.team-work-attention-list { overflow: hidden; border: 1px solid #eee4cd; border-radius: 9px; background: #fff; }
+.team-work-attention-row { min-height: 57px; gap: .75rem; padding: .55rem .7rem; }
+.team-work-attention-row + .team-work-attention-row { border-top: 1px solid #eceff0; }
+.team-work-attention-copy { min-width: 0; flex: 1; }
+.team-work-attention-copy > a { overflow: hidden; display: block; color: var(--text); font-size: .79rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.team-work-attention-copy > a:hover, .team-work-task-name:hover { color: #087a59; text-decoration: underline; }
+.team-work-attention-copy p { overflow: hidden; margin-top: .15rem; color: var(--muted); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.team-work-review-link { color: #176c54; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.team-work-status { display: inline-flex; align-items: center; max-width: 100%; padding: .22rem .48rem; border-radius: 999px; font-size: .66rem; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.team-work-status.is-blocked { background: #fde8e7; color: #a43530; }
+.team-work-status.is-overdue { background: #fff0d5; color: #8b5604; }
+.team-work-status.is-complete { background: #def2e8; color: #176743; }
+.team-work-status.is-progress { background: #e4eef8; color: #355c80; }
+.team-work-status.is-open { background: #edf1f3; color: #52616a; }
+.team-work-clear-state { display: flex; align-items: center; gap: .7rem; margin-bottom: .9rem; padding: .8rem .95rem; border: 1px solid #bfdfce; border-radius: 11px; background: #f3faf6; }
+.team-work-clear-mark { display: grid; width: 29px; height: 29px; flex: 0 0 29px; place-items: center; border-radius: 50%; background: #d9f0e3; color: #176c54; font-weight: 800; }
+.team-work-list { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card-strong); }
+.team-work-list-heading { justify-content: space-between; padding: .8rem .9rem .55rem; }
+.team-work-result-count { color: var(--muted); font-size: .72rem; }
+.team-work-controls { flex-wrap: wrap; gap: .55rem; padding: 0 .9rem .7rem; }
+.team-work-search { display: flex; align-items: center; gap: .4rem; width: min(290px, 100%); min-height: 34px; padding: 0 .55rem; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+.team-work-search > span { font-size: 1.1rem; line-height: 1; }
+.team-work-search input { min-width: 0; height: 32px; padding: 0; border: 0; border-radius: 0; outline: 0; box-shadow: none; font-size: .75rem; }
+.team-work-search input:focus { box-shadow: none; }
+.team-work-search > a { color: var(--muted); font-size: 1rem; }
+.team-work-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.team-work-filters a { padding: .4rem .62rem; border: 1px solid transparent; border-radius: 7px; color: #596771; font-size: .7rem; font-weight: 700; white-space: nowrap; }
+.team-work-filters a:hover { background: #f2f6f7; }
+.team-work-filters a.is-active { border-color: #c6e1d5; background: #eaf5ef; color: #176c54; }
+.team-work-table-wrap { overflow-x: auto; border-top: 1px solid #e9edef; }
+.team-work-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .73rem; }
+.team-work-table th { padding: .55rem .7rem; background: #f8fafb; color: #56636c; font-size: .66rem; font-weight: 700; white-space: nowrap; }
+.team-work-table td { padding: .55rem .7rem; border-top: 1px solid #edf0f1; color: #35434c; vertical-align: middle; white-space: nowrap; }
+.team-work-table th:first-child, .team-work-table td:first-child { padding-left: .9rem; }
+.team-work-table tbody tr:hover { background: #fbfdfc; }
+.team-work-task-name { display: block; max-width: 280px; overflow: hidden; color: #1c2b34; font-size: .75rem; font-weight: 700; text-overflow: ellipsis; }
+.team-work-task-id { display: block; margin-top: .08rem; color: #87939a; font-family: "JetBrains Mono", monospace; font-size: .62rem; }
+.team-work-muted { color: #7b878e; }
+.team-work-overdue-note { display: block; margin-top: .12rem; color: #a85621; font-size: .64rem; }
+.is-date-overdue { color: #a85621; font-weight: 700; }
+.team-work-priority { font-size: .69rem; font-weight: 700; }
+.team-work-priority.is-high { color: #a85621; }
+.team-work-empty { padding: 1.5rem .9rem !important; color: var(--muted) !important; text-align: center; white-space: normal !important; }
+.team-work-empty a { color: #176c54; font-weight: 700; text-decoration: underline; }
+@media (max-width: 900px) {
+  .team-work-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-work-controls { align-items: flex-start; }
+  .team-work-search { width: 100%; }
+  .team-work-table { min-width: 850px; }
+}
+@media (max-width: 560px) {
+  .team-work-page { padding: 1rem .75rem 1.5rem; }
+  .team-work-person { align-items: flex-start; gap: .55rem; }
+  .team-work-avatar { width: 36px; height: 36px; flex-basis: 36px; border-radius: 10px; font-size: .95rem; }
+  .team-work-heading { align-items: flex-start; }
+  .team-work-assign { padding: .5rem .58rem; font-size: .72rem; }
+  .team-work-metrics { gap: .5rem; }
+  .team-work-metric { min-height: 82px; padding: .65rem; }
+  .team-work-metric-note { font-size: .63rem; }
+  .team-work-attention { padding: .65rem; }
+  .team-work-section-heading { align-items: flex-start; }
+  .team-work-section-heading > a { display: none; }
+  .team-work-attention-row { flex-wrap: wrap; gap: .4rem .55rem; }
+  .team-work-attention-copy { flex-basis: calc(100% - 100px); }
+  .team-work-review-link { margin-left: auto; }
+  .team-work-filters { overflow-x: auto; flex-wrap: nowrap; width: calc(100vw - 2rem); }
+}

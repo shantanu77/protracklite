@@ -1,23 +1,100 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <p class="eyebrow">Team Visibility</p>
-    <h1>{{ teammate.full_name }}</h1>
-    <p>{% if show_private_access %}Manager or admin view.{% else %}Public tasks only.{% endif %}</p>
+<section class="team-work-page">
+  <nav class="team-work-breadcrumb" aria-label="Breadcrumb">
+    <span>Team</span><span aria-hidden="true">/</span><span>Tasks</span>
+  </nav>
+
+  <header class="team-work-heading">
+    <div class="team-work-person">
+      <span class="team-work-avatar" aria-hidden="true">{{ teammate.full_name[:1]|upper }}</span>
+      <div>
+        <h1>{{ teammate.full_name }}</h1>
+        <p>{{ teammate.department.name if teammate.department else "Department not set" }} <span aria-hidden="true">·</span> Tasks and delivery</p>
+      </div>
+    </div>
+    {% if can_assign_team_tasks %}
+    <a class="button team-work-assign" href="/{{ org.slug }}/manager/create-team-tasks"><span aria-hidden="true">＋</span> Assign tasks</a>
+    {% endif %}
+  </header>
+
+  <div class="team-work-tabs" role="tablist" aria-label="Team member sections">
+    <a href="#team-summary">Summary</a>
+    <a href="#team-tasks-title" class="is-active" aria-current="page">Tasks</a>
   </div>
-</section>
-<section class="panel">
-  <div class="panel-head">
-    <h2>Visible Tasks</h2>
-    <p>{% if show_private_access %}All active tasks visible within your management scope.{% else %}Shared work for collaboration and status checks.{% endif %}</p>
-  </div>
-  {% for task in tasks %}
-  <div class="list-row">
-    <strong>{{ task.task_id }}</strong>
-    <span>{{ task.name }}</span>
-    <small>{{ task.status.value }} · {{ "%.2f"|format(task.logged_hours or 0) }}h</small>
-  </div>
-  {% else %}<p class="empty">No public tasks available.</p>{% endfor %}
+
+  <section class="team-work-metrics" id="team-summary" aria-label="Task summary">
+    <a class="team-work-metric" href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view=all">
+      <span class="team-work-metric-label">Open tasks</span><strong>{{ counts.open }}</strong><span class="team-work-metric-note">Currently in progress or queued</span>
+    </a>
+    <a class="team-work-metric is-attention" href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view=needs-attention">
+      <span class="team-work-metric-label">Needs attention</span><strong>{{ counts.attention }}</strong><span class="team-work-metric-note">Blocked, overdue or urgent</span>
+    </a>
+    <a class="team-work-metric" href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view=due-week">
+      <span class="team-work-metric-label">Due this week</span><strong>{{ counts.due_week }}</strong><span class="team-work-metric-note">Open work due in 7 days</span>
+    </a>
+    <a class="team-work-metric" href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view=complete">
+      <span class="team-work-metric-label">Completed this month</span><strong>{{ counts.completed_month }}</strong><span class="team-work-metric-note">Closed since {{ today.strftime('%b 1') }}</span>
+    </a>
+  </section>
+
+  {% if attention_tasks %}
+  <section class="team-work-attention" aria-labelledby="team-attention-title">
+    <div class="team-work-section-heading">
+      <div><span class="team-work-attention-icon" aria-hidden="true">!</span><div><h2 id="team-attention-title">Needs your attention</h2><p>Start with the work that may need a decision, escalation or unblock.</p></div></div>
+      <a href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view=needs-attention">View all {{ counts.attention }} <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="team-work-attention-list">
+      {% for task in attention_tasks %}
+      <article class="team-work-attention-row">
+        <span class="team-work-status {% if task.status.value == 'stalled' %}is-blocked{% elif task.end_date and task.end_date < today %}is-overdue{% else %}is-progress{% endif %}">{% if task.status.value == 'stalled' %}Blocked{% elif task.end_date and task.end_date < today %}Overdue{% else %}Due soon · High priority{% endif %}</span>
+        <div class="team-work-attention-copy">
+          <a href="/{{ org.slug }}/tasks/{{ task.task_id }}">{{ task.name }}</a>
+          <p>{% if task.status.value == 'stalled' %}{{ task.stalled_reason or 'Waiting for a next step' }}{% elif task.end_date %}Due {{ task.end_date.strftime('%b %-d') }}{% endif %}{% if task.is_high_priority and task.status.value != 'stalled' %}<span> · High priority</span>{% endif %}</p>
+        </div>
+        <a class="team-work-review-link" href="/{{ org.slug }}/tasks/{{ task.task_id }}">Review task <span aria-hidden="true">→</span></a>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% else %}
+  <section class="team-work-clear-state"><span class="team-work-clear-mark" aria-hidden="true">✓</span><div><h2>No tasks need attention</h2><p>There are no blocked or overdue tasks in this view. Check due dates and priorities below.</p></div></section>
+  {% endif %}
+
+  <section class="team-work-list" id="all-team-tasks" aria-labelledby="team-tasks-title">
+    <div class="team-work-list-heading"><div><h2 id="team-tasks-title">All tasks</h2><p>{% if show_private_access %}Tasks visible in your management scope{% else %}Shared tasks visible to you{% endif %}</p></div><span class="team-work-result-count">{{ tasks|length }} shown</span></div>
+    <div class="team-work-controls">
+      <form class="team-work-search" method="get" action="/{{ org.slug }}/team/{{ teammate.id }}/tasks">
+        <input type="hidden" name="view" value="{{ view }}">
+        <label for="team-task-search" class="sr-only">Search tasks</label>
+        <span aria-hidden="true">⌕</span><input id="team-task-search" type="search" name="q" value="{{ q }}" placeholder="Search tasks or ID">
+        {% if q %}<a href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view={{ view }}" aria-label="Clear search">×</a>{% endif %}
+      </form>
+      <nav class="team-work-filters" aria-label="Filter tasks">
+        {% for filter_key, filter_label in [('all', 'All'), ('needs-attention', 'Needs attention'), ('blocked', 'Blocked'), ('due-week', 'Due this week'), ('complete', 'Complete')] %}
+        <a href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view={{ filter_key }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="{% if view == filter_key %}is-active{% endif %}" {% if view == filter_key %}aria-current="page"{% endif %}>{{ filter_label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div class="team-work-table-wrap">
+      <table class="team-work-table">
+        <thead><tr><th scope="col">Task</th><th scope="col">Status</th><th scope="col">Due date</th><th scope="col">Effort</th><th scope="col">Priority</th><th scope="col">Assigned by</th></tr></thead>
+        <tbody>
+          {% for task in tasks %}
+          <tr>
+            <td><a class="team-work-task-name" href="/{{ org.slug }}/tasks/{{ task.task_id }}">{{ task.name }}</a><span class="team-work-task-id">{{ task.task_id }}</span></td>
+            <td><span class="team-work-status {% if task.status.value == 'stalled' %}is-blocked{% elif task.status.value == 'closed' %}is-complete{% elif task.status.value == 'started' %}is-progress{% else %}is-open{% endif %}">{% if task.status.value == 'not_started' %}Not started{% elif task.status.value == 'started' %}In progress{% elif task.status.value == 'stalled' %}Blocked{% else %}Complete{% endif %}</span>{% if task.status.value != 'closed' and task.end_date and task.end_date < today %}<span class="team-work-overdue-note">Overdue</span>{% endif %}</td>
+            <td>{% if task.end_date %}<span class="{% if task.status.value != 'closed' and task.end_date < today %}is-date-overdue{% endif %}">{{ task.end_date.strftime('%b %-d, %Y') }}</span>{% else %}<span class="team-work-muted">No due date</span>{% endif %}</td>
+            <td>{% if task.estimated_hours is not none %}{{ task.logged_hours or 0 }}h / {{ task.estimated_hours }}h{% else %}{{ task.logged_hours or 0 }}h logged{% endif %}</td>
+            <td>{% if task.is_high_priority %}<span class="team-work-priority is-high">High</span>{% else %}<span class="team-work-muted">Normal</span>{% endif %}</td>
+            <td>{% if task.assigned_by_user %}{{ task.assigned_by_user.full_name }}{% else %}<span class="team-work-muted">Unknown</span>{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="team-work-empty">{% if q %}No tasks match “{{ q }}”. Try another search or clear the filter.{% elif view != 'all' %}No tasks match this filter.{% else %}No visible tasks yet. {% if can_assign_team_tasks %}<a href="/{{ org.slug }}/manager/create-team-tasks">Assign the first task</a>.{% endif %}{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 {% endblock %}

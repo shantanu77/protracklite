@@ -225,6 +225,8 @@ class Task(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     assigned_to: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     name: Mapped[str] = mapped_column(String(300))
     description: Mapped[str] = mapped_column(Text, default="")
     activity_type_id: Mapped[int] = mapped_column(ForeignKey("activity_types.id"))
@@ -248,6 +250,7 @@ class Task(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="tasks")
+    assigned_by_user: Mapped[User | None] = relationship(foreign_keys=[assigned_by])
     time_logs: Mapped[list["TimeLog"]] = relationship(back_populates="task", cascade="all, delete-orphan")
     comments: Mapped[list["TaskComment"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 
