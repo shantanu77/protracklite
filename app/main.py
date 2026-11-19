@@ -8148,7 +8148,9 @@ def team_tasks_page(
         key=lambda task: (not is_overdue(task), task.end_date or date.max, task.created_at or datetime.max),
     )[:5]
     valid_views = {"open", "all", "needs-attention", "blocked", "due-week", "complete", "assigned-by-me"}
-    if view not in valid_views:
+    if view == "assigned-by-manager":
+        view = "assigned-by-me"
+    elif view not in valid_views:
         view = "all"
     tasks = all_tasks
     if view == "open":
