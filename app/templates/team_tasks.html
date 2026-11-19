@@ -13,9 +13,16 @@
         <p>{{ teammate.department.name if teammate.department else "Department not set" }} <span aria-hidden="true">·</span> Tasks and delivery</p>
       </div>
     </div>
-    {% if can_assign_team_tasks %}
-    <a class="button team-work-assign" href="/{{ org.slug }}/manager/create-team-tasks"><span aria-hidden="true">＋</span> Assign tasks</a>
-    {% endif %}
+    <div class="team-work-heading-actions">
+      {% if can_assign_team_tasks %}
+      <label class="team-work-employee-select">Employee
+        <select aria-label="Select team member" onchange="window.location.href=this.value">
+          {% for member in team_members %}<option value="/{{ org.slug }}/team/{{ member.id }}/tasks?view={{ view }}" {% if member.id == teammate.id %}selected{% endif %}>{{ member.full_name }}</option>{% endfor %}
+        </select>
+      </label>
+      <a class="button team-work-assign" href="/{{ org.slug }}/manager/create-team-tasks"><span aria-hidden="true">＋</span> Assign tasks</a>
+      {% endif %}
+    </div>
   </header>
 
   <section class="team-work-metrics" aria-label="Task summary">
@@ -57,7 +64,7 @@
   {% endif %}
 
   <section class="team-work-list" id="all-team-tasks" aria-labelledby="team-tasks-title">
-    <div class="team-work-list-heading"><div><h2 id="team-tasks-title">{% if view == 'assigned-by-manager' %}Assigned to me{% elif view == 'needs-attention' %}Needs attention{% elif view == 'blocked' %}Blocked tasks{% elif view == 'due-week' %}Due this week{% elif view == 'complete' %}Completed tasks{% elif view == 'open' %}Open tasks{% else %}All tasks{% endif %}</h2><p>{% if view == 'assigned-by-manager' %}Tasks assigned to {{ teammate.full_name }} by a manager or admin{% elif view == 'open' %}Completed tasks are hidden from this list{% elif show_private_access %}Tasks visible in your management scope{% else %}Shared tasks visible to you{% endif %}</p></div><span class="team-work-result-count">{{ tasks|length }} shown</span></div>
+    <div class="team-work-list-heading"><div><h2 id="team-tasks-title">{% if view == 'assigned-by-me' %}Assigned by me{% elif view == 'needs-attention' %}Needs attention{% elif view == 'blocked' %}Blocked tasks{% elif view == 'due-week' %}Due this week{% elif view == 'complete' %}Completed tasks{% elif view == 'open' %}Open tasks{% else %}All tasks{% endif %}</h2><p>{% if view == 'assigned-by-me' %}Tasks assigned to {{ teammate.full_name }} by {{ user.full_name }}{% elif view == 'open' %}Completed tasks are hidden from this list{% elif show_private_access %}Tasks visible in your management scope{% else %}Shared tasks visible to you{% endif %}</p></div><span class="team-work-result-count">{{ tasks|length }} shown</span></div>
     <div class="team-work-controls">
       <form class="team-work-search" method="get" action="/{{ org.slug }}/team/{{ teammate.id }}/tasks">
         <input type="hidden" name="view" value="{{ view }}">
@@ -66,7 +73,7 @@
         {% if q %}<a href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view={{ view }}" aria-label="Clear search">×</a>{% endif %}
       </form>
       <nav class="team-work-filters" aria-label="Filter tasks">
-        {% for filter_key, filter_label in [('open', 'Open'), ('all', 'All tasks'), ('assigned-by-manager', 'Assigned to me'), ('needs-attention', 'Needs attention'), ('blocked', 'Blocked'), ('due-week', 'Due this week'), ('complete', 'Complete')] %}
+        {% for filter_key, filter_label in [('open', 'Open'), ('all', 'All tasks'), ('assigned-by-me', 'Assigned by me'), ('needs-attention', 'Needs attention'), ('blocked', 'Blocked'), ('due-week', 'Due this week'), ('complete', 'Complete')] %}
         <a href="/{{ org.slug }}/team/{{ teammate.id }}/tasks?view={{ filter_key }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="{% if view == filter_key %}is-active{% endif %}" {% if view == filter_key %}aria-current="page"{% endif %}>{{ filter_label }}</a>
         {% endfor %}
       </nav>

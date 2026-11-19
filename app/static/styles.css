@@ -8721,6 +8721,9 @@ code {
 .team-work-breadcrumb a:hover { color: var(--primary); text-decoration: underline; }
 .team-work-heading, .team-work-person, .team-work-section-heading, .team-work-list-heading, .team-work-controls, .team-work-attention-row { display: flex; align-items: center; }
 .team-work-heading { justify-content: space-between; gap: 1rem; }
+.team-work-heading-actions { display: flex; align-items: end; justify-content: flex-end; gap: .65rem; }
+.team-work-employee-select { display: grid; gap: .22rem; color: var(--muted); font-size: .66rem; font-weight: 700; }
+.team-work-employee-select select { width: min(220px, 34vw); min-height: 36px; padding: .4rem 2rem .4rem .55rem; border-radius: 8px; font-size: .75rem; }
 .team-work-person { min-width: 0; gap: .85rem; }
 .team-work-avatar { width: 44px; height: 44px; display: grid; flex: 0 0 44px; place-items: center; border-radius: 13px; background: #dcece7; color: #176c54; font-size: 1.15rem; font-weight: 800; }
 .team-work-person h1 { font-size: clamp(1.35rem, 2vw, 1.7rem); letter-spacing: -.035em; }
@@ -8800,6 +8803,8 @@ code {
   .team-work-person { align-items: flex-start; gap: .55rem; }
   .team-work-avatar { width: 36px; height: 36px; flex-basis: 36px; border-radius: 10px; font-size: .95rem; }
   .team-work-heading { align-items: flex-start; }
+  .team-work-heading-actions { align-items: flex-end; flex-direction: column; gap: .4rem; }
+  .team-work-employee-select select { width: min(185px, 46vw); }
   .team-work-assign { padding: .5rem .58rem; font-size: .72rem; }
   .team-work-metrics { gap: .5rem; }
   .team-work-metric { min-height: 82px; padding: .65rem; }

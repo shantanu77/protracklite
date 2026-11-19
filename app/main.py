@@ -8103,6 +8103,14 @@ def team_tasks_page(
     if not teammate or teammate.org_id != org.id:
         raise HTTPException(status_code=404, detail="User not found")
     can_view_all = current_user.role == Role.ADMIN or can_manage_user_scope(db, org.id, current_user, teammate.id) or current_user.id == teammate.id
+    if current_user.role == Role.ADMIN:
+        team_members = org_people(db, org.id)
+    elif current_user.role == Role.MANAGER:
+        team_members = managed_people(db, org.id, current_user)
+    else:
+        team_members = [current_user]
+    if all(member.id != teammate.id for member in team_members):
+        team_members.append(teammate)
     query = select(Task).where(
         Task.org_id == org.id,
         Task.assigned_to == teammate.id,
@@ -8111,9 +8119,6 @@ def team_tasks_page(
     if not can_view_all:
         query = query.where(Task.is_private.is_(False))
     all_tasks = db.scalars(query).all()
-    manager_user_ids = set(db.scalars(
-        select(User.id).where(User.org_id == org.id, User.role.in_([Role.MANAGER, Role.ADMIN]))
-    ).all())
     today = local_today()
     week_end = today + timedelta(days=7)
     month_start = today.replace(day=1)
@@ -8136,13 +8141,13 @@ def team_tasks_page(
         "attention": sum(needs_attention(task) for task in all_tasks),
         "due_week": sum(is_open(task) and task.end_date is not None and today <= task.end_date <= week_end for task in all_tasks),
         "completed_month": sum(is_complete(task) and task.closed_at is not None and task.closed_at.date() >= month_start for task in all_tasks),
-        "assigned_by_manager": sum(task.assigned_by in manager_user_ids for task in all_tasks),
+        "assigned_by_me": sum(task.assigned_by == current_user.id for task in all_tasks),
     }
     attention_tasks = sorted(
         (task for task in all_tasks if needs_attention(task)),
         key=lambda task: (not is_overdue(task), task.end_date or date.max, task.created_at or datetime.max),
     )[:5]
-    valid_views = {"open", "all", "needs-attention", "blocked", "due-week", "complete", "assigned-by-manager"}
+    valid_views = {"open", "all", "needs-attention", "blocked", "due-week", "complete", "assigned-by-me"}
     if view not in valid_views:
         view = "all"
     tasks = all_tasks
@@ -8156,8 +8161,8 @@ def team_tasks_page(
         tasks = [task for task in tasks if is_open(task) and task.end_date is not None and today <= task.end_date <= week_end]
     elif view == "complete":
         tasks = [task for task in tasks if is_complete(task)]
-    elif view == "assigned-by-manager":
-        tasks = [task for task in tasks if task.assigned_by in manager_user_ids]
+    elif view == "assigned-by-me":
+        tasks = [task for task in tasks if task.assigned_by == current_user.id]
     search_term = q.strip()[:100]
     if search_term:
         lowered = search_term.casefold()
@@ -8168,6 +8173,7 @@ def team_tasks_page(
         {
             "request": request, "org": org, "user": current_user, "teammate": teammate,
             "tasks": tasks, "all_tasks": all_tasks, "attention_tasks": attention_tasks,
+            "team_members": team_members,
             "show_private_access": can_view_all, "can_assign_team_tasks": current_user.role == Role.ADMIN or can_manage_user_scope(db, org.id, current_user, teammate.id),
             "counts": counts, "view": view, "q": search_term, "today": today,
             "completed_task_ids": {task.task_id for task in all_tasks if is_complete(task)},
