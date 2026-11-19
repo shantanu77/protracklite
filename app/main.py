@@ -8093,7 +8093,7 @@ def team_tasks_page(
     request: Request,
     org_slug: str,
     user_id: int,
-    view: str = "all",
+    view: str = "open",
     q: str = "",
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -8111,12 +8111,18 @@ def team_tasks_page(
     if not can_view_all:
         query = query.where(Task.is_private.is_(False))
     all_tasks = db.scalars(query).all()
+    manager_user_ids = set(db.scalars(
+        select(User.id).where(User.org_id == org.id, User.role.in_([Role.MANAGER, Role.ADMIN]))
+    ).all())
     today = local_today()
     week_end = today + timedelta(days=7)
     month_start = today.replace(day=1)
 
+    def is_complete(task: Task) -> bool:
+        return task.status == TaskStatus.CLOSED or (task.shared_status or "").lower() == SharedTaskStatus.CLOSED.value
+
     def is_open(task: Task) -> bool:
-        return task.status != TaskStatus.CLOSED
+        return not is_complete(task)
 
     def is_overdue(task: Task) -> bool:
         return is_open(task) and task.end_date is not None and task.end_date < today
@@ -8129,29 +8135,34 @@ def team_tasks_page(
         "open": sum(is_open(task) for task in all_tasks),
         "attention": sum(needs_attention(task) for task in all_tasks),
         "due_week": sum(is_open(task) and task.end_date is not None and today <= task.end_date <= week_end for task in all_tasks),
-        "completed_month": sum(task.status == TaskStatus.CLOSED and task.closed_at is not None and task.closed_at.date() >= month_start for task in all_tasks),
+        "completed_month": sum(is_complete(task) and task.closed_at is not None and task.closed_at.date() >= month_start for task in all_tasks),
+        "assigned_by_manager": sum(task.assigned_by in manager_user_ids for task in all_tasks),
     }
     attention_tasks = sorted(
         (task for task in all_tasks if needs_attention(task)),
         key=lambda task: (not is_overdue(task), task.end_date or date.max, task.created_at or datetime.max),
     )[:5]
-    valid_views = {"all", "needs-attention", "blocked", "due-week", "complete"}
+    valid_views = {"open", "all", "needs-attention", "blocked", "due-week", "complete", "assigned-by-manager"}
     if view not in valid_views:
         view = "all"
     tasks = all_tasks
-    if view == "needs-attention":
+    if view == "open":
+        tasks = [task for task in tasks if is_open(task)]
+    elif view == "needs-attention":
         tasks = [task for task in tasks if needs_attention(task)]
     elif view == "blocked":
         tasks = [task for task in tasks if is_open(task) and task.status == TaskStatus.STALLED]
     elif view == "due-week":
         tasks = [task for task in tasks if is_open(task) and task.end_date is not None and today <= task.end_date <= week_end]
     elif view == "complete":
-        tasks = [task for task in tasks if task.status == TaskStatus.CLOSED]
+        tasks = [task for task in tasks if is_complete(task)]
+    elif view == "assigned-by-manager":
+        tasks = [task for task in tasks if task.assigned_by in manager_user_ids]
     search_term = q.strip()[:100]
     if search_term:
         lowered = search_term.casefold()
         tasks = [task for task in tasks if lowered in task.name.casefold() or lowered in task.task_id.casefold()]
-    tasks.sort(key=lambda task: (task.status == TaskStatus.CLOSED, not needs_attention(task), task.end_date or date.max, task.created_at or datetime.max))
+    tasks.sort(key=lambda task: (is_complete(task), not needs_attention(task), task.end_date or date.max, task.created_at or datetime.max))
     return templates.TemplateResponse(
         "team_tasks.html",
         {
@@ -8159,6 +8170,7 @@ def team_tasks_page(
             "tasks": tasks, "all_tasks": all_tasks, "attention_tasks": attention_tasks,
             "show_private_access": can_view_all, "can_assign_team_tasks": current_user.role == Role.ADMIN or can_manage_user_scope(db, org.id, current_user, teammate.id),
             "counts": counts, "view": view, "q": search_term, "today": today,
+            "completed_task_ids": {task.task_id for task in all_tasks if is_complete(task)},
         },
     )
 
