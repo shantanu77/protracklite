@@ -8783,7 +8783,8 @@ code {
 .team-work-table td { padding: .55rem .7rem; border-top: 1px solid #edf0f1; color: #35434c; vertical-align: middle; white-space: nowrap; }
 .team-work-table th:first-child, .team-work-table td:first-child { padding-left: .9rem; }
 .team-work-table tbody tr:hover { background: #fbfdfc; }
-.team-work-task-name { display: block; max-width: 280px; overflow: hidden; color: #1c2b34; font-size: .75rem; font-weight: 700; text-overflow: ellipsis; }
+.team-work-table td:first-child { width: 40%; min-width: 420px; white-space: normal; }
+.team-work-task-name { display: block; max-width: none; overflow: visible; color: #1c2b34; font-size: .75rem; font-weight: 700; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
 .team-work-task-id { display: block; margin-top: .08rem; color: #87939a; font-family: "JetBrains Mono", monospace; font-size: .62rem; }
 .team-work-muted { color: #7b878e; }
 .team-work-overdue-note { display: block; margin-top: .12rem; color: #a85621; font-size: .64rem; }
