@@ -1,97 +1,361 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head"><div><p class="eyebrow">IT · Asset management</p><h1>Manage Inventory</h1><p>Register hardware and software assets, track their status, and keep allocation history linked to each item.</p></div><div class="page-head-actions"><a class="button secondary" href="/{{ org.slug }}/inventory/allocations">Manage allocations</a><a class="button secondary" href="/{{ org.slug }}/assets/reports">Asset reports</a></div></section>
-{% if error %}<div class="alert">{{ error|replace('_',' ') }}</div>{% endif %}
-{% if imported %}<div class="inventory-notice">Imported hardware details for {{ imported }} matching asset{{ '' if imported == '1' else 's' }}. {{ unmatched or '0' }} workbook tag{{ '' if unmatched == '1' else 's' }} did not match inventory.</div>{% endif %}
-<section class="panel inventory-panel">
-  <div class="panel-head"><div><h2>Add an inventory item</h2><p>Use a unique asset tag for each device or software seat.</p></div><form method="post" action="/{{ org.slug }}/inventory/import-configuration" enctype="multipart/form-data" class="inventory-import-form"><label>Fill missing CPU, RAM, storage and OS from workbook<input type="file" name="workbook" accept=".xlsx" required></label><button class="button secondary" type="submit">Import hardware details</button></form></div>
-  <form method="post" action="/{{ org.slug }}/inventory" class="form-grid inventory-form">
-    <label>Asset tag<input name="asset_tag" maxlength="100" required placeholder="HW-1042"></label>
-    <label>Type<select name="asset_type" required><option value="hardware">Hardware</option><option value="software">Software</option></select></label>
-    <label>Name<input name="name" maxlength="200" required placeholder="Laptop, Adobe license…"></label>
-    <label>Manufacturer / vendor<input name="manufacturer" maxlength="120"></label>
-    <label>Model / plan<input name="model" maxlength="120"></label>
-    <label>Serial number<input name="serial_number" maxlength="160"></label>
-    <label>License reference<input name="license_reference" maxlength="180" placeholder="Account or seat reference"></label>
-    <label class="full">Machine configuration<textarea name="configuration" rows="2" placeholder="CPU, RAM, storage, operating system, or other specifications"></textarea></label>
-    <label>OS installed<input name="os_installed" maxlength="120" placeholder="Windows 11, macOS 14…"></label>
-    <label>Purchase date<input name="purchase_date" type="date"></label>
-    <label>Warranty end<input name="warranty_end" type="date"></label>
-    <label class="full">Notes<textarea name="notes" rows="2" placeholder="Condition, device specs, or license details"></textarea></label>
-    <button type="submit">Add to inventory</button>
-  </form>
-</section>
+<div class="inventory-ui">
+  <header class="inventory-header">
+    <div class="inventory-heading">
+      <div class="inventory-breadcrumb"><span>IT</span><span aria-hidden="true">·</span><strong>Asset Management</strong></div>
+      <h1>Manage Inventory <span class="inventory-count">{{ total_count }} registered</span></h1>
+      <p>Register hardware and software assets, track lifecycle status, and manage allocation histories.</p>
+    </div>
+    <div class="inventory-header-actions">
+      <a class="inventory-button is-subtle" href="/{{ org.slug }}/inventory/allocations">Manage allocations</a>
+      <a class="inventory-button is-subtle" href="/{{ org.slug }}/assets/reports">Asset reports</a>
+      <button class="inventory-button is-light" type="button" data-open-workbook>Import specs</button>
+      <button class="inventory-button is-primary" type="button" data-open-add><span aria-hidden="true">＋</span> Add New Asset</button>
+    </div>
+  </header>
 
-<section class="panel inventory-panel">
-  <div class="panel-head"><div><h2>Inventory</h2><p>{{ item_rows|length }} registered item{{ '' if item_rows|length == 1 else 's' }}. Retire old items to preserve allocation history.</p></div></div>
-  <div class="inventory-table-wrap"><table class="inventory-table">
-    <thead><tr><th>Asset</th><th>Hardware configuration</th><th>Assigned to</th><th>Status</th><th>Actions</th></tr></thead>
-    <tbody>
-      {% for row in item_rows %}
-      {% set item = row.item %}
-      <tr>
-        <td><strong>{{ item.asset_tag }} · {{ item.name }}</strong><small>{{ item.asset_type|title }}{% if item.manufacturer or item.model %} · {{ item.manufacturer }}{% if item.manufacturer and item.model %} · {% endif %}{{ item.model }}{% endif %}</small></td>
-        <td>{% if item.configuration %}<strong>{{ item.configuration }}</strong>{% else %}<span class="empty">No hardware specs</span>{% endif %}<small>{{ item.os_installed or 'OS not recorded' }}</small></td>
-        <td>{{ row.person.full_name if row.person else '—' }}</td>
-        <td><span class="inventory-status {% if not item.is_active %}is-retired{% elif row.allocation %}is-allocated{% else %}is-available{% endif %}">{{ 'Retired' if not item.is_active else ('Allocated' if row.allocation else 'Available') }}</span></td>
-        <td class="inventory-actions"><button type="button" class="button secondary small" onclick="document.getElementById('edit-inventory-{{ item.id }}').showModal()">Edit asset</button>
-          <dialog id="edit-inventory-{{ item.id }}" class="inventory-dialog">
-          <div class="inventory-dialog-head"><div><p class="eyebrow">Edit inventory</p><h2>{{ item.asset_tag }} · {{ item.name }}</h2></div><button type="button" class="button secondary small" onclick="this.closest('dialog').close()">Close</button></div>
-          <form method="post" action="/{{ org.slug }}/inventory/{{ item.id }}/update" class="form-grid inventory-edit-form">
-            <label>Asset tag<input name="asset_tag" maxlength="100" value="{{ item.asset_tag }}" required></label>
-            <label>Type<select name="asset_type"><option value="hardware" {% if item.asset_type == 'hardware' %}selected{% endif %}>Hardware</option><option value="software" {% if item.asset_type == 'software' %}selected{% endif %}>Software</option></select></label>
-            <label>Name<input name="name" maxlength="200" value="{{ item.name }}" required></label>
-            <label>Manufacturer / vendor<input name="manufacturer" maxlength="120" value="{{ item.manufacturer }}"></label>
-            <label>Model / plan<input name="model" maxlength="120" value="{{ item.model }}"></label>
-            <label>Serial number<input name="serial_number" maxlength="160" value="{{ item.serial_number }}"></label>
-            <label>License reference<input name="license_reference" maxlength="180" value="{{ item.license_reference }}"></label>
-            <label class="full">CPU, RAM and storage<textarea name="configuration" rows="3" placeholder="CPU | RAM | storage">{{ item.configuration or '' }}</textarea><small>Enter values separated by |, for example: Intel Core i7 | 16 GB RAM | 512 GB SSD</small></label>
-            <label>OS installed<input name="os_installed" maxlength="120" value="{{ item.os_installed or '' }}"></label>
-            <label>Purchase date<input name="purchase_date" type="date" value="{{ item.purchase_date.isoformat() if item.purchase_date else '' }}"></label>
-            <label>Warranty end<input name="warranty_end" type="date" value="{{ item.warranty_end.isoformat() if item.warranty_end else '' }}"></label>
-            <label class="full">Notes<textarea name="notes" rows="2">{{ item.notes }}</textarea></label>
-            <label class="checkbox full"><input name="is_active" type="checkbox" {% if item.is_active %}checked{% endif %}>Available for allocation</label>
-            <button type="submit">Save changes</button>
-          </form>
-          </dialog>
-        {% if not row.has_history %}<form method="post" action="/{{ org.slug }}/inventory/{{ item.id }}/delete" class="inventory-delete-form" onsubmit="return confirm('Permanently delete this inventory item?')"><button type="submit" class="button danger small">Delete</button></form>{% endif %}</td>
-      </tr>
-      {% else %}<tr><td colspan="5" class="empty">No assets registered yet. Add hardware and software above.</td></tr>{% endfor %}
-    </tbody>
-  </table></div>
-</section>
+  {% if error %}<div class="inventory-alert is-error" role="alert">{{ error|replace('_',' ') }}</div>{% endif %}
+  {% if imported %}<div class="inventory-alert is-success" role="status">Hardware details filled for {{ imported }} matching asset{{ '' if imported == '1' else 's' }}. {{ unmatched or '0' }} workbook tag{{ '' if unmatched == '1' else 's' }} did not match inventory.</div>{% endif %}
+  {% if added %}<div class="inventory-alert is-success" role="status">Asset added to inventory.</div>{% endif %}
+
+  <div class="inventory-content">
+    <section class="inventory-metrics" aria-label="Inventory overview">
+      <article class="inventory-metric">
+        <div><p>Total Registered</p><strong>{{ total_count }}</strong><small>{{ hardware_count }} hardware · {{ software_count }} software</small></div>
+        <span class="metric-icon is-slate" aria-hidden="true">▱</span>
+      </article>
+      <article class="inventory-metric">
+        <div><p class="is-blue">Currently Allocated</p><strong>{{ status_counts.allocated }}</strong><small><i class="metric-dot is-blue"></i>{{ ((status_counts.allocated / total_count * 100)|round(1)) if total_count else 0 }}% active deployment</small></div>
+        <span class="metric-icon is-blue" aria-hidden="true">♙</span>
+      </article>
+      <article class="inventory-metric">
+        <div><p class="is-green">Available in Stock</p><strong>{{ status_counts.available }}</strong><small><i class="metric-dot is-green"></i>Ready for allocation</small></div>
+        <span class="metric-icon is-green" aria-hidden="true">✓</span>
+      </article>
+      <article class="inventory-metric">
+        <div><p class="is-amber">Maintenance / Service</p><strong>{{ maintenance_count }}</strong><small>Assets needing attention</small></div>
+        <span class="metric-icon is-amber" aria-hidden="true">!</span>
+      </article>
+    </section>
+
+    <section class="inventory-table-panel" aria-label="Inventory items">
+      <div class="inventory-toolbar">
+        <nav class="inventory-tabs" aria-label="Filter by status">
+          <a href="{{ status_urls.all }}" class="{% if status_filter == 'all' %}is-active{% endif %}">All <span>{{ total_count }}</span></a>
+          <a href="{{ status_urls.available }}" class="{% if status_filter == 'available' %}is-active{% endif %}">Available <span class="tab-count is-green">{{ status_counts.available }}</span></a>
+          <a href="{{ status_urls.allocated }}" class="{% if status_filter == 'allocated' %}is-active{% endif %}">Allocated <span class="tab-count is-blue">{{ status_counts.allocated }}</span></a>
+          <a href="{{ status_urls.maintenance }}" class="{% if status_filter == 'maintenance' %}is-active{% endif %}">Maintenance <span class="tab-count is-amber">{{ status_counts.maintenance }}</span></a>
+        </nav>
+        <form method="get" action="/{{ org.slug }}/inventory" class="inventory-filter-controls" id="inventory-filter-form">
+          <input type="hidden" name="status" value="{{ status_filter }}">
+          <label class="inventory-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input type="search" name="q" value="{{ q }}" placeholder="Search tag, model, serial, or assignee…" aria-label="Search inventory"></label>
+          <select name="os_filter" aria-label="Filter by operating system" onchange="this.form.requestSubmit()"><option value="all">OS: All</option>{% for option in os_options %}<option value="{{ option }}" {% if os_filter == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+          <select name="brand" aria-label="Filter by manufacturer" onchange="this.form.requestSubmit()"><option value="all">Brand: All</option>{% for option in brand_options %}<option value="{{ option }}" {% if brand_filter == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+          <button class="inventory-icon-button" type="submit" title="Apply filters" aria-label="Apply filters"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1M8 11l4 4 4-4M12 15V4"></path></svg></button>
+        </form>
+      </div>
+
+      <div class="inventory-table-scroll">
+        <table class="inventory-data-table">
+          <thead><tr><th class="asset-col">Asset tag &amp; device</th><th class="spec-col">Hardware configuration</th><th class="assigned-col">Assigned to</th><th>Status</th><th>Warranty expiry</th><th class="actions-col">Actions</th></tr></thead>
+          <tbody>
+            {% for row in item_rows %}{% set item = row.item %}
+            <tr>
+              <td>
+                <div class="inventory-asset-cell">
+                  <span class="asset-device-icon {% if row.status == 'Available' %}is-available{% endif %}" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8m-4-4v4M2 17h20"></path></svg></span>
+                  <div class="asset-identity">
+                    <div class="asset-id-line"><span class="asset-tag">{{ item.asset_tag }}</span>{% if item.serial_number %}<span class="asset-serial">SN: {{ item.serial_number }}</span>{% endif %}</div>
+                    <strong>{{ item.name }}</strong>
+                    <small>{{ item.asset_category or item.asset_type|title }}{% if item.manufacturer %} · {{ item.manufacturer }}{% endif %}</small>
+                  </div>
+                </div>
+              </td>
+              <td class="inventory-spec-cell">
+                <div class="spec-primary" title="{{ item.configuration or '' }}">{{ row.cpu or item.configuration or 'Hardware specs not recorded' }}</div>
+                <div class="spec-chips">{% if row.ram %}<span>{{ row.ram }}</span>{% endif %}{% if row.storage %}<span>{{ row.storage }}</span>{% endif %}{% if item.os_installed %}<span>{{ item.os_installed }}</span>{% endif %}{% if not row.ram and not row.storage and not item.os_installed %}<span class="is-empty">No additional specs</span>{% endif %}</div>
+              </td>
+              <td>
+                {% if row.person %}<div class="inventory-person"><span class="person-avatar">{{ row.person.full_name.split()|map('first')|join|upper|truncate(2, true, '') }}</span><span><strong>{{ row.person.full_name }}</strong><small>{{ row.person.department.name if row.person.department else 'Employee' }}</small></span></div>
+                {% else %}<div class="inventory-unassigned"><span>— Unassigned</span><a href="/{{ org.slug }}/inventory/allocations">+ Allocate</a></div>{% endif %}
+              </td>
+              <td><span class="inventory-status-pill is-{{ row.status|lower }}"><i></i>{{ row.status }}</span></td>
+              <td class="warranty-cell">
+                {% if item.warranty_end %}<strong>{{ item.warranty_end.strftime('%b %d, %Y') }}</strong>{% if row.warranty_days < 0 %}<small class="is-expired">Expired {{ -row.warranty_days }} days ago</small>{% elif row.warranty_days <= 30 %}<small class="is-expiring">Expiring in {{ row.warranty_days }} days</small>{% else %}<small>{{ (row.warranty_days // 30) }} months left</small>{% endif %}{% else %}<span class="inventory-muted">—</span>{% endif %}
+              </td>
+              <td class="inventory-row-actions"><button type="button" class="inventory-action-button" title="Edit asset" aria-label="Edit {{ item.asset_tag }}" onclick="document.getElementById('edit-asset-{{ item.id }}').showModal()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4-.8L19 8a2.8 2.8 0 0 0-4-4L4 15z"></path></svg></button><a class="inventory-action-button" href="/{{ org.slug }}/inventory/allocations" title="Manage allocation" aria-label="Manage allocation for {{ item.asset_tag }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h12m0 0-4-4m4 4-4 4M16 17H4m0 0 4 4m-4-4 4-4"></path></svg></a></td>
+            </tr>
+            {% else %}<tr><td colspan="6" class="inventory-empty">{% if filtered_count %}No items on this page.{% else %}No inventory items match these filters.{% endif %}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <footer class="inventory-pagination"><span>Showing <strong>{{ ((page - 1) * 10 + 1) if filtered_count else 0 }}–{{ [page * 10, filtered_count]|min }}</strong> of <strong>{{ filtered_count }}</strong> assets</span><nav aria-label="Inventory pages"><a class="{% if page <= 1 %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page - 1 }}" aria-label="Previous page">‹</a>{% for page_number in range(1, page_count + 1) %}{% if page_count <= 6 or page_number == 1 or page_number == page_count or (page_number >= page - 1 and page_number <= page + 1) %}<a class="{% if page_number == page %}is-current{% endif %}" href="?{{ filter_query }}&amp;page={{ page_number }}">{{ page_number }}</a>{% elif page_number == 2 or page_number == page_count - 1 %}<span>…</span>{% endif %}{% endfor %}<a class="{% if page >= page_count %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page + 1 }}" aria-label="Next page">›</a></nav></footer>
+    </section>
+  </div>
+</div>
+
+<form id="inventory-workbook-import" class="inventory-workbook-form" method="post" action="/{{ org.slug }}/inventory/import-configuration" enctype="multipart/form-data"><input id="inventory-workbook-file" type="file" name="workbook" accept=".xlsx" required></form>
+<div class="inventory-drawer-backdrop" data-close-add hidden></div>
+<aside class="inventory-drawer" id="inventory-add-drawer" aria-labelledby="inventory-drawer-title" aria-hidden="true" role="dialog" aria-modal="true" inert>
+  <header class="inventory-drawer-head"><span class="drawer-plus" aria-hidden="true">＋</span><div><h2 id="inventory-drawer-title">Add New Asset</h2><p>Register hardware or software asset into inventory</p></div><button type="button" class="drawer-close" data-close-add aria-label="Close drawer">×</button></header>
+  <div class="inventory-drawer-body">
+    {% if error %}<div class="inventory-alert is-error" role="alert">{{ error|replace('_',' ') }}</div>{% endif %}
+    <form method="post" action="/{{ org.slug }}/inventory" class="asset-registration-form" id="asset-registration-form">
+      <div class="drawer-section classification-section"><label>Asset classification</label><div class="asset-category-grid">
+        {% for category in ['Laptop / Notebook','Desktop','Monitor','Software','Peripherals / Docking Station'] %}<label class="category-option {% if loop.first %}is-selected{% endif %}"><input type="radio" name="asset_category" value="{{ category }}" {% if loop.first %}checked{% endif %}><span>{{ category }}</span></label>{% endfor %}
+      </div><input type="hidden" name="asset_type" value="hardware"></div>
+      <section class="drawer-section"><div class="drawer-section-heading"><h3>1. Core identification</h3><span>ID: Auto-assigned</span></div>
+        <div class="drawer-field-grid"><label>Asset tag <b>*</b><span class="asset-tag-input"><input name="asset_tag" id="new-asset-tag" placeholder="e.g. SOL-LAP-058"><button type="button" data-generate-tag>Auto-generate</button></span></label><label>Serial number (S/N)<input name="serial_number" placeholder="e.g. C02G40XYZ088"></label>
+          <label>Brand / manufacturer<input name="manufacturer" placeholder="Apple, HP, Lenovo…"></label><label>Model name<input name="model" placeholder="e.g. MacBook Pro 14, ThinkPad T14…"></label><label>License reference<input name="license_reference" placeholder="Account or seat reference"></label>
+          <label class="field-span-2">Asset name <b>*</b><input name="name" placeholder="e.g. MacBook Pro 14 inch"></label></div>
+      </section>
+      <section class="drawer-section"><h3>2. Hardware &amp; system specs</h3>
+        <div class="drawer-field-grid"><label>Operating system<select name="os_installed"><option value="">Select OS…</option><option>Windows 11</option><option>Windows 10</option><option>macOS 14</option><option>macOS 13</option><option>Ubuntu Linux</option><option>Other</option></select></label><label>CPU / processor<input id="new-asset-cpu" placeholder="e.g. Apple M3, Intel Core i7…"></label>
+          <label>System RAM<input id="new-asset-ram" placeholder="e.g. 16 GB RAM"></label><label>Internal storage (SSD)<input id="new-asset-storage" placeholder="e.g. 512 GB SSD"></label>
+          <label class="field-span-2">Hardware notes<textarea name="notes" rows="2" placeholder="Condition, accessories included, battery health…"></textarea></label></div>
+        <input type="hidden" name="configuration" id="new-asset-configuration">
+      </section>
+      <section class="drawer-section"><h3>3. Assignment &amp; lifecycle status</h3>
+        <div class="drawer-field-grid"><label>Current status<select name="current_status" id="new-asset-status"><option value="In Stock">Available (In Stock)</option><option value="In Use">Allocated (Active Deployment)</option><option value="Maintenance">Maintenance / In Repair</option><option value="Scrapped">Retired / Disposed</option></select></label>
+          <label>Assigned user<select name="assigned_user_id" id="new-asset-assignee"><option value="">— Unassigned (Keep In Stock) —</option>{% for person in people %}<option value="{{ person.id }}">{{ person.full_name }}{% if person.department %} ({{ person.department.name }}){% endif %}</option>{% endfor %}</select></label>
+          <label>Purchase date<input type="date" name="purchase_date"></label><label>Warranty expiry<input type="date" name="warranty_end"></label></div>
+        <div class="workbook-import-card"><div><strong>Import specs from workbook</strong><small>Fill missing CPU, RAM, storage and OS by asset tag</small></div><label for="inventory-workbook-file" class="workbook-choose">Choose file</label><button type="submit" form="inventory-workbook-import" id="inventory-workbook-submit" disabled>Import</button></div>
+      </section>
+      <footer class="inventory-drawer-footer"><span><b>*</b> Required fields</span><button type="button" class="drawer-cancel" data-close-add>Cancel</button><button class="save-another" type="submit" name="save_another" value="1">Save &amp; add another</button><button class="inventory-button is-primary" type="submit">＋ Add to inventory</button></footer>
+    </form>
+  </div>
+</aside>
+
+{% for row in item_rows %}{% set item = row.item %}
+<dialog class="inventory-edit-dialog" id="edit-asset-{{ item.id }}"><header><div><span>Edit inventory item</span><h2>{{ item.asset_tag }} · {{ item.name }}</h2></div><button type="button" class="drawer-close" onclick="this.closest('dialog').close()" aria-label="Close">×</button></header>
+  <form method="post" action="/{{ org.slug }}/inventory/{{ item.id }}/update" class="drawer-field-grid inventory-edit-grid inventory-edit-form">
+    <input type="hidden" name="asset_type" value="{{ item.asset_type }}">
+    <label>Asset tag<input name="asset_tag" maxlength="100" value="{{ item.asset_tag }}" required></label><label>Asset category<select name="asset_category"><option value="" {% if not item.asset_category %}selected{% endif %}>Not classified</option>{% for category in ['Laptop / Notebook','Desktop','Monitor','Software','Peripherals / Docking Station'] %}<option value="{{ category }}" {% if item.asset_category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select></label>
+    <label>Asset name<input name="name" maxlength="200" value="{{ item.name }}" required></label><label>Brand / manufacturer<input name="manufacturer" maxlength="120" value="{{ item.manufacturer }}"></label>
+    <label>Model name<input name="model" maxlength="120" value="{{ item.model }}"></label><label>Serial number<input name="serial_number" maxlength="160" value="{{ item.serial_number }}"></label><label>License reference<input name="license_reference" maxlength="180" value="{{ item.license_reference }}"></label>
+    <label>CPU / processor<input class="edit-cpu" value="{{ row.cpu }}"></label><label>System RAM<input class="edit-ram" value="{{ row.ram }}"></label><label>Internal storage<input class="edit-storage" value="{{ row.storage }}"></label><input type="hidden" name="configuration" class="edit-configuration" value="{{ item.configuration or '' }}"><label>OS installed<input name="os_installed" value="{{ item.os_installed or '' }}"></label>
+    <label>Current status<select name="current_status"><option value="In Stock" {% if item.current_status == 'In Stock' %}selected{% endif %}>Available (In Stock)</option><option value="In Use" {% if item.current_status == 'In Use' %}selected{% endif %}>Allocated (In Use)</option><option value="Maintenance" {% if item.current_status == 'Maintenance' %}selected{% endif %}>Maintenance</option><option value="Scrapped" {% if item.current_status == 'Scrapped' %}selected{% endif %}>Scrapped</option></select></label>
+    <label>Purchase date<input type="date" name="purchase_date" value="{{ item.purchase_date.isoformat() if item.purchase_date else '' }}"></label><label>Warranty expiry<input type="date" name="warranty_end" value="{{ item.warranty_end.isoformat() if item.warranty_end else '' }}"></label>
+    <label class="field-span-2">Notes<textarea name="notes" rows="3">{{ item.notes }}</textarea></label><label class="edit-active"><input name="is_active" type="checkbox" {% if item.is_active %}checked{% endif %}> Active for allocation</label>
+    <div class="edit-actions">{% if not row.has_history %}<button class="edit-delete" type="submit" formaction="/{{ org.slug }}/inventory/{{ item.id }}/delete" formmethod="post" formnovalidate onclick="return confirm('Permanently delete this inventory item?')">Delete asset</button>{% endif %}<button type="button" class="drawer-cancel" onclick="this.closest('dialog').close()">Cancel</button><button class="inventory-button is-primary" type="submit">Save changes</button></div>
+  </form>
+</dialog>
+{% endfor %}
+
+<script>
+(() => {
+  const drawer = document.getElementById('inventory-add-drawer');
+  const backdrop = document.querySelector('.inventory-drawer-backdrop');
+  const openDrawer = () => { drawer.classList.add('is-open'); drawer.inert = false; backdrop.hidden = false; drawer.setAttribute('aria-hidden', 'false'); document.body.classList.add('inventory-drawer-open'); drawer.querySelector('input[name="name"]').focus(); };
+  const closeDrawer = () => { drawer.classList.remove('is-open'); drawer.inert = true; backdrop.hidden = true; drawer.setAttribute('aria-hidden', 'true'); document.body.classList.remove('inventory-drawer-open'); };
+  document.querySelectorAll('[data-open-add]').forEach(button => button.addEventListener('click', openDrawer));
+  document.querySelectorAll('[data-close-add]').forEach(button => button.addEventListener('click', closeDrawer));
+  document.querySelector('[data-open-workbook]').addEventListener('click', () => { openDrawer(); document.getElementById('inventory-workbook-file').click(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && drawer.classList.contains('is-open')) closeDrawer(); });
+
+  const tagPrefixes = {{ tag_prefixes|tojson }};
+  const nextTags = {{ next_tag_numbers|tojson }};
+  const categoryOptions = document.querySelectorAll('input[name="asset_category"]');
+  const tagInput = document.getElementById('new-asset-tag');
+  const assetType = document.querySelector('#asset-registration-form input[name="asset_type"]');
+  const updateCategory = () => {
+    const selected = document.querySelector('input[name="asset_category"]:checked');
+    const category = selected?.value || 'Laptop / Notebook';
+    assetType.value = category === 'Software' ? 'software' : 'hardware';
+    document.querySelectorAll('.category-option').forEach(label => label.classList.toggle('is-selected', label.querySelector('input').checked));
+    const prefix = tagPrefixes[category];
+    tagInput.placeholder = prefix ? `e.g. ${prefix}-${String(nextTags[prefix] || 1).padStart(3, '0')}` : 'Asset tag';
+  };
+  categoryOptions.forEach(input => input.addEventListener('change', updateCategory));
+  updateCategory();
+  document.querySelector('[data-generate-tag]').addEventListener('click', () => {
+    const category = document.querySelector('input[name="asset_category"]:checked')?.value || 'Laptop / Notebook';
+    const prefix = tagPrefixes[category];
+    if (prefix) tagInput.value = `${prefix}-${String(nextTags[prefix] || 1).padStart(3, '0')}`;
+  });
+  document.getElementById('asset-registration-form').addEventListener('submit', event => {
+    const model = event.currentTarget.elements.model.value.trim();
+    const name = event.currentTarget.elements.name;
+    if (!name.value.trim() && model) name.value = model;
+    const values = ['new-asset-cpu','new-asset-ram','new-asset-storage'].map(id => document.getElementById(id).value.trim());
+    document.getElementById('new-asset-configuration').value = values.filter(Boolean).join(' | ');
+    const assignee = document.getElementById('new-asset-assignee');
+    const status = document.getElementById('new-asset-status');
+    if (assignee.value && status.value === 'In Stock') status.value = 'In Use';
+  });
+  document.querySelectorAll('.inventory-edit-form').forEach(form => form.addEventListener('submit', () => {
+    const values = ['.edit-cpu','.edit-ram','.edit-storage'].map(selector => form.querySelector(selector)?.value.trim() || '');
+    form.querySelector('.edit-configuration').value = values.filter(Boolean).join(' | ');
+    const category = form.querySelector('[name="asset_category"]')?.value;
+    if (category) form.querySelector('[name="asset_type"]').value = category === 'Software' ? 'software' : 'hardware';
+  }));
+  const workbookInput = document.getElementById('inventory-workbook-file');
+  const workbookSubmit = document.getElementById('inventory-workbook-submit');
+  workbookInput.addEventListener('change', () => { workbookSubmit.disabled = !workbookInput.files.length; workbookSubmit.textContent = workbookInput.files.length ? `Import ${workbookInput.files[0].name}` : 'Import'; });
+  if ({{ 'true' if open_add else 'false' }}) openDrawer();
+})();
+</script>
+
 <style>
-  .inventory-panel { display:grid; gap:.8rem; margin-top:1rem; padding:1rem; }
-  .inventory-import-form { display:flex; align-items:end; gap:.6rem; flex-wrap:wrap; }
-  .inventory-import-form label { display:grid; gap:.3rem; color:var(--muted); font-size:.68rem; font-weight:700; }
-  .inventory-import-form input { max-width:260px; font-size:.7rem; }
-  .inventory-notice { margin:.8rem 0; padding:.8rem 1rem; border-radius:10px; background:#eaf7ed; color:#176548; font-size:.82rem; }
-  .inventory-form,.inventory-edit-form { grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; }
-  .inventory-form label,.inventory-edit-form label { display:grid; gap:.28rem; color:var(--muted); font-size:.7rem; font-weight:700; }
-  .inventory-form input,.inventory-form select,.inventory-form textarea,.inventory-edit-form input,.inventory-edit-form select,.inventory-edit-form textarea { padding:.58rem .68rem; font-size:.77rem; }
-  .inventory-table-wrap { max-height:65vh; overflow:auto; border:1px solid var(--line); border-radius:10px; }
-  .inventory-table { min-width:900px; width:100%; }
-  .inventory-table th,.inventory-table td { padding:.55rem .65rem; font-size:.72rem; vertical-align:middle; }
-  .inventory-table td small { display:block; color:var(--muted); font-size:.64rem; }
-  .inventory-type,.inventory-status { display:inline-flex; padding:.18rem .42rem; border-radius:999px; background:#eef2ff; color:#4338ca; font-size:.62rem; font-weight:800; white-space:nowrap; }
-  .inventory-type.is-hardware { background:#e8f3ee; color:#176548; }
-  .inventory-status.is-allocated { background:#eaf2ff; color:#2457a6; }
-  .inventory-status.is-retired { background:#f1f2f4; color:#65717c; }
-  .inventory-status.is-available { background:#eaf7ed; color:#26713d; }
-  .inventory-edit-form { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.85rem; padding:0; }
-  .inventory-edit-form label small { color:var(--muted); font-size:.65rem; font-weight:400; line-height:1.4; }
-  .inventory-dialog { width:min(760px,calc(100vw - 2rem)); max-height:90vh; overflow:auto; padding:1.25rem; border:1px solid var(--line); border-radius:16px; box-shadow:0 24px 80px #10263c38; }
-  .inventory-dialog::backdrop { background:#12213388; backdrop-filter:blur(2px); }
-  .inventory-dialog-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1.2rem; }
-  .inventory-dialog-head h2 { margin:.15rem 0 0; font-size:1.1rem; }
-  .inventory-actions { min-width:100px; }
-  .inventory-actions form { display:inline-block; }
-  .inventory-actions .inventory-delete-form { display:block; }
-  .inventory-table td:nth-child(2) { max-width:460px; overflow-wrap:anywhere; }
-  .inventory-table td:nth-child(2) small { margin-top:.25rem; }
-  .inventory-edit-form .full { grid-column:1/-1; }
-  .inventory-edit-form textarea { min-height:75px; }
-  .inventory-delete-form { margin-top:.35rem; }
-  @media(max-width:760px) { .inventory-form,.inventory-edit-form { grid-template-columns:1fr; } .inventory-form .full,.inventory-edit-form .full { grid-column:1; } .inventory-import-form { align-items:stretch; flex-direction:column; } .inventory-import-form button { align-self:flex-start; } .inventory-dialog { padding:1rem; } }
+  .inventory-ui { --inv-ink:#172033; --inv-muted:#64748b; --inv-line:#e2e8f0; --inv-green:#059669; margin:-1.1rem -1rem -2rem; min-height:100vh; background:#f8fafc; color:var(--inv-ink); font-family:Inter,Manrope,system-ui,sans-serif; }
+  .inventory-header { position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:1.5rem; padding:1.15rem clamp(1rem,2.5vw,2rem); background:#fffffff2; border-bottom:1px solid #e2e8f0; box-shadow:0 2px 8px #0f172a08; backdrop-filter:blur(10px); }
+  .inventory-heading { min-width:0; }
+  .inventory-breadcrumb { display:flex; gap:.48rem; align-items:center; margin-bottom:.24rem; color:#94a3b8; font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+  .inventory-breadcrumb strong { color:#047857; }
+  .inventory-heading h1 { display:flex; align-items:center; flex-wrap:wrap; gap:.7rem; color:#0f172a; font-size:clamp(1.35rem,2vw,1.7rem); font-weight:750; letter-spacing:-.045em; }
+  .inventory-heading p { margin-top:.3rem; color:#64748b; font-size:.72rem; }
+  .inventory-count { padding:.24rem .55rem; border:1px solid #e2e8f0; border-radius:999px; background:#f1f5f9; color:#475569; font-size:.65rem; font-weight:650; letter-spacing:0; }
+  .inventory-header-actions { display:flex; align-items:center; justify-content:flex-end; gap:.45rem; flex-wrap:wrap; }
+  .inventory-button { display:inline-flex; align-items:center; justify-content:center; gap:.4rem; min-height:2.2rem; width:auto; padding:.52rem .8rem; border:1px solid transparent; border-radius:.55rem; font:600 .69rem/1.2 Inter,Manrope,sans-serif; white-space:nowrap; text-decoration:none; cursor:pointer; transition:background .15s,border-color .15s,transform .15s; }
+  .inventory-button:hover { transform:translateY(-1px); }
+  .inventory-button.is-subtle { border-color:#cbd5e1; background:white; color:#334155; }
+  .inventory-button.is-subtle:hover { background:#f8fafc; }
+  .inventory-button.is-light { border-color:#e2e8f0; background:#f1f5f9; color:#334155; }
+  .inventory-button.is-primary { border-color:#047857; background:#059669; color:#fff; box-shadow:0 1px 2px #0f172a18; }
+  .inventory-button.is-primary:hover { background:#047857; }
+  .inventory-content { display:grid; gap:1.15rem; padding:clamp(1rem,2.5vw,2rem); }
+  .inventory-alert { margin:1rem clamp(1rem,2.5vw,2rem) 0; padding:.72rem .9rem; border-radius:.65rem; font-size:.78rem; }
+  .inventory-alert.is-error { color:#9f1239; background:#fff1f2; border:1px solid #fecdd3; }
+  .inventory-alert.is-success { color:#166534; background:#f0fdf4; border:1px solid #bbf7d0; }
+  .inventory-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.85rem; }
+  .inventory-metric { display:flex; align-items:center; justify-content:space-between; min-width:0; gap:.7rem; padding:1rem; background:#fff; border:1px solid #e2e8f0; border-radius:.8rem; box-shadow:0 1px 2px #0f172a08; }
+  .inventory-metric p { color:#64748b; font-size:.68rem; font-weight:600; }
+  .inventory-metric p.is-blue { color:#2563eb; } .inventory-metric p.is-green { color:#059669; } .inventory-metric p.is-amber { color:#d97706; }
+  .inventory-metric strong { display:block; margin-top:.24rem; color:#0f172a; font-size:1.55rem; line-height:1.1; font-weight:750; letter-spacing:-.04em; }
+  .inventory-metric small { display:flex; align-items:center; gap:.35rem; margin-top:.4rem; color:#94a3b8; font-size:.62rem; font-weight:550; }
+  .metric-icon { display:grid; place-items:center; width:2.45rem; height:2.45rem; flex:0 0 auto; border-radius:.62rem; background:#f1f5f9; color:#475569; font-size:1.2rem; font-weight:700; }
+  .metric-icon.is-blue { background:#eff6ff; color:#2563eb; } .metric-icon.is-green { background:#ecfdf5; color:#059669; } .metric-icon.is-amber { background:#fffbeb; color:#d97706; }
+  .metric-dot { width:.38rem; height:.38rem; border-radius:50%; background:#94a3b8; } .metric-dot.is-blue { background:#3b82f6; } .metric-dot.is-green { background:#10b981; }
+  .inventory-table-panel { overflow:hidden; background:#fff; border:1px solid #e2e8f0; border-radius:.8rem; box-shadow:0 1px 2px #0f172a08; }
+  .inventory-toolbar { display:flex; align-items:center; justify-content:space-between; gap:.85rem; padding:.82rem; border-bottom:1px solid #e2e8f0; }
+  .inventory-tabs { display:flex; align-items:center; gap:.2rem; padding:.22rem; border:1px solid #e2e8f0; border-radius:.58rem; background:#f1f5f9; }
+  .inventory-tabs a { display:inline-flex; align-items:center; gap:.28rem; width:auto; padding:.43rem .65rem; border:0; border-radius:.4rem; background:transparent; color:#475569; font:550 .66rem/1.1 Inter,Manrope,sans-serif; white-space:nowrap; }
+  .inventory-tabs a:hover { background:#e2e8f0; color:#0f172a; }
+  .inventory-tabs a.is-active { background:#fff; color:#0f172a; font-weight:700; box-shadow:0 1px 3px #0f172a18; }
+  .inventory-tabs a span { color:#64748b; font-size:.61rem; } .inventory-tabs a .tab-count { padding:.1rem .32rem; border-radius:999px; background:#e2e8f0; }
+  .inventory-tabs .tab-count.is-green { background:#d1fae5; color:#047857; } .inventory-tabs .tab-count.is-blue { background:#dbeafe; color:#1d4ed8; } .inventory-tabs .tab-count.is-amber { background:#fef3c7; color:#b45309; }
+  .inventory-filter-controls { display:flex; align-items:center; justify-content:flex-end; gap:.45rem; min-width:0; margin:0; }
+  .inventory-filter-controls input[type="hidden"] { display:none; }
+  .inventory-filter-controls input,.inventory-filter-controls select { width:auto; min-height:2rem; padding:.42rem .55rem; border:1px solid #cbd5e1; border-radius:.48rem; background:#fff; color:#334155; font:500 .65rem/1.2 Inter,Manrope,sans-serif; }
+  .inventory-filter-controls select { max-width:9rem; }
+  .inventory-search { position:relative; display:block; min-width:10rem; }
+  .inventory-search svg { position:absolute; left:.58rem; top:50%; width:.85rem; height:.85rem; transform:translateY(-50%); fill:none; stroke:#94a3b8; stroke-width:1.8; stroke-linecap:round; }
+  .inventory-filter-controls .inventory-search input { width:min(23vw,16rem); padding-left:1.8rem; }
+  .inventory-icon-button { display:grid; place-items:center; width:2rem; height:2rem; padding:.4rem; border:1px solid #cbd5e1; border-radius:.48rem; background:#fff; color:#475569; }
+  .inventory-icon-button svg { width:1rem; height:1rem; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .inventory-table-scroll { overflow:auto; }
+  .inventory-data-table { width:100%; min-width:1040px; border-collapse:collapse; text-align:left; font-size:.69rem; }
+  .inventory-data-table thead { position:sticky; top:0; z-index:1; background:#f8fafc; }
+  .inventory-data-table th { padding:.75rem .85rem; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:.59rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+  .inventory-data-table td { padding:.76rem .85rem; border-bottom:1px solid #e2e8f0b8; color:#334155; vertical-align:middle; }
+  .inventory-data-table tbody tr { transition:background .12s; }
+  .inventory-data-table tbody tr:hover { background:#f8fafc; }
+  .inventory-data-table tbody tr:last-child td { border-bottom:0; }
+  .asset-col { width:30%; } .spec-col { width:29%; } .assigned-col { width:17%; } .actions-col { text-align:right; }
+  .inventory-asset-cell { display:flex; align-items:center; gap:.65rem; min-width:15rem; }
+  .asset-device-icon { display:grid; place-items:center; width:2rem; height:2rem; flex:0 0 auto; border:1px solid #cbd5e1; border-radius:.5rem; background:#f1f5f9; color:#64748b; }
+  .asset-device-icon.is-available { border-color:#a7f3d0; background:#d1fae5; color:#047857; }
+  .asset-device-icon svg { width:1rem; height:1rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+  .asset-identity { min-width:0; }
+  .asset-id-line { display:flex; align-items:center; gap:.38rem; flex-wrap:wrap; }
+  .asset-tag { color:#047857; font:650 .66rem/1.2 'JetBrains Mono',monospace; }
+  .asset-serial { padding:.13rem .28rem; border-radius:.22rem; background:#f1f5f9; color:#64748b; font:500 .55rem/1.2 'JetBrains Mono',monospace; }
+  .asset-identity > strong { display:block; margin-top:.22rem; color:#0f172a; font-size:.68rem; font-weight:650; }
+  .asset-identity > small,.inventory-person small { display:block; margin-top:.12rem; color:#94a3b8; font-size:.6rem; }
+  .inventory-spec-cell { max-width:22rem; }
+  .spec-primary { overflow:hidden; max-width:22rem; color:#0f172a; font-size:.66rem; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+  .spec-chips { display:flex; gap:.25rem; flex-wrap:wrap; margin-top:.32rem; }
+  .spec-chips span { padding:.13rem .3rem; border:1px solid #e2e8f0; border-radius:.22rem; background:#f8fafc; color:#475569; font-size:.55rem; line-height:1.3; white-space:nowrap; }
+  .spec-chips span.is-empty { color:#94a3b8; font-style:italic; }
+  .inventory-person { display:flex; align-items:center; gap:.42rem; min-width:9rem; }
+  .inventory-person strong { display:block; color:#0f172a; font-size:.64rem; font-weight:650; white-space:nowrap; }
+  .person-avatar { display:grid; place-items:center; width:1.45rem; height:1.45rem; flex:0 0 auto; border-radius:50%; background:#dbeafe; color:#1d4ed8; font-size:.55rem; font-weight:750; }
+  .inventory-unassigned { display:flex; align-items:center; gap:.45rem; color:#94a3b8; font-size:.64rem; white-space:nowrap; }
+  .inventory-unassigned a { padding:.2rem .35rem; border-radius:.25rem; background:#d1fae5; color:#047857; font-size:.59rem; font-weight:700; }
+  .inventory-status-pill { display:inline-flex; align-items:center; gap:.34rem; padding:.29rem .52rem; border:1px solid #cbd5e1; border-radius:999px; background:#f1f5f9; color:#475569; font-size:.61rem; font-weight:700; white-space:nowrap; }
+  .inventory-status-pill i { width:.36rem; height:.36rem; border-radius:50%; background:#64748b; }
+  .inventory-status-pill.is-available { border-color:#a7f3d0; background:#ecfdf5; color:#047857; } .inventory-status-pill.is-available i { background:#10b981; }
+  .inventory-status-pill.is-allocated { border-color:#bfdbfe; background:#eff6ff; color:#1d4ed8; } .inventory-status-pill.is-allocated i { background:#3b82f6; }
+  .inventory-status-pill.is-maintenance { border-color:#fde68a; background:#fffbeb; color:#b45309; } .inventory-status-pill.is-maintenance i { background:#f59e0b; }
+  .inventory-status-pill.is-retired { background:#f1f5f9; color:#64748b; }
+  .warranty-cell strong { display:block; color:#334155; font-size:.65rem; font-weight:650; white-space:nowrap; }
+  .warranty-cell small { display:block; margin-top:.18rem; color:#059669; font-size:.57rem; white-space:nowrap; }
+  .warranty-cell small.is-expiring { color:#d97706; } .warranty-cell small.is-expired { color:#e11d48; }
+  .inventory-muted { color:#94a3b8; }
+  .inventory-row-actions { text-align:right; white-space:nowrap; }
+  .inventory-action-button { display:inline-grid; place-items:center; width:1.9rem; height:1.9rem; padding:.4rem; border:0; border-radius:.4rem; background:transparent; color:#64748b; cursor:pointer; vertical-align:middle; }
+  .inventory-action-button:hover { background:#e2e8f0; color:#0f172a; }
+  .inventory-action-button svg { width:.95rem; height:.95rem; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .inventory-empty { padding:2rem!important; text-align:center; color:#64748b!important; }
+  .inventory-pagination { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.75rem .9rem; border-top:1px solid #e2e8f0; color:#64748b; font-size:.64rem; }
+  .inventory-pagination strong { color:#334155; }
+  .inventory-pagination nav { display:flex; align-items:center; gap:.24rem; }
+  .inventory-pagination nav a,.inventory-pagination nav span { display:grid; place-items:center; min-width:1.8rem; height:1.75rem; padding:0 .42rem; border:1px solid #cbd5e1; border-radius:.4rem; background:#fff; color:#475569; font-size:.65rem; }
+  .inventory-pagination nav a:hover,.inventory-pagination nav a.is-current { border-color:#a7f3d0; background:#ecfdf5; color:#047857; }
+  .inventory-pagination nav a.is-disabled { opacity:.4; pointer-events:none; }
+  .inventory-drawer-backdrop { position:fixed; inset:0; z-index:1000; background:#0f172a66; backdrop-filter:blur(2px); opacity:0; transition:opacity .22s; }
+  .inventory-workbook-form { position:fixed; left:-10000px; top:0; width:1px; height:1px; overflow:hidden; }
+  .inventory-workbook-form input { position:absolute; width:1px; height:1px; opacity:0; }
+  .inventory-drawer-backdrop:not([hidden]) { opacity:1; }
+  .inventory-drawer { position:fixed; z-index:1001; top:0; right:0; display:flex; flex-direction:column; width:min(600px,100vw); height:100dvh; background:#fff; border-left:1px solid #e2e8f0; box-shadow:-18px 0 50px #0f172a26; transform:translateX(102%); transition:transform .28s cubic-bezier(.16,1,.3,1); }
+  .inventory-drawer.is-open { transform:translateX(0); }
+  body.inventory-drawer-open { overflow:hidden; }
+  .inventory-drawer-head { display:flex; align-items:center; gap:.7rem; padding:1rem 1.2rem; border-bottom:1px solid #e2e8f0; background:#f8fafc; }
+  .drawer-plus { display:grid; place-items:center; width:2rem; height:2rem; border-radius:.55rem; background:#10b981; color:#fff; font-size:1.2rem; }
+  .inventory-drawer-head h2 { color:#0f172a; font-size:.86rem; font-weight:750; }
+  .inventory-drawer-head p { margin-top:.2rem; color:#64748b; font-size:.65rem; }
+  .drawer-close { display:grid; place-items:center; width:1.9rem; height:1.9rem; margin-left:auto; padding:0; border:0; border-radius:.4rem; background:transparent; color:#94a3b8; font:400 1.35rem/1 Inter,sans-serif; cursor:pointer; }
+  .drawer-close:hover { background:#e2e8f0; color:#334155; }
+  .inventory-drawer-body { overflow:auto; flex:1; padding:1.1rem 1.2rem 0; }
+  .asset-registration-form { display:grid; gap:1rem; }
+  .drawer-section { display:grid; gap:.72rem; padding-top:.9rem; border-top:1px solid #eef2f7; }
+  .drawer-section h3,.drawer-section-heading h3 { color:#0f172a; font-size:.67rem; font-weight:750; letter-spacing:.045em; text-transform:uppercase; }
+  .drawer-section-heading { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+  .drawer-section-heading span { color:#94a3b8; font:500 .58rem/1.2 'JetBrains Mono',monospace; }
+  .classification-section { padding-top:0; border-top:0; }
+  .classification-section > label { color:#64748b; font-size:.62rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .asset-category-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.4rem; }
+  .category-option { display:grid; place-items:center; min-height:2.15rem; padding:.35rem .45rem; border:1px solid #dbe2ea; border-radius:.48rem; background:#f8fafc; color:#475569; text-align:center; font-size:.61rem; font-weight:600; cursor:pointer; }
+  .category-option input { position:absolute; width:1px; height:1px; opacity:0; }
+  .category-option.is-selected { border-color:#10b981; background:#ecfdf5; color:#047857; box-shadow:0 0 0 2px #10b98122; }
+  .drawer-field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.68rem .75rem; }
+  .drawer-field-grid label { display:grid; align-content:start; gap:.28rem; min-width:0; color:#334155; font-size:.63rem; font-weight:600; }
+  .drawer-field-grid label b,.inventory-drawer-footer > span b { color:#e11d48; }
+  .drawer-field-grid input,.drawer-field-grid select,.drawer-field-grid textarea { width:100%; min-width:0; min-height:2.12rem; padding:.48rem .58rem; border:1px solid #cbd5e1; border-radius:.47rem; background:#fff; color:#334155; font:500 .65rem/1.3 Inter,Manrope,sans-serif; }
+  .drawer-field-grid textarea { min-height:3.8rem; resize:vertical; }
+  .drawer-field-grid input:focus,.drawer-field-grid select:focus,.drawer-field-grid textarea:focus { outline:0; border-color:#10b981; box-shadow:0 0 0 3px #10b98120; }
+  .field-span-2 { grid-column:1/-1; }
+  .asset-tag-input { display:flex; gap:.35rem; }
+  .asset-tag-input input { font-family:'JetBrains Mono',monospace; }
+  .asset-tag-input button { width:auto; flex:0 0 auto; padding:.35rem .42rem; border:0; background:transparent; color:#059669; font:600 .56rem/1.2 'JetBrains Mono',monospace; cursor:pointer; }
+  .workbook-import-card { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.62rem; border:1px dashed #cbd5e1; border-radius:.52rem; background:#f8fafc; }
+  .workbook-import-card strong,.workbook-import-card small { display:block; }
+  .workbook-import-card strong { color:#334155; font-size:.62rem; }
+  .workbook-import-card small { margin-top:.15rem; color:#94a3b8; font-size:.56rem; }
+  .workbook-choose,.workbook-import-card button { width:auto; padding:.4rem .52rem; border:1px solid #cbd5e1; border-radius:.35rem; background:#fff; color:#334155; font:600 .58rem/1.2 Inter,sans-serif; cursor:pointer; white-space:nowrap; }
+  .workbook-import-card button { border-color:#a7f3d0; background:#ecfdf5; color:#047857; }
+  .workbook-import-card button:disabled { opacity:.45; cursor:not-allowed; }
+  .inventory-drawer-footer { position:sticky; bottom:0; display:flex; align-items:center; justify-content:flex-end; gap:.45rem; margin:0 -1.2rem; padding:.78rem 1.2rem; border-top:1px solid #e2e8f0; background:#f8fafcf2; backdrop-filter:blur(8px); }
+  .inventory-drawer-footer > span { margin-right:auto; color:#94a3b8; font-size:.58rem; }
+  .inventory-drawer-footer .inventory-button { min-height:2rem; padding:.47rem .65rem; font-size:.59rem; }
+  .drawer-cancel,.save-another { width:auto; padding:.45rem .55rem; border:0; border-radius:.4rem; background:transparent; color:#475569; font:600 .59rem/1.2 Inter,sans-serif; cursor:pointer; white-space:nowrap; }
+  .drawer-cancel:hover { background:#e2e8f0; }
+  .save-another { background:#e2e8f0; }
+  .save-another:hover { background:#cbd5e1; }
+  .inventory-edit-dialog { width:min(650px,calc(100vw - 2rem)); max-height:90vh; overflow:auto; padding:1.2rem; border:1px solid #e2e8f0; border-radius:.9rem; box-shadow:0 22px 70px #0f172a33; }
+  .inventory-edit-dialog::backdrop { background:#0f172a66; backdrop-filter:blur(2px); }
+  .inventory-edit-dialog > header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
+  .inventory-edit-dialog > header span { color:#059669; font-size:.58rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .inventory-edit-dialog h2 { margin-top:.25rem; color:#0f172a; font-size:1rem; }
+  .inventory-edit-grid { gap:.75rem; }
+  .edit-active { display:flex!important; align-items:center!important; gap:.5rem!important; }
+  .edit-active input { width:1rem!important; min-height:1rem!important; }
+  .edit-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:.5rem; padding-top:.7rem; border-top:1px solid #e2e8f0; }
+  .edit-actions .edit-delete { width:auto; margin-right:auto; padding:.45rem .55rem; border:0; border-radius:.4rem; background:#fff1f2; color:#be123c; font:600 .59rem/1.2 Inter,sans-serif; cursor:pointer; }
+  .edit-actions .inventory-button { min-height:2rem; }
+  @media(max-width:1120px) { .inventory-header { align-items:flex-start; flex-direction:column; } .inventory-header-actions { justify-content:flex-start; } .inventory-toolbar { align-items:stretch; flex-direction:column; } .inventory-filter-controls { justify-content:flex-start; flex-wrap:wrap; } .inventory-filter-controls .inventory-search input { width:min(42vw,20rem); } }
+  @media(max-width:760px) { .inventory-ui { margin:-1rem -.65rem -2rem; } .inventory-header,.inventory-content { padding:1rem; } .inventory-header-actions { width:100%; } .inventory-header-actions .inventory-button { flex:1 1 auto; } .inventory-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; } .inventory-metric { padding:.75rem; } .inventory-metric strong { font-size:1.3rem; } .inventory-toolbar { padding:.65rem; } .inventory-tabs { overflow:auto; } .inventory-tabs a { padding:.42rem .52rem; } .inventory-filter-controls { display:grid; grid-template-columns:1fr 1fr; } .inventory-filter-controls .inventory-search { grid-column:1/-1; } .inventory-filter-controls .inventory-search input { width:100%; } .inventory-filter-controls select { max-width:none; width:100%; } .inventory-icon-button { width:100%; } .inventory-pagination { align-items:flex-start; flex-direction:column; } .inventory-drawer { width:100vw; } .inventory-drawer-head { padding:.85rem 1rem; } .inventory-drawer-body { padding:.9rem 1rem 0; } .inventory-drawer-footer { margin:0 -1rem; padding:.7rem 1rem; flex-wrap:wrap; } .inventory-drawer-footer > span { width:100%; } .inventory-drawer-footer .inventory-button { flex:1; } .save-another { display:none; } }
+  @media(max-width:460px) { .inventory-header-actions .inventory-button { flex:1 1 calc(50% - .4rem); } .inventory-heading h1 { font-size:1.3rem; } .inventory-metric small { font-size:.54rem; } .drawer-field-grid { grid-template-columns:1fr; } .field-span-2 { grid-column:1; } .asset-category-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .inventory-drawer-footer .inventory-button { min-width:calc(50% - .25rem); } .save-another { display:none; } }
 </style>
 {% endblock %}

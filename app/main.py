@@ -4340,13 +4340,18 @@ def update_profile_emoji_page(
 def inventory_page(
     request: Request,
     org_slug: str,
+    q: str = "",
+    status: str = "all",
+    os_filter: str = "all",
+    brand: str = "all",
+    page: int = 1,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
     org, user = org_user
     require_inventory_manager(user)
     items = db.scalars(
-        select(InventoryItem).where(InventoryItem.org_id == org.id).order_by(InventoryItem.asset_type, InventoryItem.name)
+        select(InventoryItem).where(InventoryItem.org_id == org.id).order_by(InventoryItem.asset_tag)
     ).all()
     item_ids = [item.id for item in items]
     active_allocations = db.scalars(
@@ -4369,22 +4374,103 @@ def inventory_page(
             select(User).where(User.org_id == org.id, User.id.in_(person_ids))
         ).all()
     } if person_ids else {}
-    item_rows = [
-        {"item": item, "allocation": allocations_by_item.get(item.id), "person": people_by_id.get(allocations_by_item[item.id].user_id) if item.id in allocations_by_item else None, "has_history": item.id in history_item_ids}
-        for item in items
-    ]
+    def inventory_status(item: InventoryItem, allocation: InventoryAllocation | None) -> str:
+        stored_status = (item.current_status or "").strip().casefold()
+        if not item.is_active or stored_status in {"scrapped", "retired", "retired / disposed"}:
+            return "Retired"
+        if any(word in stored_status for word in ("maintenance", "repair", "service")):
+            return "Maintenance"
+        if allocation or stored_status in {"in use", "allocated", "allocated (active deployment)"}:
+            return "Allocated"
+        return "Available"
+
+    all_rows = []
+    for item in items:
+        allocation = allocations_by_item.get(item.id)
+        person = people_by_id.get(allocation.user_id) if allocation else None
+        item_status = inventory_status(item, allocation)
+        all_rows.append({
+            "item": item, "allocation": allocation, "person": person,
+            "has_history": item.id in history_item_ids, "status": item_status,
+            "warranty_days": (item.warranty_end - local_today()).days if item.warranty_end else None,
+            "cpu": hardware_spec_parts(item.configuration)[0],
+            "ram": hardware_spec_parts(item.configuration)[1],
+            "storage": hardware_spec_parts(item.configuration)[2],
+        })
+    status_counts = {key: sum(row["status"] == value for row in all_rows) for key, value in {
+        "available": "Available", "allocated": "Allocated", "maintenance": "Maintenance",
+    }.items()}
+    query = q.strip().casefold()
+    item_rows = []
+    for row in all_rows:
+        item = row["item"]
+        searchable = " ".join((item.asset_tag, item.name, item.manufacturer, item.model, item.serial_number,
+                               item.configuration or "", item.os_installed or "", row["person"].full_name if row["person"] else "")).casefold()
+        if query and query not in searchable:
+            continue
+        if status in status_counts and row["status"].casefold() != status:
+            continue
+        if os_filter != "all" and (item.os_installed or "").strip() != os_filter:
+            continue
+        if brand != "all" and (item.manufacturer or "").strip() != brand:
+            continue
+        item_rows.append(row)
+    filtered_count = len(item_rows)
+    page_size = 10
+    page_count = max(1, (filtered_count + page_size - 1) // page_size)
+    current_page = min(max(page, 1), page_count)
+    item_rows = item_rows[(current_page - 1) * page_size:current_page * page_size]
+    active_people = db.scalars(select(User).where(User.org_id == org.id, User.is_active.is_(True)).order_by(User.full_name)).all()
+    os_options = sorted({(item.os_installed or "").strip() for item in items if (item.os_installed or "").strip()}, key=str.casefold)
+    brand_options = sorted({(item.manufacturer or "").strip() for item in items if (item.manufacturer or "").strip()}, key=str.casefold)
+    category_counts: dict[str, int] = {}
+    hardware_count = software_count = 0
+    for item in items:
+        category = item.asset_category or item.asset_type.title()
+        category_counts[category] = category_counts.get(category, 0) + 1
+        if item.asset_type == "software":
+            software_count += 1
+        else:
+            hardware_count += 1
+    tag_prefixes = {
+        "Laptop / Notebook": "SOL-LAP", "Desktop": "SOL-DESK", "Monitor": "SOL-MON",
+        "Software": "SOL-SW", "Peripherals / Docking Station": "SOL-PER",
+    }
+    used_tag_numbers = {prefix: set() for prefix in tag_prefixes.values()}
+    for item in items:
+        for prefix in used_tag_numbers:
+            match = re.fullmatch(rf"{re.escape(prefix)}-(\d+)", item.asset_tag or "")
+            if match:
+                used_tag_numbers[prefix].add(int(match.group(1)))
+    next_tag_numbers = {}
+    for prefix, used_numbers in used_tag_numbers.items():
+        next_number = 1
+        while next_number in used_numbers:
+            next_number += 1
+        next_tag_numbers[prefix] = next_number
     return templates.TemplateResponse("inventory.html", {
         "request": request, "org": org, "user": user, "item_rows": item_rows,
         "today": local_today(), "error": request.query_params.get("error", ""),
         "imported": request.query_params.get("imported", ""), "unmatched": request.query_params.get("unmatched", ""),
+        "people": active_people, "status_filter": status if status in {"all", *status_counts} else "all",
+        "status_counts": status_counts, "total_count": len(items), "category_counts": category_counts,
+        "hardware_count": hardware_count, "software_count": software_count,
+        "maintenance_count": status_counts["maintenance"], "q": q, "os_filter": os_filter, "brand_filter": brand,
+        "os_options": os_options, "brand_options": brand_options,
+        "filtered_count": filtered_count, "page": current_page, "page_count": page_count,
+        "filter_query": urlencode({"status": status, "q": q, "os_filter": os_filter, "brand": brand}),
+        "tag_prefixes": tag_prefixes, "next_tag_numbers": next_tag_numbers,
+        "added": request.query_params.get("added", ""), "open_add": request.query_params.get("add", ""),
+        "status_urls": {key: "?" + urlencode({"status": key, "q": q, "os_filter": os_filter, "brand": brand}) for key in ("all", *status_counts)},
     })
 
 
 @app.post("/{org_slug}/inventory")
 def create_inventory_item_page(
     org_slug: str,
-    asset_tag: str = Form(...),
+    asset_tag: str = Form(""),
     asset_type: str = Form(...),
+    asset_category: str = Form(""),
     name: str = Form(...),
     manufacturer: str = Form(""),
     model: str = Form(""),
@@ -4395,6 +4481,9 @@ def create_inventory_item_page(
     purchase_date: str = Form(""),
     warranty_end: str = Form(""),
     notes: str = Form(""),
+    current_status: str = Form("In Stock"),
+    assigned_user_id: str = Form(""),
+    save_another: bool = Form(False),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4402,27 +4491,69 @@ def create_inventory_item_page(
     require_inventory_manager(user)
     normalized_tag = re.sub(r"\s+", " ", asset_tag).strip()
     normalized_name = re.sub(r"\s+", " ", name).strip()
-    normalized_type = asset_type.strip().lower()
-    if not normalized_tag or not normalized_name or normalized_type not in {"hardware", "software"}:
-        raise HTTPException(status_code=400, detail="Enter an asset tag, name, and valid asset type")
+    normalized_category = asset_category.strip()
+    category_types = {
+        "Laptop / Notebook": "hardware", "Desktop": "hardware", "Monitor": "hardware",
+        "Software": "software", "Peripherals / Docking Station": "hardware",
+    }
+    normalized_type = category_types.get(normalized_category, asset_type.strip().lower())
+    status_value = current_status.strip()
+    status_choices = {"In Stock", "In Use", "Maintenance", "Scrapped"}
+    if not normalized_name or normalized_type not in {"hardware", "software"}:
+        raise HTTPException(status_code=400, detail="Enter an asset name and valid asset type")
+    if status_value not in status_choices:
+        raise HTTPException(status_code=400, detail="Choose a valid inventory status")
+    tag_prefixes = {
+        "Laptop / Notebook": "SOL-LAP", "Desktop": "SOL-DESK", "Monitor": "SOL-MON",
+        "Software": "SOL-SW", "Peripherals / Docking Station": "SOL-PER",
+    }
+    if not normalized_tag:
+        prefix = tag_prefixes.get(normalized_category, "SOL-HW")
+        matching_tags = db.scalars(select(InventoryItem.asset_tag).where(
+            InventoryItem.org_id == org.id, InventoryItem.asset_tag.like(f"{prefix}-%")
+        )).all()
+        used_numbers = {int(match.group(1)) for tag in matching_tags if (match := re.fullmatch(rf"{re.escape(prefix)}-(\d+)", tag))}
+        next_number = 1
+        while next_number in used_numbers:
+            next_number += 1
+        normalized_tag = f"{prefix}-{next_number:03d}"
     if db.scalar(select(InventoryItem.id).where(InventoryItem.org_id == org.id, InventoryItem.asset_tag == normalized_tag)):
         raise HTTPException(status_code=400, detail="That asset tag is already in use")
     parsed_purchase = parse_optional_date(purchase_date)
     parsed_warranty = parse_optional_date(warranty_end)
     if purchase_date and not parsed_purchase or warranty_end and not parsed_warranty:
         raise HTTPException(status_code=400, detail="Enter valid purchase and warranty dates")
+    parsed_assignee = parse_optional_form_int(assigned_user_id, "Assigned user")
+    person = db.scalar(select(User).where(
+        User.id == parsed_assignee, User.org_id == org.id, User.is_active.is_(True)
+    )) if parsed_assignee is not None else None
+    if parsed_assignee is not None and not person:
+        raise HTTPException(status_code=400, detail="Choose an active employee")
+    if person and status_value not in {"In Use", "In Stock"}:
+        raise HTTPException(status_code=400, detail="Only an in-use asset can be assigned")
     item = InventoryItem(
         org_id=org.id, asset_tag=normalized_tag[:100], asset_type=normalized_type,
+        asset_category=normalized_category[:80],
         name=normalized_name[:200], manufacturer=manufacturer.strip()[:120], model=model.strip()[:120],
         serial_number=serial_number.strip()[:160], license_reference=license_reference.strip()[:180],
         configuration=configuration.strip(),
         os_installed=os_installed.strip()[:120],
         purchase_date=parsed_purchase, warranty_end=parsed_warranty,
-        notes=notes.strip(), is_active=True, created_by_id=user.id,
+        notes=notes.strip(), current_status="In Use" if person else status_value,
+        is_active=status_value != "Scrapped", created_by_id=user.id,
     )
     db.add(item)
+    if person:
+        db.flush()
+        db.add(InventoryAllocation(
+            org_id=org.id, inventory_item_id=item.id, user_id=person.id,
+            allocated_by_id=user.id, allocated_at=local_today(), notes=notes.strip(),
+        ))
     db.commit()
-    return RedirectResponse(url=f"/{org_slug}/inventory", status_code=303)
+    if person:
+        send_inventory_assignment_notice(db, org, person)
+    redirect_url = f"/{org_slug}/inventory?added=1" + ("&add=1" if save_another else "")
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @app.post("/{org_slug}/inventory/{item_id}/update")
@@ -4431,6 +4562,7 @@ def update_inventory_item_page(
     item_id: int,
     asset_tag: str = Form(...),
     asset_type: str = Form(...),
+    asset_category: str = Form(""),
     name: str = Form(...),
     manufacturer: str = Form(""),
     model: str = Form(""),
@@ -4442,6 +4574,7 @@ def update_inventory_item_page(
     warranty_end: str = Form(""),
     notes: str = Form(""),
     is_active: bool = Form(False),
+    current_status: str = Form("In Stock"),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4452,15 +4585,23 @@ def update_inventory_item_page(
         raise HTTPException(status_code=404, detail="Inventory item not found")
     normalized_tag = re.sub(r"\s+", " ", asset_tag).strip()
     normalized_name = re.sub(r"\s+", " ", name).strip()
-    normalized_type = asset_type.strip().lower()
+    normalized_category = asset_category.strip()
+    category_types = {
+        "Laptop / Notebook": "hardware", "Desktop": "hardware", "Monitor": "hardware",
+        "Software": "software", "Peripherals / Docking Station": "hardware",
+    }
+    normalized_type = category_types.get(normalized_category, asset_type.strip().lower())
+    status_value = current_status.strip()
     if not normalized_tag or not normalized_name or normalized_type not in {"hardware", "software"}:
         raise HTTPException(status_code=400, detail="Enter an asset tag, name, and valid asset type")
+    if status_value not in {"In Stock", "In Use", "Maintenance", "Scrapped"}:
+        raise HTTPException(status_code=400, detail="Choose a valid inventory status")
     duplicate = db.scalar(select(InventoryItem.id).where(
         InventoryItem.org_id == org.id, InventoryItem.asset_tag == normalized_tag, InventoryItem.id != item.id
     ))
     if duplicate:
         raise HTTPException(status_code=400, detail="That asset tag is already in use")
-    if not is_active and db.scalar(select(InventoryAllocation.id).where(
+    if (not is_active or status_value == "Scrapped") and db.scalar(select(InventoryAllocation.id).where(
         InventoryAllocation.inventory_item_id == item.id, InventoryAllocation.returned_at.is_(None)
     )):
         raise HTTPException(status_code=400, detail="Return the allocated asset before retiring it")
@@ -4470,6 +4611,7 @@ def update_inventory_item_page(
         raise HTTPException(status_code=400, detail="Enter valid purchase and warranty dates")
     item.asset_tag = normalized_tag[:100]
     item.asset_type = normalized_type
+    item.asset_category = normalized_category[:80]
     item.name = normalized_name[:200]
     item.manufacturer = manufacturer.strip()[:120]
     item.model = model.strip()[:120]
@@ -4480,7 +4622,8 @@ def update_inventory_item_page(
     item.purchase_date = parsed_purchase
     item.warranty_end = parsed_warranty
     item.notes = notes.strip()
-    item.is_active = is_active
+    item.current_status = status_value
+    item.is_active = is_active and status_value != "Scrapped"
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/inventory", status_code=303)
 
