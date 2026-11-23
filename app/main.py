@@ -4651,6 +4651,9 @@ def delete_inventory_item_page(
 def inventory_allocations_page(
     request: Request,
     org_slug: str,
+    q: str = "",
+    scope: str = "all",
+    page: int = 1,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -4666,11 +4669,45 @@ def inventory_allocations_page(
     item_map = {item.id: item for item in items}
     people_map = {person.id: person for person in all_people}
     allocated_item_ids = {allocation.inventory_item_id for allocation in allocations if allocation.returned_at is None}
-    available_items = [item for item in items if item.is_active and item.id not in allocated_item_ids]
+    def item_is_allocatable(item: InventoryItem) -> bool:
+        saved_status = (item.current_status or "").strip().casefold()
+        blocked_status = any(term in saved_status for term in ("maintenance", "repair", "service", "scrapped", "retired", "in use", "allocated"))
+        return item.is_active and not blocked_status
+
+    available_items = [item for item in items if item_is_allocatable(item) and item.id not in allocated_item_ids]
+    active_count = sum(allocation.returned_at is None for allocation in allocations)
+    returned_count = len(allocations) - active_count
+    normalized_scope = scope if scope in {"all", "active", "returned"} else "all"
+    query = q.strip().casefold()
+    filtered_allocations = []
+    for allocation in allocations:
+        if normalized_scope == "active" and allocation.returned_at is not None:
+            continue
+        if normalized_scope == "returned" and allocation.returned_at is None:
+            continue
+        item = item_map.get(allocation.inventory_item_id)
+        person = people_map.get(allocation.user_id)
+        searchable = " ".join((item.asset_tag if item else "", item.name if item else "",
+                               person.full_name if person else "", person.email if person else "",
+                               allocation.notes or "")).casefold()
+        if query and query not in searchable:
+            continue
+        filtered_allocations.append(allocation)
+    filtered_count = len(filtered_allocations)
+    page_size = 10
+    page_count = max(1, (filtered_count + page_size - 1) // page_size)
+    current_page = min(max(page, 1), page_count)
+    visible_allocations = filtered_allocations[(current_page - 1) * page_size:current_page * page_size]
     return templates.TemplateResponse("inventory_allocations.html", {
         "request": request, "org": org, "user": user, "items": items, "available_items": available_items,
-        "people": people, "allocations": allocations, "item_map": item_map, "people_map": people_map,
-        "today": local_today(),
+        "people": people, "allocations": visible_allocations, "item_map": item_map, "people_map": people_map,
+        "today": local_today(), "q": q, "scope": normalized_scope,
+        "active_count": active_count, "returned_count": returned_count, "available_count": len(available_items),
+        "filtered_count": filtered_count, "page": current_page, "page_count": page_count,
+        "filter_query": urlencode({"scope": normalized_scope, "q": q}),
+        "scope_urls": {value: "?" + urlencode({"scope": value, "q": q}) for value in ("all", "active", "returned")},
+        "selected_item_id": request.query_params.get("item_id", ""),
+        "allocatable_item_ids": {item.id for item in available_items},
     })
 
 
@@ -4681,6 +4718,16 @@ def validate_inventory_allocation(
     person = db.scalar(select(User).where(User.id == user_id, User.org_id == org_id, User.is_active.is_(True)))
     if not item or not item.is_active:
         raise HTTPException(status_code=400, detail="Choose an active inventory item")
+    saved_status = (item.current_status or "").strip().casefold()
+    maintenance_status = any(term in saved_status for term in ("maintenance", "repair", "service", "scrapped", "retired"))
+    assigned_status = any(term in saved_status for term in ("in use", "allocated"))
+    is_existing_allocation_item = bool(exclude_allocation_id and db.scalar(select(InventoryAllocation.id).where(
+        InventoryAllocation.id == exclude_allocation_id,
+        InventoryAllocation.inventory_item_id == item.id,
+        InventoryAllocation.returned_at.is_(None),
+    )))
+    if maintenance_status or (assigned_status and not is_existing_allocation_item):
+        raise HTTPException(status_code=400, detail="This asset is not currently available for allocation")
     if not person:
         raise HTTPException(status_code=400, detail="Choose an active employee")
     conflict_query = select(InventoryAllocation.id).where(
@@ -4780,6 +4827,7 @@ def create_inventory_allocation_page(
         org_id=org.id, inventory_item_id=item.id, user_id=person.id,
         allocated_by_id=manager.id, allocated_at=allocation_date, notes=notes.strip(),
     ))
+    item.current_status = "In Use"
     db.commit()
     send_inventory_assignment_notice(db, org, person)
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
@@ -4819,6 +4867,16 @@ def update_inventory_allocation_page(
     allocation.allocated_at = allocation_date
     allocation.returned_at = return_date
     allocation.notes = notes.strip()
+    if previous_item_id != item.id:
+        previous_item = db.scalar(select(InventoryItem).where(
+            InventoryItem.id == previous_item_id, InventoryItem.org_id == org.id
+        ))
+        if previous_item and previous_item.is_active and (previous_item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
+            previous_item.current_status = "In Stock"
+    if return_date is None:
+        item.current_status = "In Use"
+    elif item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
+        item.current_status = "In Stock"
     db.commit()
     if return_date is None and (was_returned or previous_user_id != person.id or previous_item_id != item.id):
         send_inventory_assignment_notice(db, org, person)
@@ -4844,6 +4902,11 @@ def return_inventory_allocation_page(
     if not return_date or return_date < allocation.allocated_at or return_date > local_today():
         raise HTTPException(status_code=400, detail="Enter a valid return date")
     allocation.returned_at = return_date
+    item = db.scalar(select(InventoryItem).where(
+        InventoryItem.id == allocation.inventory_item_id, InventoryItem.org_id == org.id
+    ))
+    if item and item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
+        item.current_status = "In Stock"
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
 
@@ -4862,7 +4925,12 @@ def delete_inventory_allocation_page(
     ))
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
+    item = db.scalar(select(InventoryItem).where(
+        InventoryItem.id == allocation.inventory_item_id, InventoryItem.org_id == org.id
+    ))
     db.delete(allocation)
+    if allocation.returned_at is None and item and item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
+        item.current_status = "In Stock"
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
 
