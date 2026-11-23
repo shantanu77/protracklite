@@ -98,6 +98,7 @@ class User(Base):
     role: Mapped[Role] = mapped_column(SqlEnum(Role), default=Role.EMPLOYEE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     send_effort_reminder: Mapped[bool] = mapped_column(Boolean, default=True)
+    receive_team_utilization_email: Mapped[bool] = mapped_column(Boolean, default=False)
     force_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
     temp_password_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     avatar_128_url: Mapped[str] = mapped_column(String(255), default="")
@@ -195,6 +196,23 @@ class InventoryAllocation(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class InventoryAllocationEvent(Base):
+    __tablename__ = "inventory_allocation_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    inventory_item_id: Mapped[int] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    related_inventory_item_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_items.id"), nullable=True, index=True)
+    allocation_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    previous_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    event_date: Mapped[date] = mapped_column(Date, index=True)
+    details: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class ProjectActivityType(Base):

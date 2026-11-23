@@ -47,10 +47,12 @@
             <td class="allocation-notes" title="{{ allocation.notes or '' }}">{{ allocation.notes or '—' }}</td>
             <td><span class="allocation-state {% if allocation.returned_at %}is-returned{% else %}is-active{% endif %}"><i></i>{{ 'Returned' if allocation.returned_at else 'Active' }}</span></td>
             <td class="allocation-row-actions">
+              {% if item %}<button type="button" class="allocation-view-button" onclick="document.getElementById('asset-details-{{ item.id }}').showModal()">View</button>{% endif %}
+              <button type="button" class="allocation-view-button is-history" aria-expanded="false" aria-controls="asset-history-{{ allocation.id }}" data-history-toggle="asset-history-{{ allocation.id }}">View more</button>
               {% if not allocation.returned_at %}<button type="button" class="allocation-action" title="Edit allocation" aria-label="Edit allocation for {{ item.asset_tag if item else 'removed item' }}" onclick="document.getElementById('edit-allocation-{{ allocation.id }}').showModal()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4-.8L19 8a2.8 2.8 0 0 0-4-4L4 15z"></path></svg></button><form method="post" action="/{{ org.slug }}/inventory/allocations/{{ allocation.id }}/return" class="allocation-return-form" onsubmit="return confirm('Record this asset as returned today?')"><input type="hidden" name="returned_at" value="{{ today.isoformat() }}"><button type="submit" class="return-button">Return</button></form>{% endif %}
-              <form method="post" action="/{{ org.slug }}/inventory/allocations/{{ allocation.id }}/delete" class="allocation-delete-form" onsubmit="return confirm('Delete this allocation record permanently?')"><button type="submit" class="allocation-action is-danger" title="Delete record" aria-label="Delete allocation record"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16m-10 4v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"></path></svg></button></form>
             </td>
           </tr>
+          <tr class="allocation-expanded-row" id="asset-history-{{ allocation.id }}" hidden><td colspan="7"><div class="allocation-expanded-panel"><strong>Asset history · {{ item.asset_tag if item else 'Removed item' }}</strong><div class="allocation-timeline">{% for event in history_by_item.get(allocation.inventory_item_id, []) %}<article><time>{{ event.date.strftime('%d %b %Y') if event.date else '—' }}</time><strong>{{ event.type }}</strong><span>{{ event.employee }}</span><span class="timeline-actor">By {{ event.actor or '—' }}</span><small>{{ event.details or '—' }}</small></article>{% else %}<p>No allocation history recorded.</p>{% endfor %}</div></div></td></tr>
           {% else %}<tr><td colspan="7" class="allocation-empty">{% if filtered_count %}No records on this page.{% else %}No allocation records match these filters.{% endif %}</td></tr>{% endfor %}
         </tbody>
       </table></div>
@@ -70,6 +72,24 @@
   </form>
 </dialog>
 {% endif %}{% endfor %}
+
+{% for item in items if item.id in visible_item_ids %}{% set current_allocation = active_allocation_map.get(item.id) %}{% set current_person = people_map.get(current_allocation.user_id) if current_allocation else none %}
+<dialog class="allocation-edit-dialog allocation-asset-dialog" id="asset-details-{{ item.id }}"><header><div><span>Asset details</span><h2>{{ item.asset_tag }} · {{ item.name }}</h2></div><button type="button" class="dialog-close" onclick="this.closest('dialog').close()" aria-label="Close">×</button></header>
+  <dl class="allocation-asset-details">
+    <div><dt>Category / type</dt><dd>{{ item.asset_category or '—' }} · {{ (item.asset_type or '—')|title }}</dd></div>
+    <div><dt>Manufacturer</dt><dd>{{ item.manufacturer or '—' }}</dd></div><div><dt>Model</dt><dd>{{ item.model or '—' }}</dd></div>
+    <div><dt>Serial number</dt><dd>{{ item.serial_number or '—' }}</dd></div><div><dt>Hardware configuration</dt><dd>{{ item.configuration or '—' }}</dd></div>
+    <div><dt>Operating system</dt><dd>{{ item.os_installed or '—' }}</dd></div><div><dt>License reference</dt><dd>{{ item.license_reference or '—' }}</dd></div>
+    <div><dt>Status</dt><dd>{{ item.current_status or ('Active' if item.is_active else 'Retired') }}</dd></div>
+    <div><dt>Purchase date</dt><dd>{{ item.purchase_date.strftime('%d %b %Y') if item.purchase_date else '—' }}</dd></div>
+    <div><dt>Warranty end</dt><dd>{{ item.warranty_end.strftime('%d %b %Y') if item.warranty_end else '—' }}</dd></div>
+    <div><dt>Current employee</dt><dd>{{ current_person.full_name if current_person else 'Unassigned' }}</dd></div>
+    <div><dt>Current allocation date</dt><dd>{{ current_allocation.allocated_at.strftime('%d %b %Y') if current_allocation and current_allocation.allocated_at else '—' }}</dd></div>
+    {% if current_allocation %}<div><dt>Condition at issue</dt><dd>{{ current_allocation.condition_at_issue or '—' }}</dd></div><div><dt>Accessories issued</dt><dd>{{ current_allocation.accessories_issued or '—' }}</dd></div><div class="is-wide"><dt>Allocation notes</dt><dd>{{ current_allocation.notes or '—' }}</dd></div>{% endif %}
+    <div class="is-wide"><dt>Asset notes</dt><dd>{{ item.notes or '—' }}</dd></div>
+  </dl>
+</dialog>
+{% endfor %}
 
 <style>
   .allocation-ui { --alloc-ink:#172033; --alloc-muted:#64748b; margin:-1.1rem -1rem -2rem; min-height:100vh; background:#f8fafc; color:var(--alloc-ink); font-family:Inter,Manrope,system-ui,sans-serif; }
@@ -172,13 +192,36 @@
   .allocation-edit-form footer { grid-column:1/-1; display:flex; justify-content:flex-end; gap:.5rem; padding-top:.7rem; border-top:1px solid #e2e8f0; }
   .dialog-cancel { width:auto; padding:.45rem .55rem; border:0; border-radius:.4rem; background:transparent; color:#475569; font:600 .62rem/1.2 Inter,Manrope,sans-serif; cursor:pointer; }
   .allocation-edit-form .allocation-button { min-height:2rem; }
+  .allocation-view-button { width:auto; min-height:1.8rem; padding:.35rem .48rem; border:1px solid #cbd5e1; border-radius:.38rem; background:#fff; color:#334155; font:650 .58rem/1.2 Inter,Manrope,sans-serif; cursor:pointer; }
+  .allocation-view-button:hover { border-color:#94a3b8; background:#f8fafc; }
+  .allocation-view-button.is-history { border-color:#bfdbfe; color:#1d4ed8; }
+  .allocation-expanded-row[hidden] { display:none; }
+  .allocation-expanded-row > td { padding:.75rem 1rem!important; background:#f8fafc; }
+  .allocation-expanded-panel > strong { display:block; margin-bottom:.65rem; color:#334155; font-size:.65rem; }
+  .allocation-timeline { display:grid; gap:.35rem; }
+  .allocation-timeline article { display:grid; grid-template-columns:6rem 8rem minmax(8rem,12rem) 1fr; align-items:start; gap:.6rem; padding:.55rem .65rem; border:1px solid #e2e8f0; border-radius:.45rem; background:white; font-size:.61rem; }
+  .allocation-timeline time { color:#64748b; }.allocation-timeline article strong { color:#0f172a; }.allocation-timeline article span { color:#475569; }.allocation-timeline article small { color:#64748b; white-space:normal; }
+  .allocation-timeline article .timeline-actor { color:#94a3b8; }
+  .allocation-asset-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.7rem; margin:0; }
+  .allocation-asset-details div { padding:.65rem .7rem; border:1px solid #e2e8f0; border-radius:.5rem; background:#f8fafc; min-width:0; }
+  .allocation-asset-details div.is-wide { grid-column:1/-1; }
+  .allocation-asset-details dt { color:#64748b; font-size:.57rem; font-weight:650; text-transform:uppercase; letter-spacing:.05em; }
+  .allocation-asset-details dd { margin:.25rem 0 0; color:#172033; font-size:.66rem; overflow-wrap:anywhere; }
   @media(max-width:1120px) { .allocation-header { align-items:flex-start; flex-direction:column; } .allocation-header-actions { justify-content:flex-start; } .allocation-toolbar { align-items:stretch; flex-direction:column; } .allocation-search-form { justify-content:flex-end; } .allocation-search input { width:min(55vw,22rem); } }
   @media(max-width:760px) { .allocation-ui { margin:-1rem -.65rem -2rem; } .allocation-header,.allocation-content { padding:1rem; } .allocation-header-actions { width:100%; } .allocation-header-actions .allocation-button { flex:1; } .allocation-metrics { grid-template-columns:1fr; gap:.55rem; } .allocation-metrics article { padding:.75rem; } .allocation-create-form { grid-template-columns:1fr 1fr; } .allocation-create-submit { grid-column:1/-1; grid-row:auto; justify-content:space-between; } .allocation-notes-field { grid-column:1/-1; } .allocation-history-heading { padding:.8rem; } .allocation-toolbar { padding:.65rem; } .allocation-tabs { overflow:auto; } .allocation-tabs a { padding:.42rem .55rem; } .allocation-search-form { width:100%; } .allocation-search { flex:1; } .allocation-search input { width:100%; } .allocation-search-form > button { flex:0 0 auto; } .allocation-pagination { align-items:flex-start; flex-direction:column; } }
   @media(max-width:460px) { .allocation-create-form,.allocation-edit-form { grid-template-columns:1fr; } .allocation-create-submit,.allocation-notes-field,.allocation-edit-form .edit-notes,.allocation-edit-form footer { grid-column:1; } .allocation-create-submit { align-items:flex-start; flex-direction:column; } .allocation-header h1 { font-size:1.3rem; } }
+  @media(max-width:640px) { .allocation-timeline article { grid-template-columns:1fr 1fr; }.allocation-timeline article small { grid-column:1/-1; }.allocation-asset-details { grid-template-columns:1fr; }.allocation-asset-details div.is-wide { grid-column:1; } }
 </style>
 <script>
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') document.querySelectorAll('.allocation-edit-dialog[open]').forEach(dialog => dialog.close());
 });
+document.querySelectorAll('[data-history-toggle]').forEach(button => button.addEventListener('click', () => {
+  const row = document.getElementById(button.dataset.historyToggle);
+  if (!row) return;
+  row.hidden = !row.hidden;
+  button.setAttribute('aria-expanded', String(!row.hidden));
+  button.textContent = row.hidden ? 'View more' : 'Show less';
+}));
 </script>
 {% endblock %}

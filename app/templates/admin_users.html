@@ -77,6 +77,7 @@
           <th>Role</th>
           <th>Status</th>
           <th>Reminder</th>
+          <th>Monday Utilization</th>
           <th>Last Login</th>
           <th></th>
         </tr>
@@ -101,6 +102,7 @@
               {% if person.send_effort_reminder %}On{% else %}Off{% endif %}
             </span>
           </td>
+          <td>{% if person.role.value in ["manager", "admin"] %}<span class="badge {% if person.receive_team_utilization_email %}success{% else %}danger{% endif %}">{% if person.receive_team_utilization_email %}On{% else %}Off{% endif %}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td>{% if person.last_login_at %}{{ local_datetime(person.last_login_at) }}{% else %}<span class="muted">Not recorded yet</span>{% endif %}</td>
           <td>
             <div class="table-actions">
@@ -117,7 +119,7 @@
                 type="button"
                 class="button secondary small"
                 data-modal-open="user-edit-modal"
-                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "department_id": person.department_id, "manager_id": person.manager_id, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "employment_start_date": person.employment_start_date.isoformat() if person.employment_start_date else "", "employment_end_date": person.employment_end_date.isoformat() if person.employment_end_date else "", "reset_password": false}|tojson|e }}'
+                data-modal-payload='{{ {"_action": "/" ~ org.slug ~ "/admin/users/" ~ person.id, "full_name": person.full_name, "department_id": person.department_id, "manager_id": person.manager_id, "role": person.role.value, "is_active": person.is_active, "send_effort_reminder": person.send_effort_reminder, "receive_team_utilization_email": person.receive_team_utilization_email, "employment_start_date": person.employment_start_date.isoformat() if person.employment_start_date else "", "employment_end_date": person.employment_end_date.isoformat() if person.employment_end_date else "", "reset_password": false}|tojson|e }}'
               >
                 Edit
               </button>
@@ -125,7 +127,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9"><p class="empty">No users match the current search and filters.</p></td></tr>
+        <tr><td colspan="10"><p class="empty">No users match the current search and filters.</p></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -218,6 +220,7 @@
       <label>Employment end date<input name="employment_end_date" type="date"></label>
       <label class="checkbox"><input type="checkbox" name="is_active">Active</label>
       <label class="checkbox"><input type="checkbox" name="send_effort_reminder">Send Effort Reminder</label>
+      <label class="checkbox"><input type="checkbox" name="receive_team_utilization_email">Monday Team Utilization Email (managers/admins only)</label>
       <label class="checkbox"><input type="checkbox" name="reset_password">Reset Password</label>
       <button type="submit">Save Changes</button>
     </form>

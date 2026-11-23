@@ -205,6 +205,7 @@ def run_digests(
             .where(
                 User.is_active.is_(True),
                 User.role.in_([Role.MANAGER, Role.ADMIN]),
+                User.receive_team_utilization_email.is_(True),
                 Organization.is_active.is_(True),
             )
             .order_by(User.email.asc())

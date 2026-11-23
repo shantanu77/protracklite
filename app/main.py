@@ -58,6 +58,7 @@ from app.models import (
     Department,
     Holiday,
     InventoryAllocation,
+    InventoryAllocationEvent,
     InventoryItem,
     Leave,
     LeaveType,
@@ -964,6 +965,7 @@ def ensure_users_schema() -> None:
     columns = {column["name"] for column in inspector.get_columns("users")}
     ddl_by_column = {
         "send_effort_reminder": "ALTER TABLE users ADD COLUMN send_effort_reminder BOOLEAN NOT NULL DEFAULT TRUE",
+        "receive_team_utilization_email": "ALTER TABLE users ADD COLUMN receive_team_utilization_email BOOLEAN NOT NULL DEFAULT FALSE",
         "department_id": "ALTER TABLE users ADD COLUMN department_id INTEGER NULL",
         "manager_id": "ALTER TABLE users ADD COLUMN manager_id INTEGER NULL",
         "last_login_at": "ALTER TABLE users ADD COLUMN last_login_at DATETIME NULL",
@@ -4545,10 +4547,17 @@ def create_inventory_item_page(
     db.add(item)
     if person:
         db.flush()
-        db.add(InventoryAllocation(
+        allocation = InventoryAllocation(
             org_id=org.id, inventory_item_id=item.id, user_id=person.id,
             allocated_by_id=user.id, allocated_at=local_today(), notes=notes.strip(),
-        ))
+        )
+        db.add(allocation)
+        db.flush()
+        log_inventory_allocation_event(
+            db, org.id, item.id, "assigned", user.id, allocation.allocated_at,
+            allocation_id=allocation.id, user_id=person.id,
+            details=f"Assigned {item.asset_tag} to {person.full_name}. Notes: {allocation.notes or '—'}",
+        )
     db.commit()
     if person:
         send_inventory_assignment_notice(db, org, person)
@@ -4666,8 +4675,44 @@ def inventory_allocations_page(
         select(InventoryAllocation).where(InventoryAllocation.org_id == org.id)
         .order_by(InventoryAllocation.returned_at.is_not(None), InventoryAllocation.allocated_at.desc(), InventoryAllocation.id.desc())
     ).all()
+    allocation_events = db.scalars(select(InventoryAllocationEvent).where(
+        InventoryAllocationEvent.org_id == org.id
+    ).order_by(InventoryAllocationEvent.event_date.asc(), InventoryAllocationEvent.id.asc())).all()
     item_map = {item.id: item for item in items}
     people_map = {person.id: person for person in all_people}
+    history_by_item: dict[int, list[dict[str, Any]]] = {item.id: [] for item in items}
+    event_types_by_allocation: dict[int, set[str]] = {}
+    for event in allocation_events:
+        if event.allocation_id is not None:
+            event_types_by_allocation.setdefault(event.allocation_id, set()).add(event.event_type)
+    for record in allocations:
+        employee = people_map.get(record.user_id)
+        allocator = people_map.get(record.allocated_by_id)
+        logged_types = event_types_by_allocation.get(record.id, set())
+        if not logged_types.intersection({"assigned", "reassigned_in"}):
+            history_by_item[record.inventory_item_id].append({
+                "date": record.allocated_at, "type": "Assigned", "employee": employee.full_name if employee else "Former employee",
+                "actor": allocator.full_name if allocator else "—", "details": record.notes or "", "allocation_id": record.id,
+            })
+        if record.returned_at and not logged_types.intersection({"returned", "reassigned_out"}):
+            history_by_item[record.inventory_item_id].append({
+                "date": record.returned_at, "type": "Returned", "employee": employee.full_name if employee else "Former employee",
+                "actor": "—", "details": "Asset returned to inventory.", "allocation_id": record.id,
+            })
+    event_labels = {
+        "assigned": "Assigned", "returned": "Returned", "reassigned_out": "Reassigned out",
+        "reassigned_in": "Reassigned in", "updated": "Allocation updated",
+    }
+    for event in allocation_events:
+        history_by_item.setdefault(event.inventory_item_id, []).append({
+            "date": event.event_date, "type": event_labels.get(event.event_type, event.event_type.replace("_", " ").title()),
+            "employee": people_map.get(event.user_id).full_name if people_map.get(event.user_id) else "—",
+            "actor": people_map.get(event.actor_id).full_name if people_map.get(event.actor_id) else "—",
+            "details": event.details or "", "allocation_id": event.allocation_id,
+        })
+    for history in history_by_item.values():
+        history.sort(key=lambda entry: (entry["date"] or date.min, entry["allocation_id"] or 0))
+    active_allocation_map = {record.inventory_item_id: record for record in allocations if record.returned_at is None}
     allocated_item_ids = {allocation.inventory_item_id for allocation in allocations if allocation.returned_at is None}
     def item_is_allocatable(item: InventoryItem) -> bool:
         saved_status = (item.current_status or "").strip().casefold()
@@ -4701,6 +4746,8 @@ def inventory_allocations_page(
     return templates.TemplateResponse("inventory_allocations.html", {
         "request": request, "org": org, "user": user, "items": items, "available_items": available_items,
         "people": people, "allocations": visible_allocations, "item_map": item_map, "people_map": people_map,
+        "history_by_item": history_by_item, "active_allocation_map": active_allocation_map,
+        "visible_item_ids": {record.inventory_item_id for record in visible_allocations},
         "today": local_today(), "q": q, "scope": normalized_scope,
         "active_count": active_count, "returned_count": returned_count, "available_count": len(available_items),
         "filtered_count": filtered_count, "page": current_page, "page_count": page_count,
@@ -4742,6 +4789,34 @@ def validate_inventory_allocation(
     return item, person
 
 
+def log_inventory_allocation_event(
+    db: Session,
+    org_id: int,
+    item_id: int,
+    event_type: str,
+    actor_id: int,
+    event_date: date,
+    *,
+    allocation_id: int | None = None,
+    user_id: int | None = None,
+    previous_user_id: int | None = None,
+    related_item_id: int | None = None,
+    details: str = "",
+) -> None:
+    db.add(InventoryAllocationEvent(
+        org_id=org_id,
+        inventory_item_id=item_id,
+        related_inventory_item_id=related_item_id,
+        allocation_id=allocation_id,
+        event_type=event_type,
+        user_id=user_id,
+        previous_user_id=previous_user_id,
+        actor_id=actor_id,
+        event_date=event_date,
+        details=details[:4000],
+    ))
+
+
 def send_inventory_assignment_notice(db: Session, org: Organization, person: User) -> None:
     """Email an employee a complete, current inventory custody summary."""
     if not person.email:
@@ -4766,10 +4841,14 @@ def send_inventory_assignment_notice(db: Session, org: Organization, person: Use
     plain_rows = []
     for allocation, item in assets:
         details = [
-            ("Asset tag", item.asset_tag), ("Type", (item.asset_type or "hardware").title()),
+            ("Asset tag", item.asset_tag), ("Category", item.asset_category),
+            ("Type", (item.asset_type or "hardware").title()),
             ("Manufacturer", item.manufacturer), ("Model", item.model),
             ("Serial number", item.serial_number), ("License reference", item.license_reference),
+            ("Hardware configuration", item.configuration), ("Operating system", item.os_installed),
             ("Allocated on", allocation.allocated_at.strftime("%d %b %Y") if allocation.allocated_at else ""),
+            ("Condition at issue", allocation.condition_at_issue), ("Accessories issued", allocation.accessories_issued),
+            ("Purpose", allocation.purpose),
             ("Warranty end", item.warranty_end.strftime("%d %b %Y") if item.warranty_end else ""),
             ("Notes", allocation.notes or item.notes),
         ]
@@ -4823,10 +4902,17 @@ def create_inventory_allocation_page(
     allocation_date = parse_optional_date(allocated_at)
     if not allocation_date or allocation_date > local_today():
         raise HTTPException(status_code=400, detail="Enter a valid allocation date no later than today")
-    db.add(InventoryAllocation(
+    allocation = InventoryAllocation(
         org_id=org.id, inventory_item_id=item.id, user_id=person.id,
         allocated_by_id=manager.id, allocated_at=allocation_date, notes=notes.strip(),
-    ))
+    )
+    db.add(allocation)
+    db.flush()
+    log_inventory_allocation_event(
+        db, org.id, item.id, "assigned", manager.id, allocation_date,
+        allocation_id=allocation.id, user_id=person.id,
+        details=f"Assigned {item.asset_tag} to {person.full_name}. Notes: {allocation.notes or '—'}",
+    )
     item.current_status = "In Use"
     db.commit()
     send_inventory_assignment_notice(db, org, person)
@@ -4852,33 +4938,78 @@ def update_inventory_allocation_page(
     ))
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
+    if allocation.returned_at is not None:
+        raise HTTPException(status_code=400, detail="Returned allocation history is read-only")
     previous_user_id = allocation.user_id
     previous_item_id = allocation.inventory_item_id
-    was_returned = allocation.returned_at is not None
+    previous_allocated_at = allocation.allocated_at
+    previous_notes = allocation.notes or ""
     allocation_date = parse_optional_date(allocated_at)
     return_date = parse_optional_date(returned_at)
-    if not allocation_date or allocation_date > local_today() or (return_date and (return_date < allocation_date or return_date > local_today())):
+    if not allocation_date or allocation_date < previous_allocated_at or allocation_date > local_today() or (return_date and (return_date < allocation_date or return_date > local_today())):
         raise HTTPException(status_code=400, detail="Enter valid allocation and return dates")
     item, person = validate_inventory_allocation(db, org.id, inventory_item_id, user_id, allocation.id)
     if return_date is None and not item.is_active:
         raise HTTPException(status_code=400, detail="A retired item cannot have an active allocation")
-    allocation.inventory_item_id = item.id
-    allocation.user_id = person.id
-    allocation.allocated_at = allocation_date
-    allocation.returned_at = return_date
-    allocation.notes = notes.strip()
-    if previous_item_id != item.id:
+    is_reassignment = previous_item_id != item.id or previous_user_id != person.id
+    if is_reassignment and return_date is not None:
+        raise HTTPException(status_code=400, detail="Reassign the asset first, then record its return separately")
+    previous_item = db.scalar(select(InventoryItem).where(
+        InventoryItem.id == previous_item_id, InventoryItem.org_id == org.id
+    ))
+    if is_reassignment:
+        allocation.returned_at = allocation_date
+        new_allocation = InventoryAllocation(
+            org_id=org.id, inventory_item_id=item.id, user_id=person.id,
+            allocated_by_id=manager.id, allocated_at=allocation_date, notes=notes.strip(),
+        )
+        db.add(new_allocation)
+        db.flush()
+        old_item_label = f"{previous_item.asset_tag} · {previous_item.name}" if previous_item else f"asset #{previous_item_id}"
+        new_item_label = f"{item.asset_tag} · {item.name}"
+        old_person = db.get(User, previous_user_id)
+        old_person_name = old_person.full_name if old_person else f"employee #{previous_user_id}"
+        log_inventory_allocation_event(
+            db, org.id, previous_item_id, "reassigned_out", manager.id, allocation_date,
+            allocation_id=allocation.id, user_id=person.id, previous_user_id=previous_user_id,
+            related_item_id=item.id,
+            details=f"Reassigned from {old_person_name} / {old_item_label} to {person.full_name} / {new_item_label}.",
+        )
+        log_inventory_allocation_event(
+            db, org.id, item.id, "reassigned_in", manager.id, allocation_date,
+            allocation_id=new_allocation.id, user_id=person.id, previous_user_id=previous_user_id,
+            related_item_id=previous_item_id,
+            details=f"Reassigned from {old_person_name} / {old_item_label} to {person.full_name} / {new_item_label}.",
+        )
+    elif return_date is not None:
+        allocation.returned_at = return_date
+        allocation.notes = notes.strip()
+        log_inventory_allocation_event(
+            db, org.id, item.id, "returned", manager.id, return_date,
+            allocation_id=allocation.id, user_id=person.id,
+            details=f"Returned {item.asset_tag} from {person.full_name}.",
+        )
+    else:
+        allocation.allocated_at = allocation_date
+        allocation.notes = notes.strip()
+        if allocation_date != previous_allocated_at or (notes.strip() != previous_notes):
+            log_inventory_allocation_event(
+                db, org.id, item.id, "updated", manager.id, local_today(),
+                allocation_id=allocation.id, user_id=person.id,
+                details=f"Allocation record updated. Previous allocation date: {previous_allocated_at.isoformat()}; new allocation date: {allocation_date.isoformat()}; previous notes: {previous_notes}; new notes: {notes.strip()}.",
+            )
+    if is_reassignment and previous_item_id != item.id:
         previous_item = db.scalar(select(InventoryItem).where(
             InventoryItem.id == previous_item_id, InventoryItem.org_id == org.id
         ))
         if previous_item and previous_item.is_active and (previous_item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
             previous_item.current_status = "In Stock"
-    if return_date is None:
+    if return_date is None and (not is_reassignment or item.id != previous_item_id):
         item.current_status = "In Use"
-    elif item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
+    elif return_date is not None and item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
         item.current_status = "In Stock"
     db.commit()
-    if return_date is None and (was_returned or previous_user_id != person.id or previous_item_id != item.id):
+    if is_reassignment:
         send_inventory_assignment_notice(db, org, person)
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
 
@@ -4898,6 +5029,8 @@ def return_inventory_allocation_page(
     ))
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
+    if allocation.returned_at is not None:
+        raise HTTPException(status_code=400, detail="This allocation has already been returned")
     return_date = parse_optional_date(returned_at)
     if not return_date or return_date < allocation.allocated_at or return_date > local_today():
         raise HTTPException(status_code=400, detail="Enter a valid return date")
@@ -4907,6 +5040,12 @@ def return_inventory_allocation_page(
     ))
     if item and item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
         item.current_status = "In Stock"
+    person = db.get(User, allocation.user_id)
+    log_inventory_allocation_event(
+        db, org.id, allocation.inventory_item_id, "returned", manager.id, return_date,
+        allocation_id=allocation.id, user_id=allocation.user_id,
+        details=f"Returned {item.asset_tag if item else 'asset'} from {person.full_name if person else 'employee'}.",
+    )
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
 
@@ -4925,14 +5064,7 @@ def delete_inventory_allocation_page(
     ))
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
-    item = db.scalar(select(InventoryItem).where(
-        InventoryItem.id == allocation.inventory_item_id, InventoryItem.org_id == org.id
-    ))
-    db.delete(allocation)
-    if allocation.returned_at is None and item and item.is_active and (item.current_status or "").strip().casefold() in {"in use", "allocated", "allocated (active deployment)"}:
-        item.current_status = "In Stock"
-    db.commit()
-    return RedirectResponse(url=f"/{org_slug}/inventory/allocations", status_code=303)
+    raise HTTPException(status_code=400, detail="Allocation history is retained. Use Return to close an active allocation.")
 
 
 def asset_report_rows(db: Session, org_id: int) -> tuple[list[InventoryItem], dict[int, InventoryAllocation], dict[int, User], list[User]]:
@@ -11702,6 +11834,7 @@ def admin_create_user(
         temp_password_expires=datetime.utcnow() + timedelta(hours=24),
         is_active=True,
         send_effort_reminder=True,
+        receive_team_utilization_email=False,
         employment_start_date=parsed_start_date,
         employment_end_date=parsed_end_date,
     )
@@ -11724,6 +11857,7 @@ def admin_update_user(
     role: Role = Form(...),
     is_active: bool = Form(False),
     send_effort_reminder: bool = Form(False),
+    receive_team_utilization_email: bool = Form(False),
     employment_start_date: str = Form(""),
     employment_end_date: str = Form(""),
     reset_password: str | None = Form(None),
@@ -11779,6 +11913,7 @@ def admin_update_user(
     target.role = role
     target.is_active = is_active
     target.send_effort_reminder = send_effort_reminder
+    target.receive_team_utilization_email = receive_team_utilization_email and role in {Role.MANAGER, Role.ADMIN}
     target.employment_start_date = parsed_start_date
     target.employment_end_date = parsed_end_date
     if reset_password:
