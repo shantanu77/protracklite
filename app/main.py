@@ -10,6 +10,8 @@ import logging
 import re
 import secrets
 import smtplib
+import zipfile
+import xml.etree.ElementTree as ET
 from calendar import monthrange
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
@@ -1376,6 +1378,36 @@ def ensure_query_indexes() -> None:
                     connection.execute(text(ddl))
 
 
+def ensure_inventory_schema() -> None:
+    """Add inventory fields introduced after the initial asset module release."""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    additions = {
+        "inventory_items": {
+            "asset_category": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "configuration": "TEXT NULL",
+            "os_installed": "VARCHAR(120) NOT NULL DEFAULT ''",
+            "current_status": "VARCHAR(40) NOT NULL DEFAULT 'In Stock'",
+        },
+        "inventory_allocations": {
+            "purpose": "TEXT NULL",
+            "condition_at_issue": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "accessories_issued": "TEXT NULL",
+            "employee_identifier": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "designation_snapshot": "VARCHAR(120) NOT NULL DEFAULT ''",
+            "department_snapshot": "VARCHAR(120) NOT NULL DEFAULT ''",
+        },
+    }
+    with engine.begin() as connection:
+        for table_name, columns in additions.items():
+            if table_name not in table_names:
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, column_type in columns.items():
+                if column_name not in existing:
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
@@ -1391,6 +1423,7 @@ def on_startup() -> None:
     ensure_time_logs_schema()
     ensure_leaves_schema()
     ensure_performance_goals_schema()
+    ensure_inventory_schema()
     ensure_query_indexes()
     db = next(get_db())
     try:
@@ -4343,6 +4376,7 @@ def inventory_page(
     return templates.TemplateResponse("inventory.html", {
         "request": request, "org": org, "user": user, "item_rows": item_rows,
         "today": local_today(), "error": request.query_params.get("error", ""),
+        "imported": request.query_params.get("imported", ""), "unmatched": request.query_params.get("unmatched", ""),
     })
 
 
@@ -4356,6 +4390,8 @@ def create_inventory_item_page(
     model: str = Form(""),
     serial_number: str = Form(""),
     license_reference: str = Form(""),
+    configuration: str = Form(""),
+    os_installed: str = Form(""),
     purchase_date: str = Form(""),
     warranty_end: str = Form(""),
     notes: str = Form(""),
@@ -4379,6 +4415,8 @@ def create_inventory_item_page(
         org_id=org.id, asset_tag=normalized_tag[:100], asset_type=normalized_type,
         name=normalized_name[:200], manufacturer=manufacturer.strip()[:120], model=model.strip()[:120],
         serial_number=serial_number.strip()[:160], license_reference=license_reference.strip()[:180],
+        configuration=configuration.strip(),
+        os_installed=os_installed.strip()[:120],
         purchase_date=parsed_purchase, warranty_end=parsed_warranty,
         notes=notes.strip(), is_active=True, created_by_id=user.id,
     )
@@ -4398,6 +4436,8 @@ def update_inventory_item_page(
     model: str = Form(""),
     serial_number: str = Form(""),
     license_reference: str = Form(""),
+    configuration: str = Form(""),
+    os_installed: str = Form(""),
     purchase_date: str = Form(""),
     warranty_end: str = Form(""),
     notes: str = Form(""),
@@ -4435,6 +4475,8 @@ def update_inventory_item_page(
     item.model = model.strip()[:120]
     item.serial_number = serial_number.strip()[:160]
     item.license_reference = license_reference.strip()[:180]
+    item.configuration = configuration.strip()
+    item.os_installed = os_installed.strip()[:120]
     item.purchase_date = parsed_purchase
     item.warranty_end = parsed_warranty
     item.notes = notes.strip()
@@ -4702,6 +4744,96 @@ def safe_csv_value(value: Any) -> str:
     return "'" + text_value if text_value.startswith(("=", "+", "-", "@", "\t", "\r")) else text_value
 
 
+def hardware_spec_parts(configuration: str | None) -> tuple[str, str, str]:
+    parts = [part.strip() for part in (configuration or "").split("|")[:3]]
+    return tuple((parts + [""] * 3)[:3])
+
+
+def inventory_configuration_from_xlsx(content: bytes) -> dict[str, tuple[str, str]]:
+    """Read asset tag, configuration and OS columns without a third-party XLSX dependency."""
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+        shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+        shared = ["".join(node.text or "" for node in item.findall(".//m:t", ns)) for item in shared_root.findall("m:si", ns)]
+        sheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+    except (KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
+        raise HTTPException(status_code=400, detail="Upload a valid inventory .xlsx workbook") from exc
+
+    def cell_text(cell: ET.Element) -> str:
+        value = cell.find("m:v", ns)
+        if cell.get("t") == "s" and value is not None:
+            try:
+                return shared[int(value.text or "")]
+            except (ValueError, IndexError):
+                return ""
+        inline = cell.find("m:is", ns)
+        if inline is not None:
+            return "".join(node.text or "" for node in inline.findall(".//m:t", ns))
+        return value.text if value is not None and value.text else ""
+
+    rows: dict[int, dict[str, str]] = {}
+    tag_col = config_col = os_col = None
+    for row in sheet.findall(".//m:sheetData/m:row", ns):
+        values: dict[str, str] = {}
+        for cell in row.findall("m:c", ns):
+            reference = cell.get("r", "")
+            column = re.match(r"[A-Z]+", reference)
+            if column:
+                values[column.group()] = cell_text(cell).strip()
+        row_number = int(row.get("r", "0"))
+        if row_number == 1:
+            headers = {value.casefold(): column for column, value in values.items()}
+            if not {"asset tag", "configuration (cpu | ram | storage)", "os installed"}.issubset(headers):
+                raise HTTPException(status_code=400, detail="Workbook must include Asset Tag, Configuration and OS Installed columns")
+            tag_col = headers["asset tag"]
+            config_col = headers["configuration (cpu | ram | storage)"]
+            os_col = headers["os installed"]
+            continue
+        if row_number > 1 and tag_col and config_col and os_col:
+            tag = values.get(tag_col, "").strip()
+            if tag:
+                rows[row_number] = {"tag": tag, "configuration": values.get(config_col, "").strip(), "os": values.get(os_col, "").strip()}
+    return {entry["tag"]: (entry["configuration"], entry["os"]) for entry in rows.values()}
+
+
+@app.post("/{org_slug}/inventory/import-configuration")
+async def import_inventory_configuration_page(
+    org_slug: str,
+    workbook: UploadFile = File(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    require_inventory_manager(user)
+    if not (workbook.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Choose an .xlsx inventory workbook")
+    content = await workbook.read(12 * 1024 * 1024 + 1)
+    if len(content) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="The workbook must be 12 MB or smaller")
+    imported = inventory_configuration_from_xlsx(content)
+    items = db.scalars(select(InventoryItem).where(InventoryItem.org_id == org.id)).all()
+    by_tag = {item.asset_tag.strip().casefold(): item for item in items}
+    updated = 0
+    unmatched = 0
+    for tag, (configuration, os_installed) in imported.items():
+        item = by_tag.get(tag.casefold())
+        if not item:
+            unmatched += 1
+            continue
+        changed = False
+        if configuration and not (item.configuration or "").strip():
+            item.configuration = configuration
+            changed = True
+        if os_installed and not (item.os_installed or "").strip():
+            item.os_installed = os_installed[:120]
+            changed = True
+        if changed:
+            updated += 1
+    db.commit()
+    return RedirectResponse(url=f"/{org_slug}/inventory?imported={updated}&unmatched={unmatched}", status_code=303)
+
+
 @app.get("/{org_slug}/assets/reports", response_class=HTMLResponse)
 def inventory_reports_page(
     request: Request,
@@ -4718,7 +4850,11 @@ def inventory_reports_page(
     for item in items:
         allocation = allocation_map.get(item.id)
         employee = employees_by_id.get(allocation.user_id) if allocation else None
-        inventory_rows.append({"item": item, "allocation": allocation, "employee": employee})
+        cpu, ram, storage = hardware_spec_parts(item.configuration)
+        inventory_rows.append({
+            "item": item, "allocation": allocation, "employee": employee,
+            "cpu": cpu, "ram": ram, "storage": storage,
+        })
         if employee:
             employee_asset_map.setdefault(employee.id, []).append(item)
     employee_rows = [{"employee": employee, "assets": employee_asset_map.get(employee.id, [])} for employee in employees]
@@ -4728,12 +4864,13 @@ def inventory_reports_page(
         output = io.StringIO(newline="")
         writer = csv.writer(output)
         if export == "inventory":
-            writer.writerow(["Asset tag", "Type", "Name", "Manufacturer", "Model", "Serial number", "License reference", "Status", "Employee", "Department", "Location", "Allocated on", "Purchase date", "Warranty end", "Notes"])
+            writer.writerow(["Asset tag", "Type", "Name", "Manufacturer", "Model", "Serial number", "License reference", "CPU", "RAM", "Storage", "OS installed", "Status", "Employee", "Department", "Location", "Allocated on", "Purchase date", "Warranty end", "Notes"])
             for row in inventory_rows:
                 item, allocation, employee = row["item"], row["allocation"], row["employee"]
                 writer.writerow([safe_csv_value(value) for value in [
                     item.asset_tag, item.asset_type, item.name, item.manufacturer, item.model, item.serial_number,
-                    item.license_reference, "Retired" if not item.is_active else ("Allocated" if allocation else "Available"),
+                    item.license_reference, *hardware_spec_parts(item.configuration),
+                    item.os_installed or "", "Retired" if not item.is_active else ("Allocated" if allocation else "Available"),
                     employee.full_name if employee else "", employee.department.name if employee and employee.department else "",
                     employee.location if employee else "", allocation.allocated_at if allocation else "",
                     item.purchase_date, item.warranty_end, item.notes,

@@ -4,11 +4,11 @@
 <section class="panel asset-report-panel">
   <div class="panel-head"><div><h2>Inventory report</h2><p>One row per registered hardware or software item.</p></div><a href="/{{ org.slug }}/inventory">Manage inventory ↗</a></div>
   <div class="inventory-table-wrap"><table class="asset-report-table">
-    <thead><tr><th>Asset tag</th><th>Type</th><th>Asset</th><th>Manufacturer / model</th><th>Serial / license ref.</th><th>Status</th><th>Assigned employee</th><th>Location</th></tr></thead>
+    <thead><tr><th>Asset tag</th><th>Device</th><th>CPU</th><th>RAM</th><th>Storage</th><th>OS</th><th>Serial / license ref.</th><th>Status</th><th>Assigned employee</th><th>Location</th></tr></thead>
     <tbody>
       {% for row in inventory_rows %}{% set item = row.item %}
-      <tr><td><strong>{{ item.asset_tag }}</strong></td><td>{{ item.asset_type|title }}</td><td>{{ item.name }}</td><td>{{ [item.manufacturer, item.model]|reject('equalto','')|join(' · ') or '—' }}</td><td>{{ item.serial_number or item.license_reference or '—' }}</td><td>{{ 'Retired' if not item.is_active else ('Allocated' if row.allocation else 'Available') }}</td><td>{{ row.employee.full_name if row.employee else '—' }}</td><td>{{ row.employee.location or 'Noida' if row.employee else '—' }}</td></tr>
-      {% else %}<tr><td colspan="8" class="empty">No inventory items have been registered.</td></tr>{% endfor %}
+      <tr><td><strong>{{ item.asset_tag }}</strong><small>{{ item.asset_type|title }}</small></td><td><strong>{{ item.name }}</strong><small>{{ [item.manufacturer, item.model]|reject('equalto','')|join(' · ') or '—' }}</small></td><td>{{ row.cpu or '—' }}</td><td>{{ row.ram or '—' }}</td><td>{{ row.storage or '—' }}</td><td>{{ item.os_installed or '—' }}</td><td>{{ item.serial_number or item.license_reference or '—' }}</td><td><span class="report-status {{ 'is-retired' if not item.is_active else ('is-allocated' if row.allocation else 'is-available') }}">{{ 'Retired' if not item.is_active else ('Allocated' if row.allocation else 'Available') }}</span></td><td>{{ row.employee.full_name if row.employee else '—' }}</td><td>{{ row.employee.location or 'Noida' if row.employee else '—' }}</td></tr>
+      {% else %}<tr><td colspan="10" class="empty">No inventory items have been registered.</td></tr>{% endfor %}
     </tbody>
   </table></div>
 </section>
@@ -25,8 +25,14 @@
 </section>
 <style>
   .asset-report-panel { display:grid; gap:.8rem; margin-top:1rem; padding:1rem; }
-  .asset-report-table { min-width:1000px; }
-  .asset-report-table th,.asset-report-table td { padding:.55rem .65rem; font-size:.7rem; vertical-align:middle; }
+  .asset-report-table { width:100%; min-width:1120px; table-layout:auto; }
+  .asset-report-table th,.asset-report-table td { padding:.7rem .75rem; font-size:.73rem; vertical-align:middle; line-height:1.4; }
+  .asset-report-table thead th { position:sticky; top:0; z-index:1; background:var(--surface,#fff); white-space:nowrap; }
+  .asset-report-table td small { display:block; color:var(--muted); font-size:.64rem; margin-top:.16rem; }
+  .report-status { display:inline-flex; padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#475569; font-size:.65rem; font-weight:750; white-space:nowrap; }
+  .report-status.is-allocated { background:#eaf2ff; color:#2457a6; }
+  .report-status.is-available { background:#eaf7ed; color:#26713d; }
+  .report-status.is-retired { background:#f1f2f4; color:#65717c; }
   .employee-asset-report { min-width:900px; }
   .employee-asset-line { display:block; margin:.12rem 0; }
   .employee-asset-line small { color:var(--muted); font-size:.62rem; }
