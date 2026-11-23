@@ -5,14 +5,14 @@
   <div>
     <p class="eyebrow">Shared organization view</p>
     <h1>Leave &amp; capacity</h1>
-    <p>Review leave and public holidays across your team or organization. Ordinary working days stay blank; reloads use the last saved Zoho sync.</p>
+    <p>{% if can_sync_capacity %}Review leave and public holidays across your team or organization.{% else %}Review leave and public holidays across the organization.{% endif %} Ordinary working days stay blank; reloads use the last saved Zoho sync.</p>
   </div>
   <div class="capacity-header-controls">
     <form method="get" action="/{{ org.slug }}/manager/capacity" class="capacity-view-form">
-      <select name="scope" aria-label="Capacity scope" onchange="this.form.submit()">
+      {% if can_sync_capacity %}<select name="scope" aria-label="Capacity scope" onchange="this.form.submit()">
         <option value="team" {% if report.scope == 'team' %}selected{% endif %}>My Team</option>
         <option value="org" {% if report.scope == 'org' %}selected{% endif %}>All Organization</option>
-      </select>
+      </select>{% endif %}
       <select name="view" aria-label="Timeline view" onchange="this.form.submit()">
         <option value="month" {% if report.view == 'month' %}selected{% endif %}>Month View</option>
         <option value="sprint" {% if report.view == 'sprint' %}selected{% endif %}>Sprint View</option>
@@ -20,11 +20,11 @@
       </select>
       <input type="hidden" name="anchor" value="{{ report.period_start.isoformat() }}">
     </form>
-    <form method="post" action="/{{ org.slug }}/manager/capacity/sync" data-capacity-sync-form>
+    {% if can_sync_capacity %}<form method="post" action="/{{ org.slug }}/manager/capacity/sync" data-capacity-sync-form>
       <input type="hidden" name="view" value="{{ report.view }}">
       <input type="hidden" name="anchor" value="{{ report.period_start.isoformat() }}">
       <button type="submit" data-capacity-sync-button {% if sync_status.status == 'running' %}disabled{% endif %}>{{ 'Syncing…' if sync_status.status == 'running' else 'Sync with Zoho' }}</button>
-    </form>
+    </form>{% endif %}
     <a class="button capacity-timeline-cta" href="#capacity-timeline" data-capacity-view-timeline>View Timeline</a>
   </div>
 </section>

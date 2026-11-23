@@ -11371,8 +11371,8 @@ def manager_capacity_page(
     db: Session = Depends(get_db),
 ):
     org, user = org_user
-    must_be_admin_or_manager(user)
-    normalized_scope = "org" if scope == "org" else "team"
+    is_manager = user.role in {Role.ADMIN, Role.MANAGER}
+    normalized_scope = "org" if scope == "org" or not is_manager else "team"
     if normalized_scope == "org" or user.role == Role.ADMIN:
         members = org_people(db, org.id)
     else:
@@ -11404,6 +11404,7 @@ def manager_capacity_page(
             "report": report,
             "today": local_today(),
             "sync_status": capacity_sync_status(db, org.id),
+            "can_sync_capacity": is_manager,
             "sync_months": [{"label": date(year, month, 1).strftime("%B %Y"),
                              "synced_at": format_local_datetime(snapshot.synced_at) if snapshot else "",
                              "unmapped_count": sum(member.id not in snapshot.member_ids_json for member in members) if snapshot else 0}
@@ -11433,7 +11434,6 @@ def manager_capacity_sync(background_tasks: BackgroundTasks, view: str = Form("m
 @app.get("/{org_slug}/manager/capacity/sync-status")
 def manager_capacity_sync_status(org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
-    must_be_admin_or_manager(user)
     return JSONResponse(capacity_sync_status(db, org.id), headers={"Cache-Control": "private, no-store"})
 
 
