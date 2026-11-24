@@ -10417,6 +10417,115 @@ def team_member_month_feed(db: Session, member: User, month_start: date, month_e
     }
 
 
+def team_month_leave_requests(
+    db: Session, org_id: int, members: list[User], month_start: date, month_end: date,
+) -> tuple[list[dict[str, Any]], str, str]:
+    """Load one organization-scoped monthly leave queue for the current manager."""
+    missing_mapping = [person for person in members if not person.zoho_employee_id.strip()]
+    mapping_message = ""
+    if missing_mapping:
+        directory = fetch_zoho_employee_ids(employee_emails=[person.email for person in missing_mapping])
+        if directory.status == "synced":
+            employee_ids = dict(directory.employee_ids)
+            for person in missing_mapping:
+                person.zoho_employee_id = employee_ids.get(person.email.strip().lower(), "")
+            db.commit()
+        else:
+            mapping_message = directory.error or "Some employees could not be linked to Zoho People."
+
+    mapped_members = [person for person in members if person.zoho_employee_id.strip()]
+    member_by_zoho_id = {person.zoho_employee_id: person for person in mapped_members}
+    if mapped_members:
+        result = fetch_zoho_leave_requests(
+            employee_zoho_ids=member_by_zoho_id.keys(), from_date=month_start, to_date=month_end,
+        )
+        if result.status == "synced":
+            result = apply_local_leave_approvals(db, org_id, mapped_members, result)
+    else:
+        result = ZohoLeaveListResult(status="failed", error=mapping_message or "No employees could be matched to Zoho People.")
+
+    rows: list[dict[str, Any]] = []
+    saved_source = result.status != "synced"
+    if saved_source:
+        records = db.scalars(select(LeaveApproval).where(
+            LeaveApproval.org_id == org_id,
+            LeaveApproval.user_id.in_([person.id for person in members]),
+        )).all() if members else []
+        people_by_id = {person.id: person for person in members}
+        for record in records:
+            raw = record.request_json or {}
+            try:
+                start_date = date.fromisoformat(str(raw.get("start_date", "")))
+                end_date = date.fromisoformat(str(raw.get("end_date", "")))
+            except ValueError:
+                continue
+            if start_date > month_end or end_date < month_start:
+                continue
+            member = people_by_id.get(record.user_id)
+            if not member:
+                continue
+            day_counts = raw.get("day_counts") or []
+            month_days = 0.0
+            for day_value, count in day_counts:
+                try:
+                    day = day_value if isinstance(day_value, date) else date.fromisoformat(str(day_value))
+                    if month_start <= day <= month_end:
+                        month_days += float(count or 0)
+                except (TypeError, ValueError):
+                    continue
+            if not month_days:
+                span = max((end_date - start_date).days + 1, 1)
+                overlap = max((min(end_date, month_end) - max(start_date, month_start)).days + 1, 0)
+                month_days = float(raw.get("leave_days") or 0) * overlap / span
+            approved = locally_approved(record)
+            status = "Approved" if approved else (record.source_status or "Unknown").replace("_", " ").title()
+            rows.append({
+                "member": member, "request_id": record.id, "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date:%d %b %Y} – {end_date:%d %b %Y}",
+                "start_date": start_date, "leave_type": raw.get("leave_type_name") or "Leave",
+                "duration": raw.get("duration_label") or f"{month_days:g} days", "month_days": round(month_days, 2),
+                "reason": raw.get("reason") or "", "status": status,
+                "status_class": re.sub(r"[^a-z0-9]+", "-", status.casefold()).strip("-"),
+                "can_approve": record.source_status in PENDING_STATUSES and not approved,
+                "approval_source": "ProTrack" if approved else "Zoho", "approval_time": format_local_datetime(record.approved_at),
+            })
+        source_message = "Showing saved leave requests. Approvals are recorded in ProTrack." if rows else (result.error or mapping_message or "No saved leave requests are available for this month.")
+        source_status = "saved" if rows else "failed"
+    else:
+        for raw in result.leaves:
+            member = member_by_zoho_id.get(str(raw.get("employee_zoho_id") or ""))
+            start_date = raw.get("start_date")
+            end_date = raw.get("end_date")
+            if not member or not isinstance(start_date, date) or not isinstance(end_date, date):
+                continue
+            if start_date > month_end or end_date < month_start:
+                continue
+            day_counts = raw.get("day_counts") or ()
+            month_days = sum(float(count or 0) for day, count in day_counts if month_start <= day <= month_end)
+            if not month_days:
+                span = max((end_date - start_date).days + 1, 1)
+                overlap = max((min(end_date, month_end) - max(start_date, month_start)).days + 1, 0)
+                month_days = float(raw.get("leave_days") or 0) * overlap / span
+            status = str(raw.get("approval_status") or "Unknown").strip()
+            rows.append({
+                "member": member, "request_id": raw.get("local_approval_id"),
+                "date_label": start_date.strftime("%d %b %Y") if start_date == end_date else f"{start_date:%d %b %Y} – {end_date:%d %b %Y}",
+                "start_date": start_date, "leave_type": raw.get("leave_type_name") or "Leave",
+                "duration": raw.get("duration_label") or f"{month_days:g} days", "month_days": round(month_days, 2),
+                "reason": raw.get("reason") or "", "status": status,
+                "status_class": re.sub(r"[^a-z0-9]+", "-", status.casefold()).strip("-"),
+                "can_approve": bool(raw.get("can_approve") and raw.get("local_approval_id")),
+                "approval_source": raw.get("approval_source") or "Zoho",
+                "approval_time": format_local_datetime(raw.get("approved_at")),
+            })
+        source_status = "synced"
+        source_message = "Leave requests synced from Zoho People. Approvals are recorded in ProTrack."
+        if mapping_message:
+            source_message += f" {mapping_message}"
+
+    rows.sort(key=lambda row: (not row["can_approve"], row["start_date"], row["member"].full_name.casefold()))
+    return rows, source_status, source_message
+
+
 def leave_request_entries(db: Session, user_id: int, request_key: str) -> list[Leave]:
     if request_key.startswith("legacy-"):
         try:
@@ -11125,6 +11234,7 @@ def manager_team_leaves_page(
     member_id: int | None = None,
     month: str = "",
     year: str = "",
+    view: str = "",
     regularized: int = 0,
     regularization_error: str = "",
     org_user: tuple[Organization, User] = Depends(get_org_user),
@@ -11151,6 +11261,10 @@ def manager_team_leaves_page(
     month_end = month_start.replace(day=monthrange(month_start.year, month_start.month)[1])
     selected_member = None
     feed = None
+    normalized_view = "all" if view == "all" else "employee"
+    all_leave_requests: list[dict[str, Any]] = []
+    all_leave_status = ""
+    all_leave_message = ""
     year_holidays = []
     year_calendar = []
     working_day_count = None
@@ -11162,7 +11276,11 @@ def manager_team_leaves_page(
         pending_query = pending_query.where(AttendanceRegularization.manager_id == user.id)
     pending_requests = db.scalars(pending_query.order_by(AttendanceRegularization.requested_at.desc())).all()
     request_people = {person.id: person for person in members}
-    if member_id is not None:
+    if normalized_view == "all":
+        all_leave_requests, all_leave_status, all_leave_message = team_month_leave_requests(
+            db, org.id, members, month_start, month_end,
+        )
+    elif member_id is not None:
         selected_member = next((person for person in members if person.id == member_id), None)
         if selected_member is None:
             raise HTTPException(status_code=404, detail="Team member not found")
@@ -11217,6 +11335,11 @@ def manager_team_leaves_page(
             "today_month": today.strftime("%Y-%m"),
             "regularized": max(0, min(regularized, 31)), "regularization_error": regularization_error[:500],
             "feed": feed, "working_day_count": working_day_count,
+            "view": normalized_view,
+            "all_leave_requests": all_leave_requests,
+            "all_leave_status": all_leave_status,
+            "all_leave_message": all_leave_message,
+            "pending_leave_count": sum(bool(item.get("can_approve")) for item in all_leave_requests),
             "pending_requests": [item for item in pending_requests if item.user_id in request_people],
             "request_people": request_people,
             "team_leave_scope_label": "Organization employees" if user_is_department(user, "Human Resource", "Human Resources", "HR") else "Your reports",

@@ -490,6 +490,22 @@ textarea {
 .team-leaves-filter button { min-height: 2.7rem; }
 .team-leaves-page-head { margin-bottom: 1rem; }
 .team-leaves-page-head h1 { margin-bottom: .25rem; }
+.team-leaves-all-link { display: inline-flex; align-items: center; gap: .55rem; flex: 0 0 auto; }
+.team-leaves-all-link span { padding: .14rem .42rem; border-radius: 999px; background: #fef3c7; color: #92400e; font-size: .66rem; }
+.team-leaves-all-link.is-current { border-color: #cfe4d7; background: #eef8f1; color: #236449; }
+.team-leaves-roster-all-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; background: #edf3f0; color: #236449; font-size: .9rem; }
+.team-leaves-all-period-form { display: flex; align-items: end; flex-wrap: wrap; gap: .6rem; }
+.team-leaves-all-period-form label { display: grid; gap: .3rem; min-width: 180px; font-size: .75rem; font-weight: 700; }
+.team-leaves-all-period-form input { min-height: 2.45rem; }
+.team-leaves-all-period-form > span { padding-bottom: .65rem; color: var(--muted); font-size: .74rem; }
+.team-leaves-all-panel { display: grid; gap: .8rem; padding: 1rem; }
+.team-leaves-all-table { min-width: 900px; }
+.team-leaves-all-table td:first-child strong,.team-leaves-all-table td:first-child small { display: block; }
+.team-leaves-all-table td:first-child small { margin-top: .18rem; color: var(--muted); font-size: .68rem; }
+.team-leaves-all-table .team-leaves-pending-row { background: #fffcf5; }
+.team-leaves-all-table .team-leaves-pending-row:hover { background: #fff8e8; }
+.team-leaves-all-table td:last-child { white-space: nowrap; }
+.team-leaves-all-table .profile-leave-sync { white-space: nowrap; }
 .team-leaves-attention { display: grid; gap: .75rem; margin-bottom: 1rem; border-color: #f1d7a7; background: linear-gradient(115deg, #fffaf0, #fff); }
 .team-leaves-section-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .team-leaves-section-head h2 { margin: 0; font-size: 1.05rem; }
