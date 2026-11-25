@@ -1,6 +1,7 @@
 """Persisted organization-wide daily office, home and approved leave snapshot."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+import logging
 from threading import Lock
 
 from fastapi import HTTPException
@@ -15,6 +16,7 @@ from app.time_utils import format_local_datetime
 from app.zoho_people import fetch_zoho_attendance_entries, fetch_zoho_employee_ids, fetch_zoho_leave_requests
 
 _guard = Lock()
+logger = logging.getLogger(__name__)
 
 
 def snapshot(db, org_id, day, lock=False):
@@ -51,7 +53,7 @@ def collect_people(db, org_id, day):
     if missing:
         directory = fetch_zoho_employee_ids(employee_emails=[person.email for person in missing])
         if directory.status != 'synced':
-            raise RuntimeError('Employee lookup failed')
+            raise RuntimeError(f'Employee lookup failed: {directory.error or directory.status}')
         ids = dict(directory.employee_ids)
         for person in missing:
             person.zoho_employee_id = ids.get(person.email.strip().lower(), '')
@@ -63,11 +65,12 @@ def collect_people(db, org_id, day):
     # Worker threads perform HTTP only; they never access the database session.
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(attendance, mapped))
-    if any(result.status != 'synced' for result in results):
-        raise RuntimeError('Attendance refresh failed')
+    failed_attendance = [result.error or result.status for result in results if result.status != 'synced']
+    if failed_attendance:
+        raise RuntimeError(f'Attendance refresh failed: {"; ".join(failed_attendance[:4])}')
     leaves = fetch_zoho_leave_requests(employee_zoho_ids=[person.zoho_employee_id for person in mapped], from_date=day, to_date=day) if mapped else None
     if leaves is not None and leaves.status != 'synced':
-        raise RuntimeError('Leave refresh failed')
+        raise RuntimeError(f'Leave refresh failed: {leaves.error or leaves.status}')
     leave_days = []
     if leaves is not None:
         leaves = apply_local_leave_approvals(db, org_id, mapped, leaves)
@@ -100,6 +103,7 @@ def run_sync(org_id, day, started_at):
                 row.synced_at, row.status, row.error = datetime.utcnow(), 'done', ''
                 db.commit()
         except Exception:
+            logger.exception("Today's people refresh failed for org_id=%s day=%s", org_id, day)
             db.rollback()
             row = snapshot(db, org_id, day, True)
             if row and row.started_at == started_at:

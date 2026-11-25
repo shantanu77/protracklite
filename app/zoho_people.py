@@ -563,96 +563,99 @@ def fetch_zoho_leave_requests(
         return ZohoLeaveListResult(status=status, error=token_error)
     try:
         records: list[dict[str, object]] = []
-        offset = 1
         page_size = 200
-        for _ in range(50):
-            response = httpx.get(
-                f"{settings.zoho_people_url.rstrip('/')}/people/api/v3/leave-tracker/leaves",
-                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
-                params={
-                    "from_date": _date_label(from_date),
-                    "to_date": _date_label(to_date),
-                    "employee_zoho_ids": json.dumps(sorted(requested_ids)),
-                    "approval_status": "ALL",
-                    "data_select": "ALL",
-                    "offset": offset,
-                    "limit": page_size,
-                    "sort": "-from_date",
-                },
-                timeout=30.0,
-            )
-            payload = response.json()
-            if (
-                not response.is_success
-                or not isinstance(payload, dict)
-                or payload.get("status") != "success"
-            ):
-                return ZohoLeaveListResult(status="failed", error=_zoho_error(response, payload))
-            raw_records = payload.get("data") or []
-            if not isinstance(raw_records, list):
-                return ZohoLeaveListResult(status="failed", error="Zoho returned an invalid leave list")
-            for raw in raw_records:
-                if not isinstance(raw, dict):
-                    continue
-                employee = raw.get("employee") or {}
-                leave_type = raw.get("leave_type") or {}
-                if not isinstance(employee, dict) or not isinstance(leave_type, dict):
-                    continue
-                employee_zoho_id = str(employee.get("zoho_id") or "").strip()
-                if employee_zoho_id not in requested_ids:
-                    continue
-                start = _parse_zoho_date(raw.get("from_date"))
-                end = _parse_zoho_date(raw.get("to_date"))
-                if not start or not end:
-                    continue
-                day_values: list[tuple[date, float, int | None]] = []
-                days = raw.get("days") or {}
-                if isinstance(days, dict):
-                    for day_label, detail in days.items():
-                        leave_day = _parse_zoho_date(day_label)
-                        if not leave_day or not isinstance(detail, dict):
-                            continue
-                        try:
-                            leave_count = float(detail.get("leave_count") or 0)
-                        except (TypeError, ValueError):
-                            leave_count = 0.0
-                        try:
-                            session_value = detail.get("session", detail.get("Session"))
-                            session = int(session_value) if session_value is not None else None
-                        except (TypeError, ValueError):
-                            session = None
-                        day_values.append((leave_day, leave_count, session))
-                leave_days = sum(item[1] for item in day_values)
-                if not day_values:
-                    leave_days = float(max((end - start).days + 1, 1))
-                duration = "Full day"
-                if len(day_values) == 1 and day_values[0][1] == 0.5:
-                    duration = "Half day (AM)" if day_values[0][2] == 1 else ("Half day (PM)" if day_values[0][2] == 2 else "Half day")
-                elif len(day_values) > 1 or leave_days > 1:
-                    duration = f"{leave_days:g} days"
-                records.append(
-                    {
-                        "zoho_leave_id": str(raw.get("leave_id") or raw.get("id") or ""),
-                        "employee_zoho_id": employee_zoho_id,
-                        "employee_name": str(employee.get("name") or "").strip(),
-                        "start_date": start,
-                        "end_date": end,
-                        "day_dates": tuple(item[0] for item in day_values),
-                        "day_counts": tuple((item[0], item[1]) for item in day_values),
-                        "day_sessions": tuple((item[0], item[2]) for item in day_values),
-                        "leave_days": leave_days,
-                        "duration_label": duration,
-                        "leave_type_name": str(leave_type.get("name") or "Leave").strip(),
-                        "leave_type_id": str(leave_type.get("id") or "").strip(),
-                        "leave_type_kind": str(leave_type.get("type") or "").strip(),
-                        "approval_status": str(raw.get("approval_status") or "Unknown").strip(),
-                        "reason": str(raw.get("reason") or "").strip(),
-                        "date_of_request": str(raw.get("date_of_request") or "").strip(),
-                    }
+        sorted_ids = sorted(requested_ids)
+        for batch_start in range(0, len(sorted_ids), 30):
+            batch_ids = set(sorted_ids[batch_start:batch_start + 30])
+            offset = 1
+            for _ in range(50):
+                response = httpx.get(
+                    f"{settings.zoho_people_url.rstrip('/')}/people/api/v3/leave-tracker/leaves",
+                    headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+                    params={
+                        "from_date": _date_label(from_date),
+                        "to_date": _date_label(to_date),
+                        "employee_zoho_ids": json.dumps(sorted(batch_ids)),
+                        "approval_status": "ALL",
+                        "data_select": "ALL",
+                        "offset": offset,
+                        "limit": page_size,
+                        "sort": "-from_date",
+                    },
+                    timeout=30.0,
                 )
-            if len(raw_records) < page_size:
-                break
-            offset += page_size
+                payload = response.json()
+                if (
+                    not response.is_success
+                    or not isinstance(payload, dict)
+                    or payload.get("status") != "success"
+                ):
+                    return ZohoLeaveListResult(status="failed", error=_zoho_error(response, payload))
+                raw_records = payload.get("data") or []
+                if not isinstance(raw_records, list):
+                    return ZohoLeaveListResult(status="failed", error="Zoho returned an invalid leave list")
+                for raw in raw_records:
+                    if not isinstance(raw, dict):
+                        continue
+                    employee = raw.get("employee") or {}
+                    leave_type = raw.get("leave_type") or {}
+                    if not isinstance(employee, dict) or not isinstance(leave_type, dict):
+                        continue
+                    employee_zoho_id = str(employee.get("zoho_id") or "").strip()
+                    if employee_zoho_id not in batch_ids:
+                        continue
+                    start = _parse_zoho_date(raw.get("from_date"))
+                    end = _parse_zoho_date(raw.get("to_date"))
+                    if not start or not end:
+                        continue
+                    day_values: list[tuple[date, float, int | None]] = []
+                    days = raw.get("days") or {}
+                    if isinstance(days, dict):
+                        for day_label, detail in days.items():
+                            leave_day = _parse_zoho_date(day_label)
+                            if not leave_day or not isinstance(detail, dict):
+                                continue
+                            try:
+                                leave_count = float(detail.get("leave_count") or 0)
+                            except (TypeError, ValueError):
+                                leave_count = 0.0
+                            try:
+                                session_value = detail.get("session", detail.get("Session"))
+                                session = int(session_value) if session_value is not None else None
+                            except (TypeError, ValueError):
+                                session = None
+                            day_values.append((leave_day, leave_count, session))
+                    leave_days = sum(item[1] for item in day_values)
+                    if not day_values:
+                        leave_days = float(max((end - start).days + 1, 1))
+                    duration = "Full day"
+                    if len(day_values) == 1 and day_values[0][1] == 0.5:
+                        duration = "Half day (AM)" if day_values[0][2] == 1 else ("Half day (PM)" if day_values[0][2] == 2 else "Half day")
+                    elif len(day_values) > 1 or leave_days > 1:
+                        duration = f"{leave_days:g} days"
+                    records.append(
+                        {
+                            "zoho_leave_id": str(raw.get("leave_id") or raw.get("id") or ""),
+                            "employee_zoho_id": employee_zoho_id,
+                            "employee_name": str(employee.get("name") or "").strip(),
+                            "start_date": start,
+                            "end_date": end,
+                            "day_dates": tuple(item[0] for item in day_values),
+                            "day_counts": tuple((item[0], item[1]) for item in day_values),
+                            "day_sessions": tuple((item[0], item[2]) for item in day_values),
+                            "leave_days": leave_days,
+                            "duration_label": duration,
+                            "leave_type_name": str(leave_type.get("name") or "Leave").strip(),
+                            "leave_type_id": str(leave_type.get("id") or "").strip(),
+                            "leave_type_kind": str(leave_type.get("type") or "").strip(),
+                            "approval_status": str(raw.get("approval_status") or "Unknown").strip(),
+                            "reason": str(raw.get("reason") or "").strip(),
+                            "date_of_request": str(raw.get("date_of_request") or "").strip(),
+                        }
+                    )
+                if len(raw_records) < page_size:
+                    break
+                offset += page_size
         return ZohoLeaveListResult(status="synced", leaves=tuple(records))
     except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
         return ZohoLeaveListResult(status="failed", error=f"Zoho leave lookup failed: {exc}")
