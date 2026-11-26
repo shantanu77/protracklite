@@ -46,6 +46,7 @@
           <a href="{{ status_urls.available }}" class="{% if status_filter == 'available' %}is-active{% endif %}">Available <span class="tab-count is-green">{{ status_counts.available }}</span></a>
           <a href="{{ status_urls.allocated }}" class="{% if status_filter == 'allocated' %}is-active{% endif %}">Allocated <span class="tab-count is-blue">{{ status_counts.allocated }}</span></a>
           <a href="{{ status_urls.maintenance }}" class="{% if status_filter == 'maintenance' %}is-active{% endif %}">Maintenance <span class="tab-count is-amber">{{ status_counts.maintenance }}</span></a>
+          <a href="{{ status_urls.retired }}" class="{% if status_filter == 'retired' %}is-active{% endif %}">Retired <span class="tab-count">{{ status_counts.retired }}</span></a>
         </nav>
         <form method="get" action="/{{ org.slug }}/inventory" class="inventory-filter-controls" id="inventory-filter-form">
           <input type="hidden" name="status" value="{{ status_filter }}">

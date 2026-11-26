@@ -4400,7 +4400,7 @@ def inventory_page(
             "storage": hardware_spec_parts(item.configuration)[2],
         })
     status_counts = {key: sum(row["status"] == value for row in all_rows) for key, value in {
-        "available": "Available", "allocated": "Allocated", "maintenance": "Maintenance",
+        "available": "Available", "allocated": "Allocated", "maintenance": "Maintenance", "retired": "Retired",
     }.items()}
     query = q.strip().casefold()
     item_rows = []
@@ -5182,6 +5182,9 @@ def inventory_reports_page(
     request: Request,
     org_slug: str,
     export: str = "",
+    q: str = "",
+    status: str = "all",
+    page: int = 1,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -5194,13 +5197,72 @@ def inventory_reports_page(
         allocation = allocation_map.get(item.id)
         employee = employees_by_id.get(allocation.user_id) if allocation else None
         cpu, ram, storage = hardware_spec_parts(item.configuration)
+        stored_status = (item.current_status or "").strip().casefold()
+        if not item.is_active or stored_status in {"scrapped", "retired", "retired / disposed"}:
+            item_status = "Retired"
+        elif any(word in stored_status for word in ("maintenance", "repair", "service")):
+            item_status = "Maintenance"
+        elif allocation or stored_status in {"in use", "allocated", "allocated (active deployment)"}:
+            item_status = "Allocated"
+        else:
+            item_status = "Available"
         inventory_rows.append({
             "item": item, "allocation": allocation, "employee": employee,
-            "cpu": cpu, "ram": ram, "storage": storage,
+            "cpu": cpu, "ram": ram, "storage": storage, "status": item_status,
+            "department": employee.department.name if employee and employee.department else "",
+            "location": employee.location if employee else "",
         })
         if employee:
             employee_asset_map.setdefault(employee.id, []).append(item)
     employee_rows = [{"employee": employee, "assets": employee_asset_map.get(employee.id, [])} for employee in employees]
+    lifecycle_order = ["Available", "Allocated", "Maintenance", "Retired"]
+    lifecycle_counts = {key: sum(row["status"] == key for row in inventory_rows) for key in lifecycle_order}
+    lifecycle_colors = {"Available": "#16835d", "Allocated": "#3476c5", "Maintenance": "#d59628", "Retired": "#8993a1"}
+    lifecycle_chart = []
+    chart_total = len(inventory_rows)
+    chart_radius = 44
+    chart_circumference = 2 * 3.141592653589793 * chart_radius
+    chart_offset = 0.0
+    for label in lifecycle_order:
+        count = lifecycle_counts[label]
+        segment = chart_circumference * count / chart_total if chart_total else 0
+        lifecycle_chart.append({
+            "label": label, "count": count,
+            "percent": round(count / chart_total * 100, 1) if chart_total else 0,
+            "color": lifecycle_colors[label],
+            "dasharray": f"{segment:.2f} {chart_circumference:.2f}",
+            "offset": f"{-chart_offset:.2f}",
+        })
+        chart_offset += segment
+    category_counts: dict[str, int] = {}
+    for row in inventory_rows:
+        item = row["item"]
+        category = (item.asset_category or item.asset_type.title() or "Other").strip()
+        category_counts[category] = category_counts.get(category, 0) + 1
+    category_palette = ["#167a62", "#3788ba", "#8a6cc1", "#d59628", "#4b9b79", "#6382a7", "#a66c62", "#6f7d8c"]
+    category_chart = [
+        {"label": label, "count": count, "percent": round(count / chart_total * 100, 1) if chart_total else 0,
+         "color": category_palette[index % len(category_palette)]}
+        for index, (label, count) in enumerate(sorted(category_counts.items(), key=lambda pair: (-pair[1], pair[0].casefold())))
+    ]
+    active_items = [row for row in inventory_rows if row["status"] != "Retired"]
+    today = local_today()
+    warranty_counts = {"Expired": 0, "Due within 90 days": 0, "Later": 0, "No date recorded": 0}
+    attention_rows = []
+    for row in active_items:
+        warranty_end = row["item"].warranty_end
+        days_left = (warranty_end - today).days if warranty_end else None
+        if days_left is None:
+            warranty_counts["No date recorded"] += 1
+        elif days_left < 0:
+            warranty_counts["Expired"] += 1
+            attention_rows.append({"row": row, "days": days_left, "label": f"Expired {-days_left} days ago", "kind": "expired"})
+        elif days_left <= 90:
+            warranty_counts["Due within 90 days"] += 1
+            attention_rows.append({"row": row, "days": days_left, "label": f"Due in {days_left} days", "kind": "due"})
+        else:
+            warranty_counts["Later"] += 1
+    attention_rows.sort(key=lambda value: value["days"])
     if export not in {"", "inventory", "employees"}:
         raise HTTPException(status_code=400, detail="Choose an inventory or employee report")
     if export:
@@ -5213,9 +5275,9 @@ def inventory_reports_page(
                 writer.writerow([safe_csv_value(value) for value in [
                     item.asset_tag, item.asset_type, item.name, item.manufacturer, item.model, item.serial_number,
                     item.license_reference, *hardware_spec_parts(item.configuration),
-                    item.os_installed or "", "Retired" if not item.is_active else ("Allocated" if allocation else "Available"),
-                    employee.full_name if employee else "", employee.department.name if employee and employee.department else "",
-                    employee.location if employee else "", allocation.allocated_at if allocation else "",
+                    item.os_installed or "", row["status"],
+                    employee.full_name if employee else "", row["department"],
+                    row["location"], allocation.allocated_at if allocation else "",
                     item.purchase_date, item.warranty_end, item.notes,
                 ]])
             filename = "asset-inventory.csv"
@@ -5232,9 +5294,40 @@ def inventory_reports_page(
             content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    valid_statuses = {"all", "available", "allocated", "maintenance", "retired"}
+    selected_status = status.casefold() if status.casefold() in valid_statuses else "all"
+    query = q.strip().casefold()
+    filtered_rows = []
+    for row in inventory_rows:
+        item = row["item"]
+        searchable = " ".join((item.asset_tag, item.name, item.manufacturer, item.model, item.serial_number,
+                               item.configuration or "", item.os_installed or "", row["employee"].full_name if row["employee"] else "",
+                               row["department"], row["location"])).casefold()
+        if query and query not in searchable:
+            continue
+        if selected_status != "all" and row["status"].casefold() != selected_status:
+            continue
+        filtered_rows.append(row)
+    page_size = 20
+    page_count = max(1, (len(filtered_rows) + page_size - 1) // page_size)
+    current_page = min(max(page, 1), page_count)
+    visible_rows = filtered_rows[(current_page - 1) * page_size:current_page * page_size]
+    warranty_total = sum(warranty_counts.values())
+    warranty_chart = [
+        {"label": label, "count": count, "percent": round(count / warranty_total * 100, 1) if warranty_total else 0,
+         "color": color}
+        for label, color in (("Expired", "#d84c4c"), ("Due within 90 days", "#d59628"),
+                             ("Later", "#16835d"), ("No date recorded", "#8993a1"))
+        for count in [warranty_counts[label]]
+    ]
     return templates.TemplateResponse("inventory_reports.html", {
-        "request": request, "org": org, "user": user, "inventory_rows": inventory_rows,
-        "employee_rows": employee_rows,
+        "request": request, "org": org, "user": user, "inventory_rows": visible_rows,
+        "employee_rows": employee_rows, "asset_total": chart_total, "lifecycle_counts": lifecycle_counts,
+        "lifecycle_chart": lifecycle_chart, "category_chart": category_chart,
+        "warranty_counts": warranty_counts, "warranty_chart": warranty_chart,
+        "active_asset_total": len(active_items), "attention_rows": attention_rows[:6],
+        "filtered_count": len(filtered_rows), "page": current_page, "page_count": page_count,
+        "status_filter": selected_status, "q": q, "today": today,
     })
 
 
