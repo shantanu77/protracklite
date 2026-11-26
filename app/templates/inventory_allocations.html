@@ -1,4 +1,16 @@
 {% extends "base.html" %}
+{% macro inventory_quantity(icon, count, label) %}
+<span class="allocation-quantity" title="{{ label }}">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    {% if icon == 'Laptop / Notebook' %}<rect x="4" y="4" width="16" height="12" rx="2"></rect><path d="M2 20h20"></path>
+    {% elif icon in ('Desktop', 'Monitor') %}<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8m-4-4v4"></path>
+    {% elif icon == 'Software' %}<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"></path>
+    {% elif icon == 'Peripherals / Docking Station' %}<rect x="2" y="7" width="20" height="10" rx="2"></rect><path d="M6 11h2m3 0h2m3 0h2M7 14h10"></path>
+    {% else %}<rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9h18m-11 4h4"></path>{% endif %}
+  </svg>
+  <span class="sr-only">{{ label }} </span>{{ count }}
+</span>
+{% endmacro %}
 {% block content %}
 <div class="allocation-ui">
   <header class="allocation-header">
@@ -32,7 +44,12 @@
     <section class="allocation-card allocation-history-card">
       <div class="allocation-history-heading"><div><h2>Allocations by employee</h2><p>Expand an employee to see their currently assigned inventory.</p></div></div>
       <div class="allocation-toolbar">
-        <form method="get" action="/{{ org.slug }}/inventory/allocations" class="allocation-search-form"><label class="allocation-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input type="search" name="q" value="{{ q }}" placeholder="Search assets or employees…" aria-label="Search allocation history"></label><button type="submit">Search</button></form>
+        <nav class="allocation-tabs" aria-label="Filter employees">
+          {% for value, label, count, query_string in employee_filters %}
+          <a href="?{{ query_string }}"{% if value == status %} class="is-active" aria-current="true"{% endif %}>{{ label }} <span>({{ count }})</span></a>
+          {% endfor %}
+        </nav>
+        <form method="get" action="/{{ org.slug }}/inventory/allocations" class="allocation-search-form"><input type="hidden" name="status" value="{{ status }}"><label class="allocation-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input type="search" name="q" value="{{ q }}" placeholder="Search assets or employees…" aria-label="Search allocation history"></label><button type="submit">Search</button></form>
       </div>
       <div class="allocation-table-scroll"><table class="allocation-data-table">
         <thead><tr><th>Employee</th><th>Email</th><th>Active</th><th>Allocated inventory</th><th>Last assigned</th><th>Actions</th></tr></thead>
@@ -42,7 +59,13 @@
             <th scope="row">{{ person.full_name if person else 'Former employee' }}{% if person and person.department %}<div class="allocation-muted">{{ person.department.name }}</div>{% endif %}</th>
             <td>{{ person.email if person and person.email else '—' }}</td>
             <td>{{ 'Yes' if person and person.is_active else 'No' }}</td>
-            <td><strong>{{ group|length }}</strong>{% for name, count in type_counts %}<div>{{ name }} {{ count }}</div>{% endfor %}</td>
+            <td><div class="allocation-quantities">
+              {% for name, count in type_counts %}
+              {{ inventory_quantity(name, count, name) }}
+              {% else %}
+              {{ inventory_quantity('', 0, 'Allocated inventory') }}
+              {% endfor %}
+            </div></td>
             <td>{{ group[0].allocated_at.strftime('%d %b %Y') if group and group[0].allocated_at else '—' }}</td>
             <td><button type="button" class="allocation-view-button" data-inline-expand aria-expanded="false" aria-controls="employee-inventory-{{ employee_id }}">Inventory <span aria-hidden="true">›</span></button></td>
           </tr>
@@ -64,7 +87,7 @@
           </tbody></table>
           {% else %}<p>No inventory currently assigned.</p>{% endif %}
           </td></tr>
-        {% else %}<tr><td colspan="6" class="allocation-empty">No employees match your search.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="6" class="allocation-empty">No employees match the current filters.</td></tr>{% endfor %}
         </tbody>
       </table></div>
       <footer class="allocation-pagination"><span>Showing <strong>{{ ((page - 1) * 10 + 1) if filtered_count else 0 }}–{{ [page * 10, filtered_count]|min }}</strong> of <strong>{{ filtered_count }}</strong> employees</span><nav aria-label="Allocation history pages"><a class="{% if page <= 1 %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page - 1 }}" aria-label="Previous page">‹</a>{% for page_number in range(1, page_count + 1) %}{% if page_count <= 6 or page_number == 1 or page_number == page_count or (page_number >= page - 1 and page_number <= page + 1) %}<a class="{% if page_number == page %}is-current{% endif %}" href="?{{ filter_query }}&amp;page={{ page_number }}">{{ page_number }}</a>{% elif page_number == 2 or page_number == page_count - 1 %}<span>…</span>{% endif %}{% endfor %}<a class="{% if page >= page_count %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page + 1 }}" aria-label="Next page">›</a></nav></footer>
@@ -164,6 +187,9 @@
   .allocation-data-table td { padding:.7rem .78rem; border-bottom:1px solid #e2e8f2; color:#475569; vertical-align:middle; }
   .allocation-data-table tbody tr:hover { background:#f8fafc; }
   .allocation-data-table tbody tr:last-child td { border-bottom:0; }
+  .allocation-quantities { display:flex; flex-wrap:wrap; gap:.45rem; }
+  .allocation-quantity { display:inline-flex; align-items:center; gap:.25rem; padding:.2rem .35rem; border-radius:.3rem; background:#f1f5f9; font-weight:650; }
+  .allocation-quantity svg { width:.85rem; height:.85rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
   .allocation-asset,.allocation-person { display:flex; align-items:center; gap:.55rem; min-width:11rem; }
   .asset-icon { display:grid; place-items:center; width:1.9rem; height:1.9rem; flex:0 0 auto; border:1px solid #dbe2ea; border-radius:.48rem; background:#f1f5f9; color:#64748b; }
   .asset-icon svg { width:.95rem; height:.95rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }

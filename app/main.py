@@ -4708,6 +4708,7 @@ def inventory_allocations_page(
     page: int = 1,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
+    status: str = "all",
 ):
     org, user = org_user
     require_inventory_manager(user)
@@ -4733,6 +4734,10 @@ def inventory_allocations_page(
     for allocation in allocations:
         allocations_by_user.setdefault(allocation.user_id, []).append(allocation)
 
+    filter_labels = {"all": "All", "active": "Active", "managers": "Managers", "inactive": "Inactive"}
+    if status not in filter_labels:
+        status = "all"
+    filter_counts = dict.fromkeys(filter_labels, 0)
     employee_groups = []
     for employee_id, records in allocations_by_user.items():
         person = people_map.get(employee_id)
@@ -4744,7 +4749,14 @@ def inventory_allocations_page(
             type_counts[asset_type] = type_counts.get(asset_type, 0) + 1
             if item:
                 searchable.extend((item.asset_tag or "", item.name or ""))
-        if not query or query in " ".join(searchable).casefold():
+        if query and query not in " ".join(searchable).casefold():
+            continue
+        employee_filters = ["all", "active" if person and person.is_active else "inactive"]
+        if person and person.is_active and person.role == Role.MANAGER:
+            employee_filters.append("managers")
+        for employee_filter in employee_filters:
+            filter_counts[employee_filter] += 1
+        if status in employee_filters:
             employee_groups.append((employee_id, records, sorted(type_counts.items())))
     filtered_count = len(employee_groups)
     page_size = 10
@@ -4760,7 +4772,12 @@ def inventory_allocations_page(
         "today": local_today(), "q": q,
         "active_count": len(allocations), "available_count": len(available_items),
         "filtered_count": filtered_count, "page": current_page, "page_count": page_count,
-        "filter_query": urlencode({"q": q}),
+        "status": status,
+        "employee_filters": [
+            (value, label, filter_counts[value], urlencode({"q": q, "status": value}))
+            for value, label in filter_labels.items()
+        ],
+        "filter_query": urlencode({"q": q, "status": status}),
         "selected_item_id": request.query_params.get("item_id", ""),
         "allocatable_item_ids": {item.id for item in available_items},
     })
