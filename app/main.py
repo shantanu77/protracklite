@@ -4705,7 +4705,6 @@ def inventory_allocations_page(
     request: Request,
     org_slug: str,
     q: str = "",
-    scope: str = "all",
     page: int = 1,
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
@@ -4716,8 +4715,8 @@ def inventory_allocations_page(
     all_people = db.scalars(select(User).where(User.org_id == org.id).order_by(User.full_name)).all()
     people = [person for person in all_people if person.is_active]
     allocations = db.scalars(
-        select(InventoryAllocation).where(InventoryAllocation.org_id == org.id)
-        .order_by(InventoryAllocation.returned_at.is_not(None), InventoryAllocation.allocated_at.desc(), InventoryAllocation.id.desc())
+        select(InventoryAllocation).where(InventoryAllocation.org_id == org.id, InventoryAllocation.returned_at.is_(None))
+        .order_by(InventoryAllocation.allocated_at.desc(), InventoryAllocation.id.desc())
     ).all()
     item_map = {item.id: item for item in items}
     people_map = {person.id: person for person in all_people}
@@ -4729,40 +4728,39 @@ def inventory_allocations_page(
         return item.is_active and not blocked_status
 
     available_items = [item for item in items if item_is_allocatable(item) and item.id not in allocated_item_ids]
-    active_count = sum(allocation.returned_at is None for allocation in allocations)
-    returned_count = len(allocations) - active_count
-    normalized_scope = scope if scope in {"all", "active", "returned"} else "all"
     query = q.strip().casefold()
-    allocations_by_user = {}
+    allocations_by_user = {person.id: [] for person in all_people}
     for allocation in allocations:
-        if normalized_scope == "active" and allocation.returned_at is not None:
-            continue
-        if normalized_scope == "returned" and allocation.returned_at is None:
-            continue
-        item = item_map.get(allocation.inventory_item_id)
-        person = people_map.get(allocation.user_id)
-        searchable = " ".join((item.asset_tag if item else "", item.name if item else "",
-                               person.full_name if person else "", person.email if person else "",
-                               allocation.notes or "")).casefold()
-        if query and query not in searchable:
-            continue
         allocations_by_user.setdefault(allocation.user_id, []).append(allocation)
-    filtered_count = len(allocations_by_user)
+
+    employee_groups = []
+    for employee_id, records in allocations_by_user.items():
+        person = people_map.get(employee_id)
+        searchable = [person.full_name or "", person.email or ""] if person else []
+        type_counts = {}
+        for record in records:
+            item = item_map.get(record.inventory_item_id)
+            asset_type = (item.asset_category or item.asset_type or "Other").strip().title() if item else "Other"
+            type_counts[asset_type] = type_counts.get(asset_type, 0) + 1
+            if item:
+                searchable.extend((item.asset_tag or "", item.name or ""))
+        if not query or query in " ".join(searchable).casefold():
+            employee_groups.append((employee_id, records, sorted(type_counts.items())))
+    filtered_count = len(employee_groups)
     page_size = 10
     page_count = max(1, (filtered_count + page_size - 1) // page_size)
     current_page = min(max(page, 1), page_count)
-    employee_groups = list(allocations_by_user.items())[(current_page - 1) * page_size:current_page * page_size]
-    visible_allocations = [record for _, group in employee_groups for record in group]
+    employee_groups = employee_groups[(current_page - 1) * page_size:current_page * page_size]
+    visible_allocations = [record for _, group, _ in employee_groups for record in group]
     return templates.TemplateResponse("inventory_allocations.html", {
         "request": request, "org": org, "user": user, "items": items, "available_items": available_items,
         "people": people, "allocations": visible_allocations, "item_map": item_map, "people_map": people_map,
         "employee_groups": employee_groups, "active_allocation_map": active_allocation_map,
         "visible_item_ids": {record.inventory_item_id for record in visible_allocations},
-        "today": local_today(), "q": q, "scope": normalized_scope,
-        "active_count": active_count, "returned_count": returned_count, "available_count": len(available_items),
+        "today": local_today(), "q": q,
+        "active_count": len(allocations), "available_count": len(available_items),
         "filtered_count": filtered_count, "page": current_page, "page_count": page_count,
-        "filter_query": urlencode({"scope": normalized_scope, "q": q}),
-        "scope_urls": {value: "?" + urlencode({"scope": value, "q": q}) for value in ("all", "active", "returned")},
+        "filter_query": urlencode({"q": q}),
         "selected_item_id": request.query_params.get("item_id", ""),
         "allocatable_item_ids": {item.id for item in available_items},
     })
