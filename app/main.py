@@ -4450,8 +4450,52 @@ def inventory_page(
         while next_number in used_numbers:
             next_number += 1
         next_tag_numbers[prefix] = next_number
+    visible_item_ids = [row["item"].id for row in item_rows]
+    allocations = db.scalars(select(InventoryAllocation).where(
+        InventoryAllocation.org_id == org.id,
+        InventoryAllocation.inventory_item_id.in_(visible_item_ids),
+    )).all()
+    people_map = {person.id: person for person in db.scalars(
+        select(User).where(User.org_id == org.id)
+    ).all()}
+    allocation_events = db.scalars(select(InventoryAllocationEvent).where(
+        InventoryAllocationEvent.org_id == org.id,
+        InventoryAllocationEvent.inventory_item_id.in_(visible_item_ids),
+    ).order_by(InventoryAllocationEvent.event_date.asc(), InventoryAllocationEvent.id.asc())).all()
+    history_by_item: dict[int, list[dict[str, Any]]] = {}
+    event_types_by_allocation: dict[int, set[str]] = {}
+    for event in allocation_events:
+        if event.allocation_id is not None:
+            event_types_by_allocation.setdefault(event.allocation_id, set()).add(event.event_type)
+    for record in allocations:
+        employee = people_map.get(record.user_id)
+        allocator = people_map.get(record.allocated_by_id)
+        logged_types = event_types_by_allocation.get(record.id, set())
+        if not logged_types.intersection({"assigned", "reassigned_in"}):
+            history_by_item.setdefault(record.inventory_item_id, []).append({
+                "date": record.allocated_at, "type": "Assigned", "employee": employee.full_name if employee else "Former employee",
+                "actor": allocator.full_name if allocator else "—", "details": record.notes or "", "allocation_id": record.id,
+            })
+        if record.returned_at and not logged_types.intersection({"returned", "reassigned_out"}):
+            history_by_item.setdefault(record.inventory_item_id, []).append({
+                "date": record.returned_at, "type": "Returned", "employee": employee.full_name if employee else "Former employee",
+                "actor": "—", "details": "Asset returned to inventory.", "allocation_id": record.id,
+            })
+    event_labels = {
+        "assigned": "Assigned", "returned": "Returned", "reassigned_out": "Reassigned out",
+        "reassigned_in": "Reassigned in", "updated": "Allocation updated",
+    }
+    for event in allocation_events:
+        history_by_item.setdefault(event.inventory_item_id, []).append({
+            "date": event.event_date, "type": event_labels.get(event.event_type, event.event_type.replace("_", " ").title()),
+            "employee": people_map.get(event.user_id).full_name if people_map.get(event.user_id) else "—",
+            "actor": people_map.get(event.actor_id).full_name if people_map.get(event.actor_id) else "—",
+            "details": event.details or "", "allocation_id": event.allocation_id,
+        })
+    for history in history_by_item.values():
+        history.sort(key=lambda entry: (entry["date"] or date.min, entry["allocation_id"] or 0))
     return templates.TemplateResponse("inventory.html", {
-        "request": request, "org": org, "user": user, "item_rows": item_rows,
+        "request": request, "org": org, "user": user, "item_rows": item_rows, "history_by_item": history_by_item,
         "today": local_today(), "error": request.query_params.get("error", ""),
         "imported": request.query_params.get("imported", ""), "unmatched": request.query_params.get("unmatched", ""),
         "people": active_people, "status_filter": status if status in {"all", *status_counts} else "all",
@@ -4675,43 +4719,8 @@ def inventory_allocations_page(
         select(InventoryAllocation).where(InventoryAllocation.org_id == org.id)
         .order_by(InventoryAllocation.returned_at.is_not(None), InventoryAllocation.allocated_at.desc(), InventoryAllocation.id.desc())
     ).all()
-    allocation_events = db.scalars(select(InventoryAllocationEvent).where(
-        InventoryAllocationEvent.org_id == org.id
-    ).order_by(InventoryAllocationEvent.event_date.asc(), InventoryAllocationEvent.id.asc())).all()
     item_map = {item.id: item for item in items}
     people_map = {person.id: person for person in all_people}
-    history_by_item: dict[int, list[dict[str, Any]]] = {item.id: [] for item in items}
-    event_types_by_allocation: dict[int, set[str]] = {}
-    for event in allocation_events:
-        if event.allocation_id is not None:
-            event_types_by_allocation.setdefault(event.allocation_id, set()).add(event.event_type)
-    for record in allocations:
-        employee = people_map.get(record.user_id)
-        allocator = people_map.get(record.allocated_by_id)
-        logged_types = event_types_by_allocation.get(record.id, set())
-        if not logged_types.intersection({"assigned", "reassigned_in"}):
-            history_by_item[record.inventory_item_id].append({
-                "date": record.allocated_at, "type": "Assigned", "employee": employee.full_name if employee else "Former employee",
-                "actor": allocator.full_name if allocator else "—", "details": record.notes or "", "allocation_id": record.id,
-            })
-        if record.returned_at and not logged_types.intersection({"returned", "reassigned_out"}):
-            history_by_item[record.inventory_item_id].append({
-                "date": record.returned_at, "type": "Returned", "employee": employee.full_name if employee else "Former employee",
-                "actor": "—", "details": "Asset returned to inventory.", "allocation_id": record.id,
-            })
-    event_labels = {
-        "assigned": "Assigned", "returned": "Returned", "reassigned_out": "Reassigned out",
-        "reassigned_in": "Reassigned in", "updated": "Allocation updated",
-    }
-    for event in allocation_events:
-        history_by_item.setdefault(event.inventory_item_id, []).append({
-            "date": event.event_date, "type": event_labels.get(event.event_type, event.event_type.replace("_", " ").title()),
-            "employee": people_map.get(event.user_id).full_name if people_map.get(event.user_id) else "—",
-            "actor": people_map.get(event.actor_id).full_name if people_map.get(event.actor_id) else "—",
-            "details": event.details or "", "allocation_id": event.allocation_id,
-        })
-    for history in history_by_item.values():
-        history.sort(key=lambda entry: (entry["date"] or date.min, entry["allocation_id"] or 0))
     active_allocation_map = {record.inventory_item_id: record for record in allocations if record.returned_at is None}
     allocated_item_ids = {allocation.inventory_item_id for allocation in allocations if allocation.returned_at is None}
     def item_is_allocatable(item: InventoryItem) -> bool:
@@ -4724,7 +4733,7 @@ def inventory_allocations_page(
     returned_count = len(allocations) - active_count
     normalized_scope = scope if scope in {"all", "active", "returned"} else "all"
     query = q.strip().casefold()
-    filtered_allocations = []
+    allocations_by_user = {}
     for allocation in allocations:
         if normalized_scope == "active" and allocation.returned_at is not None:
             continue
@@ -4737,16 +4746,17 @@ def inventory_allocations_page(
                                allocation.notes or "")).casefold()
         if query and query not in searchable:
             continue
-        filtered_allocations.append(allocation)
-    filtered_count = len(filtered_allocations)
+        allocations_by_user.setdefault(allocation.user_id, []).append(allocation)
+    filtered_count = len(allocations_by_user)
     page_size = 10
     page_count = max(1, (filtered_count + page_size - 1) // page_size)
     current_page = min(max(page, 1), page_count)
-    visible_allocations = filtered_allocations[(current_page - 1) * page_size:current_page * page_size]
+    employee_groups = list(allocations_by_user.items())[(current_page - 1) * page_size:current_page * page_size]
+    visible_allocations = [record for _, group in employee_groups for record in group]
     return templates.TemplateResponse("inventory_allocations.html", {
         "request": request, "org": org, "user": user, "items": items, "available_items": available_items,
         "people": people, "allocations": visible_allocations, "item_map": item_map, "people_map": people_map,
-        "history_by_item": history_by_item, "active_allocation_map": active_allocation_map,
+        "employee_groups": employee_groups, "active_allocation_map": active_allocation_map,
         "visible_item_ids": {record.inventory_item_id for record in visible_allocations},
         "today": local_today(), "q": q, "scope": normalized_scope,
         "active_count": active_count, "returned_count": returned_count, "available_count": len(available_items),

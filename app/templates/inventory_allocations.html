@@ -31,32 +31,32 @@
     </section>
 
     <section class="allocation-card allocation-history-card">
-      <div class="allocation-history-heading"><div><h2>Allocation history</h2><p>Active custody records appear first. Returned records stay available for reference.</p></div></div>
+      <div class="allocation-history-heading"><div><h2>Allocations by employee</h2><p>Each employee’s assets are listed together, with active allocations first.</p></div></div>
       <div class="allocation-toolbar">
         <nav class="allocation-tabs" aria-label="Filter allocations"><a class="{% if scope == 'all' %}is-active{% endif %}" href="{{ scope_urls.all }}">All <span>{{ active_count + returned_count }}</span></a><a class="{% if scope == 'active' %}is-active{% endif %}" href="{{ scope_urls.active }}">Active <span class="is-green">{{ active_count }}</span></a><a class="{% if scope == 'returned' %}is-active{% endif %}" href="{{ scope_urls.returned }}">Returned <span>{{ returned_count }}</span></a></nav>
         <form method="get" action="/{{ org.slug }}/inventory/allocations" class="allocation-search-form"><input type="hidden" name="scope" value="{{ scope }}"><label class="allocation-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input type="search" name="q" value="{{ q }}" placeholder="Search assets or employees…" aria-label="Search allocation history"></label><button type="submit">Search</button></form>
       </div>
       <div class="allocation-table-scroll"><table class="allocation-data-table">
-        <thead><tr><th>Asset</th><th>Assigned employee</th><th>Allocation date</th><th>Return date</th><th>Notes</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>
-          {% for allocation in allocations %}{% set item = item_map.get(allocation.inventory_item_id) %}{% set person = people_map.get(allocation.user_id) %}
+        <thead><tr><th>Asset</th><th>Allocation date</th><th>Return date</th><th>Notes</th><th>Status</th><th>Actions</th></tr></thead>
+        {% for employee_id, group in employee_groups %}{% set person = people_map.get(employee_id) %}
+          <tbody>
+          <tr><th colspan="6" scope="rowgroup">{% if person %}<div class="allocation-person"><span class="person-avatar">{{ person.full_name.split()|map('first')|join|upper|truncate(2, true, '') }}</span><span><strong>{{ person.full_name }}</strong><small>{{ person.department.name if person.department else (person.email or 'Employee') }}</small></span></div>{% else %}<span class="allocation-muted">Former employee</span>{% endif %} <small>{{ group|length }} matching allocations</small></th></tr>
+          {% for allocation in group %}{% set item = item_map.get(allocation.inventory_item_id) %}
           <tr>
             <td><div class="allocation-asset"><span class="asset-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8m-4-4v4M2 17h20"></path></svg></span><span><strong>{{ item.asset_tag if item else 'Removed item' }}</strong><small>{{ item.name if item else '' }}{% if item and item.model %} · {{ item.model }}{% endif %}</small></span></div></td>
-            <td>{% if person %}<div class="allocation-person"><span class="person-avatar">{{ person.full_name.split()|map('first')|join|upper|truncate(2, true, '') }}</span><span><strong>{{ person.full_name }}</strong><small>{{ person.department.name if person.department else (person.email or 'Employee') }}</small></span></div>{% else %}<span class="allocation-muted">Former employee</span>{% endif %}</td>
             <td>{{ allocation.allocated_at.strftime('%d %b %Y') if allocation.allocated_at else '—' }}</td><td>{{ allocation.returned_at.strftime('%d %b %Y') if allocation.returned_at else '—' }}</td>
             <td class="allocation-notes" title="{{ allocation.notes or '' }}">{{ allocation.notes or '—' }}</td>
             <td><span class="allocation-state {% if allocation.returned_at %}is-returned{% else %}is-active{% endif %}"><i></i>{{ 'Returned' if allocation.returned_at else 'Active' }}</span></td>
             <td class="allocation-row-actions">
               {% if item %}<button type="button" class="allocation-view-button" onclick="document.getElementById('asset-details-{{ item.id }}').showModal()">View</button>{% endif %}
-              <button type="button" class="allocation-view-button is-history" aria-expanded="false" aria-controls="asset-history-{{ allocation.id }}" data-history-toggle="asset-history-{{ allocation.id }}">View more</button>
               {% if not allocation.returned_at %}<button type="button" class="allocation-action" title="Edit allocation" aria-label="Edit allocation for {{ item.asset_tag if item else 'removed item' }}" onclick="document.getElementById('edit-allocation-{{ allocation.id }}').showModal()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4-.8L19 8a2.8 2.8 0 0 0-4-4L4 15z"></path></svg></button><form method="post" action="/{{ org.slug }}/inventory/allocations/{{ allocation.id }}/return" class="allocation-return-form" onsubmit="return confirm('Record this asset as returned today?')"><input type="hidden" name="returned_at" value="{{ today.isoformat() }}"><button type="submit" class="return-button">Return</button></form>{% endif %}
             </td>
           </tr>
-          <tr class="allocation-expanded-row" id="asset-history-{{ allocation.id }}" hidden><td colspan="7"><div class="allocation-expanded-panel"><strong>Asset history · {{ item.asset_tag if item else 'Removed item' }}</strong><div class="allocation-timeline">{% for event in history_by_item.get(allocation.inventory_item_id, []) %}<article><time>{{ event.date.strftime('%d %b %Y') if event.date else '—' }}</time><strong>{{ event.type }}</strong><span>{{ event.employee }}</span><span class="timeline-actor">By {{ event.actor or '—' }}</span><small>{{ event.details or '—' }}</small></article>{% else %}<p>No allocation history recorded.</p>{% endfor %}</div></div></td></tr>
-          {% else %}<tr><td colspan="7" class="allocation-empty">{% if filtered_count %}No records on this page.{% else %}No allocation records match these filters.{% endif %}</td></tr>{% endfor %}
-        </tbody>
+          {% endfor %}
+          </tbody>
+          {% else %}<tbody><tr><td colspan="6" class="allocation-empty">{% if filtered_count %}No records on this page.{% else %}No allocation records match these filters.{% endif %}</td></tr></tbody>{% endfor %}
       </table></div>
-      <footer class="allocation-pagination"><span>Showing <strong>{{ ((page - 1) * 10 + 1) if filtered_count else 0 }}–{{ [page * 10, filtered_count]|min }}</strong> of <strong>{{ filtered_count }}</strong> records</span><nav aria-label="Allocation history pages"><a class="{% if page <= 1 %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page - 1 }}" aria-label="Previous page">‹</a>{% for page_number in range(1, page_count + 1) %}{% if page_count <= 6 or page_number == 1 or page_number == page_count or (page_number >= page - 1 and page_number <= page + 1) %}<a class="{% if page_number == page %}is-current{% endif %}" href="?{{ filter_query }}&amp;page={{ page_number }}">{{ page_number }}</a>{% elif page_number == 2 or page_number == page_count - 1 %}<span>…</span>{% endif %}{% endfor %}<a class="{% if page >= page_count %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page + 1 }}" aria-label="Next page">›</a></nav></footer>
+      <footer class="allocation-pagination"><span>Showing <strong>{{ ((page - 1) * 10 + 1) if filtered_count else 0 }}–{{ [page * 10, filtered_count]|min }}</strong> of <strong>{{ filtered_count }}</strong> employees</span><nav aria-label="Allocation history pages"><a class="{% if page <= 1 %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page - 1 }}" aria-label="Previous page">‹</a>{% for page_number in range(1, page_count + 1) %}{% if page_count <= 6 or page_number == 1 or page_number == page_count or (page_number >= page - 1 and page_number <= page + 1) %}<a class="{% if page_number == page %}is-current{% endif %}" href="?{{ filter_query }}&amp;page={{ page_number }}">{{ page_number }}</a>{% elif page_number == 2 or page_number == page_count - 1 %}<span>…</span>{% endif %}{% endfor %}<a class="{% if page >= page_count %}is-disabled{% endif %}" href="?{{ filter_query }}&amp;page={{ page + 1 }}" aria-label="Next page">›</a></nav></footer>
     </section>
   </div>
 </div>
@@ -216,12 +216,5 @@
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') document.querySelectorAll('.allocation-edit-dialog[open]').forEach(dialog => dialog.close());
 });
-document.querySelectorAll('[data-history-toggle]').forEach(button => button.addEventListener('click', () => {
-  const row = document.getElementById(button.dataset.historyToggle);
-  if (!row) return;
-  row.hidden = !row.hidden;
-  button.setAttribute('aria-expanded', String(!row.hidden));
-  button.textContent = row.hidden ? 'View more' : 'Show less';
-}));
 </script>
 {% endblock %}

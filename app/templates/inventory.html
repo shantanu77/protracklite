@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
+{% for row in item_rows %}{% set item = row.item %}
+<dialog class="inventory-edit-dialog" id="asset-history-{{ item.id }}">
+  <h2>Asset History · {{ item.asset_tag }}</h2>
+  <ol>
+  {% for event in history_by_item.get(item.id, []) %}<li><time>{{ event.date.strftime('%d %b %Y') if event.date else '—' }}</time><strong>{{ event.type }}</strong><span>{{ event.employee }}</span><span class="timeline-actor">By {{ event.actor or '—' }}</span><small>{{ event.details or '—' }}</small></li>{% else %}<li>No allocation history recorded.</li>{% endfor %}
+  </ol>
+  <form method="dialog"><button class="inventory-button">Close</button></form>
+</dialog>
+{% endfor %}
+
 <div class="inventory-ui">
   <header class="inventory-header">
     <div class="inventory-heading">
@@ -85,7 +95,7 @@
               <td class="warranty-cell">
                 {% if item.warranty_end %}<strong>{{ item.warranty_end.strftime('%b %d, %Y') }}</strong>{% if row.warranty_days < 0 %}<small class="is-expired">Expired {{ -row.warranty_days }} days ago</small>{% elif row.warranty_days <= 30 %}<small class="is-expiring">Expiring in {{ row.warranty_days }} days</small>{% else %}<small>{{ (row.warranty_days // 30) }} months left</small>{% endif %}{% else %}<span class="inventory-muted">—</span>{% endif %}
               </td>
-              <td class="inventory-row-actions"><button type="button" class="inventory-action-button" title="Edit asset" aria-label="Edit {{ item.asset_tag }}" onclick="document.getElementById('edit-asset-{{ item.id }}').showModal()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4-.8L19 8a2.8 2.8 0 0 0-4-4L4 15z"></path></svg></button><a class="inventory-action-button" href="/{{ org.slug }}/inventory/allocations" title="Manage allocation" aria-label="Manage allocation for {{ item.asset_tag }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h12m0 0-4-4m4 4-4 4M16 17H4m0 0 4 4m-4-4 4-4"></path></svg></a></td>
+              <td class="inventory-row-actions"><button type="button" class="inventory-action-button" title="Edit asset" aria-label="Edit {{ item.asset_tag }}" onclick="document.getElementById('edit-asset-{{ item.id }}').showModal()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4-.8L19 8a2.8 2.8 0 0 0-4-4L4 15z"></path></svg></button><a class="inventory-action-button" href="/{{ org.slug }}/inventory/allocations" title="Manage allocation" aria-label="Manage allocation for {{ item.asset_tag }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h12m0 0-4-4m4 4-4 4M16 17H4m0 0 4 4m-4-4 4-4"></path></svg></a> <button type="button" class="inventory-button is-subtle" onclick="document.getElementById('asset-history-{{ item.id }}').showModal()">Asset History</button></td>
             </tr>
             {% else %}<tr><td colspan="6" class="inventory-empty">{% if filtered_count %}No items on this page.{% else %}No inventory items match these filters.{% endif %}</td></tr>{% endfor %}
           </tbody>
