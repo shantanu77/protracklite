@@ -8524,6 +8524,12 @@ code {
 .goals-evidence-row form button { min-height:1.7rem; padding:.28rem .45rem; font-size:.6rem; }
 .goals-side-card { display:grid; gap:.65rem; scroll-margin-top:1rem; }
 .goals-side-form { display:grid; gap:.55rem; }
+.goals-discussion-page .goals-comment p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.goals-amend-form { padding:.75rem; }
+.goals-amend-form fieldset { min-width:0; padding:.65rem; border:1px solid var(--goal-line); border-radius:.4rem; }
+.goals-amend-form fieldset label + label { margin-top:.45rem; }
+.goals-amend-form .goals-retire-option { display:flex; align-items:center; gap:.45rem; }
+.goals-amend-form .goals-retire-option input { width:1rem; min-height:0; accent-color:var(--goal-primary); }
 .goals-side-form > small { color:var(--goal-muted); font-size:.65rem; }
 .goals-side-form > button,.goals-side-card > form > button { justify-self:start; }
 .goals-action-note,.goals-empty-note { color:var(--goal-muted); font-size:.72rem; line-height:1.5; }
@@ -8834,3 +8840,19 @@ code {
   .team-work-review-link { margin-left: auto; }
   .team-work-filters { overflow-x: auto; flex-wrap: nowrap; width: calc(100vw - 2rem); }
 }
+
+.task-detail-summary { gap: .65rem; }
+.task-overview-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem .8rem; margin: 0; }
+.task-overview-facts dt, .task-overview-tags { color: var(--muted); font-size: .8rem; }
+.task-overview-facts dd { margin: 0; overflow-wrap: anywhere; }
+.task-log-group h3 { margin: 0 0 .55rem; font-size: .9rem; }
+.task-timeline-panel .timeline-card p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-effort-toggle { display: block; margin-top: .3rem; padding: .2rem .45rem; font-size: .75rem; }
+.team-effort-row[hidden] { display: none; }
+.team-effort-content { max-width: 100%; overflow-x: auto; }
+.team-effort-table { width: 100%; }
+.team-effort-table td:nth-child(2) { white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-effort-table :is(th, td):first-child,
+.team-effort-table :is(th, td):last-child { white-space: nowrap; }
+.team-work-table .team-effort-table td:first-child { width: auto; min-width: 0; }
+.team-work-table .team-effort-table td:nth-child(2) { width: 100%; }

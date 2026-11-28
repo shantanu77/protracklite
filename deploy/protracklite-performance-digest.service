@@ -1,0 +1,10 @@
+[Unit]
+Description=ProtrackLite goal progress and alerts
+After=network.target protracklite.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/protracklite
+EnvironmentFile=-/etc/protracklite.env
+ExecStart=/opt/protracklite/.venv/bin/python -m app.performance_digest

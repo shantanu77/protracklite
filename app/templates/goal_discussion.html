@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block body_class %}my-goals-page{% endblock %}
+{% block content %}
+<div class="goals-page-shell goals-discussion-page">
+  <header class="goals-page-head">
+    <div>
+      <p class="goals-breadcrumb"><a href="/{{ org.slug }}/goals{% if can_view_plan %}?plan_id={{ plan_id }}#goal-{{ goal.id }}{% endif %}">Goals</a> / Discussion</p>
+      <h1>{{ goal.title }}</h1>
+      <p>{{ owner_name }} · {{ "%.1f"|format(achievement) }}% done</p>
+      {% if goal.description %}<p>{{ goal.description }}</p>{% endif %}
+    </div>
+  </header>
+  <section class="goals-side-card" id="comments">
+    <h2>Discussion</h2>
+    <div class="goals-comment-list">
+      {% for author, body, timestamp in comments %}
+      <article class="goals-comment"><div class="goals-comment-meta"><strong>{{ author }}</strong><span>{{ timestamp }}</span></div><p>{{ body }}</p></article>
+      {% else %}<p class="goals-empty-note">No messages yet.</p>{% endfor %}
+    </div>
+    <form method="post" class="goals-side-form">
+      <label>Message<textarea name="body" maxlength="4000" rows="4" required></textarea></label>
+      <button class="goals-primary-action" type="submit">Post message</button>
+    </form>
+  </section>
+  {% if can_share %}
+  <section class="goals-side-card" id="members">
+    <h2>Share discussion</h2>
+    <p>Invite colleagues to see this goal and join its discussion.</p>
+    {% for id in member_ids|sort %}
+    <form class="goals-form-actions" method="post" action="/{{ org.slug }}/goals/goals/{{ goal.id }}/members">
+      <span>{{ people_map.get(id, "Inactive member") }}</span>
+      <input type="hidden" name="member_id" value="{{ id }}">
+      <button class="goals-secondary-action" type="submit" name="action" value="remove">Remove</button>
+    </form>
+    {% endfor %}
+    <form class="goals-side-form" method="post" action="/{{ org.slug }}/goals/goals/{{ goal.id }}/members">
+      <label>Colleague<select name="member_id" required>
+        <option value="">Choose a colleague</option>
+        {% for person in people if person.id not in member_ids and person.id not in [goal.plan.user_id, goal.plan.reviewer_id] %}
+        <option value="{{ person.id }}">{{ person.full_name }}</option>
+        {% endfor %}
+      </select></label>
+      <button class="goals-secondary-action" type="submit" name="action" value="add">Share</button>
+    </form>
+  </section>
+  {% endif %}
+  {% if can_amend %}
+  <section class="goals-side-card">
+    <h2>Record agreed changes</h2>
+    <details class="goals-inline-edit">
+      <summary>Change goal weights</summary>
+      <form class="goals-side-form goals-amend-form" method="post" action="/{{ org.slug }}/goals/goals/{{ goal.id }}/amend">
+        <input type="hidden" name="version" value="{{ version }}">
+        <input type="hidden" name="scope" value="goals">
+        <p>Goal weights in this plan must total 100%.</p>
+        {% for entry in plan_goals %}
+        <label>{{ entry.title }} weight (%)<input type="number" name="weights" min="0" max="100" step="0.01" value="{{ entry.weightage }}" required></label>
+        {% endfor %}
+        <label>Agreed reason<textarea name="reason" maxlength="2000" required></textarea></label>
+        <button class="goals-primary-action" type="submit">Save goal weights</button>
+      </form>
+    </details>
+    {% if goal.kpis|rejectattr('retired_at')|list %}
+    <details class="goals-inline-edit">
+      <summary>Change KPI weights or retire work</summary>
+      <form class="goals-side-form goals-amend-form" method="post" action="/{{ org.slug }}/goals/goals/{{ goal.id }}/amend">
+        <input type="hidden" name="version" value="{{ version }}">
+        <input type="hidden" name="scope" value="kpis">
+        <p>When KPIs remain, their weights must total 100%. Retiring a KPI also retires its tasks.</p>
+        {% for kpi in goal.kpis|sort(attribute="sort_order,id") if not kpi.retired_at %}
+        <fieldset>
+          <legend>{{ kpi.title }}</legend>
+          <label>KPI weight (%)<input type="number" name="weights" min="0" max="100" step="0.01" value="{{ kpi.weightage }}" required></label>
+          <label class="goals-retire-option"><input type="checkbox" name="retire_kpis" value="{{ kpi.id }}"> Retire this KPI</label>
+          {% for item in kpi.items if not item.retired_at %}
+          <label class="goals-retire-option"><input type="checkbox" name="retire_items" value="{{ item.id }}"> Retire task · {{ item.title }}</label>
+          {% endfor %}
+        </fieldset>
+        {% endfor %}
+        <label>Agreed reason<textarea name="reason" maxlength="2000" required></textarea></label>
+        <button class="goals-primary-action" type="submit">Save KPI and task changes</button>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

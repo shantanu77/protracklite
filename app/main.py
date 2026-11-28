@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import and_, case, delete, func, inspect, or_, select, text
+from sqlalchemy import and_, case, delete, func, inspect, or_, select, text, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
@@ -69,6 +69,7 @@ from app.models import (
     PerformanceEvidence,
     PerformanceEvent,
     PerformanceGoal,
+    PerformanceGoalMember,
     PerformanceKPI,
     PerformanceKPIItem,
     PerformancePlan,
@@ -387,10 +388,11 @@ def calculate_kpi_achievement_percent(kpi: PerformanceKPI) -> float:
         else:
             progress = 0.0
         return round(max(0.0, min(progress, 100.0)), 2)
-    total_items = len(kpi.items)
+    items = [item for item in kpi.items if not item.retired_at]
+    total_items = len(items)
     if total_items == 0:
         return 0.0
-    completed_items = sum(1 for item in kpi.items if item.is_completed)
+    completed_items = sum(1 for item in items if item.is_completed)
     return round((completed_items / total_items) * 100, 2)
 
 
@@ -399,6 +401,8 @@ def calculate_goal_achievement_percent(goal: PerformanceGoal) -> float:
         return 0.0
     weighted_total = Decimal("0.00")
     for kpi in goal.kpis:
+        if kpi.retired_at:
+            continue
         achievement = Decimal(str(calculate_kpi_achievement_percent(kpi)))
         weighted_total += (Decimal(str(kpi.weightage or 0)) * achievement) / Decimal("100")
     return round(float(weighted_total), 2)
@@ -419,14 +423,13 @@ def validate_plan_goal_weights(plan: PerformancePlan) -> Decimal:
 
 
 def validate_goal_kpi_weights(goal: PerformanceGoal) -> Decimal:
-    return normalized_weight_total([kpi.weightage for kpi in goal.kpis])
+    return normalized_weight_total([kpi.weightage for kpi in goal.kpis if not kpi.retired_at])
 
 
 def performance_weight(value: Decimal, field_name: str) -> Decimal:
-    normalized = Decimal(str(value)).quantize(Decimal("0.01"))
-    if normalized < 0 or normalized > 100:
+    if not value.is_finite() or not 0 <= value <= 100:
         raise HTTPException(status_code=400, detail=f"{field_name} must be between 0 and 100")
-    return normalized
+    return value.quantize(Decimal("0.01"))
 
 
 def optional_decimal(raw_value: str | None, field_name: str) -> Decimal | None:
@@ -439,13 +442,30 @@ def optional_decimal(raw_value: str | None, field_name: str) -> Decimal | None:
         raise HTTPException(status_code=400, detail=f"{field_name} must be a number") from exc
 
 
+def default_performance_reviewer_id(db: Session, owner: User, creator: User) -> int | None:
+    if owner.id != creator.id:
+        return creator.id
+    return db.scalar(select(User.id).where(
+        User.id == owner.manager_id,
+        User.id != owner.id,
+        User.org_id == owner.org_id,
+        User.is_active.is_(True),
+        User.role.in_((Role.ADMIN, Role.MANAGER)),
+    ))
+
+
 def financial_cycle_for_year(year: int) -> tuple[date, date, str]:
     if year < 2000 or year > 2100:
         raise HTTPException(status_code=400, detail="Financial year is invalid")
     return date(year, 4, 1), date(year + 1, 3, 31), f"FY {year}-{str(year + 1)[-2:]}"
 
 
-def record_performance_event(db: Session, plan: PerformancePlan, actor: User, event_type: str, details: str = "") -> None:
+def record_performance_event(
+    db: Session, plan: PerformancePlan, actor: User, event_type: str, details: str = "", *,
+    bump_revision: bool = True,
+) -> None:
+    if bump_revision:
+        plan.revision = PerformancePlan.revision + 1
     db.add(
         PerformanceEvent(
             performance_plan_id=plan.id,
@@ -456,19 +476,26 @@ def record_performance_event(db: Session, plan: PerformancePlan, actor: User, ev
     )
 
 
+def record_goal_achievement(db: Session, goal: PerformanceGoal, actor: User, previous: float) -> None:
+    if previous < 100 <= calculate_goal_achievement_percent(goal):
+        record_performance_event(db, goal.plan, actor, "goal_achieved", goal.title, bump_revision=False)
+
+
 def validate_plan_for_activation(plan: PerformancePlan) -> None:
     if not plan.goals:
         raise HTTPException(status_code=400, detail="Add at least one goal before activation")
     if not weight_total_is_valid(validate_plan_goal_weights(plan)):
         raise HTTPException(status_code=400, detail="Goal weights must total 100 before activation")
     for goal in plan.goals:
-        if not goal.kpis:
-            raise HTTPException(status_code=400, detail=f'Add at least one KPI to "{goal.title}"')
+        if not any(not kpi.retired_at for kpi in goal.kpis):
+            raise HTTPException(status_code=400, detail=f'Add at least one active KPI to "{goal.title}"')
         if not weight_total_is_valid(validate_goal_kpi_weights(goal)):
             raise HTTPException(status_code=400, detail=f'KPI weights for "{goal.title}" must total 100')
         for kpi in goal.kpis:
+            if kpi.retired_at:
+                continue
             measurement_type = (kpi.measurement_type or "checklist").strip().lower()
-            if measurement_type == "checklist" and not kpi.items:
+            if measurement_type == "checklist" and not any(not item.retired_at for item in kpi.items):
                 raise HTTPException(status_code=400, detail=f'Checklist KPI "{kpi.title}" needs at least one item')
             if measurement_type in {"numeric_higher", "numeric_lower", "percentage"} and kpi.target_value is None:
                 raise HTTPException(status_code=400, detail=f'KPI "{kpi.title}" needs a target value')
@@ -494,7 +521,7 @@ def plan_progress_is_locked(plan: PerformancePlan) -> bool:
 
 def can_manage_plan_structure(db: Session, user: User, plan: PerformancePlan) -> bool:
     return user.role == Role.ADMIN or (
-        user.role == Role.MANAGER and plan.user_id in managed_user_ids(db, plan.org_id, user)
+        user.role == Role.MANAGER and plan.user_id in goal_reporting_ids(db, plan.org_id, user, include_self=True)
     )
 
 
@@ -502,15 +529,17 @@ def can_update_plan_progress(db: Session, user: User, plan: PerformancePlan) -> 
     if plan_progress_is_locked(plan):
         return False
     return user.role == Role.ADMIN or plan.user_id == user.id or (
-        user.role == Role.MANAGER and plan.user_id in managed_user_ids(db, plan.org_id, user)
+        user.role == Role.MANAGER and plan.user_id in goal_reporting_ids(db, plan.org_id, user)
     )
 
 
 def can_review_plan(db: Session, user: User, plan: PerformancePlan) -> bool:
     if plan.user_id == user.id:
         return False
-    return user.role == Role.ADMIN or plan.reviewer_id == user.id or (
-        user.role == Role.MANAGER and plan.user_id in managed_user_ids(db, plan.org_id, user)
+    return user.role == Role.ADMIN or (
+        user.role == Role.MANAGER and (
+            plan.reviewer_id == user.id or plan.user_id in goal_reporting_ids(db, plan.org_id, user)
+        )
     )
 
 
@@ -1178,6 +1207,7 @@ def ensure_performance_goals_schema() -> None:
     table_names = set(inspector.get_table_names())
     table_columns = {
         "performance_plans": {
+            "revision": "ALTER TABLE performance_plans ADD COLUMN revision INTEGER NOT NULL DEFAULT 0",
             "cycle_label": "ALTER TABLE performance_plans ADD COLUMN cycle_label VARCHAR(40) NOT NULL DEFAULT ''",
             "cycle_start": "ALTER TABLE performance_plans ADD COLUMN cycle_start DATE NULL",
             "cycle_end": "ALTER TABLE performance_plans ADD COLUMN cycle_end DATE NULL",
@@ -1193,7 +1223,12 @@ def ensure_performance_goals_schema() -> None:
         "performance_goals": {
             "kra_type": "ALTER TABLE performance_goals ADD COLUMN kra_type VARCHAR(60) NOT NULL DEFAULT 'delivery_execution'",
         },
+        "performance_kpi_items": {
+            "target_date": "ALTER TABLE performance_kpi_items ADD COLUMN target_date DATE NULL",
+            "retired_at": "ALTER TABLE performance_kpi_items ADD COLUMN retired_at DATETIME NULL",
+        },
         "performance_kpis": {
+            "retired_at": "ALTER TABLE performance_kpis ADD COLUMN retired_at DATETIME NULL",
             "measurement_type": "ALTER TABLE performance_kpis ADD COLUMN measurement_type VARCHAR(30) NOT NULL DEFAULT 'checklist'",
             "unit": "ALTER TABLE performance_kpis ADD COLUMN unit VARCHAR(40) NOT NULL DEFAULT ''",
             "baseline_value": "ALTER TABLE performance_kpis ADD COLUMN baseline_value NUMERIC(12, 2) NULL",
@@ -3249,6 +3284,35 @@ def managed_user_ids(db: Session, org_id: int, manager: User, *, include_self: b
     return ids
 
 
+def goal_reporting_ids(db: Session, org_id: int, manager: User, *, include_self: bool = False) -> set[int]:
+    reports = {}
+    for person_id, manager_id, active in db.execute(
+        select(User.id, User.manager_id, User.is_active).where(User.org_id == org_id)
+    ):
+        reports.setdefault(manager_id, []).append((person_id, active))
+    visited = {manager.id}
+    eligible = {manager.id} if include_self else set()
+    pending = [manager.id]
+    while pending:
+        for person_id, active in reports.get(pending.pop(), []):
+            if person_id in visited:
+                continue
+            visited.add(person_id)
+            pending.append(person_id)
+            if active:
+                eligible.add(person_id)
+    return eligible
+
+
+def goal_plan_owners(db: Session, org_id: int, user: User) -> list[User]:
+    if user.role == Role.ADMIN:
+        return org_people(db, org_id)
+    if user.role != Role.MANAGER:
+        return []
+    ids = goal_reporting_ids(db, org_id, user, include_self=True)
+    return [person for person in org_people(db, org_id) if person.id in ids]
+
+
 def can_control_task(db: Session, task: Task, user: User) -> bool:
     if user.role == Role.ADMIN:
         return True
@@ -3825,21 +3889,90 @@ def work_list_comment_page(db: Session, work_list_id: int, before_id: int | None
     }
 
 
-def performance_plan_query(org_id: int):
+def performance_progress_query(org_id: int):
     return (
         select(PerformancePlan)
         .options(
             selectinload(PerformancePlan.goals)
             .selectinload(PerformanceGoal.kpis)
             .selectinload(PerformanceKPI.items),
-            selectinload(PerformancePlan.goals)
-            .selectinload(PerformanceGoal.kpis)
-            .selectinload(PerformanceKPI.evidence),
-            selectinload(PerformancePlan.comments),
-            selectinload(PerformancePlan.events),
         )
         .where(PerformancePlan.org_id == org_id)
     )
+
+
+def goal_deadline_message(name: str, deadline: date, today: date) -> str:
+    if deadline == today:
+        return f"{name} is due today."
+    label = "overdue since" if deadline < today else "due"
+    return f"{name} is {label} {deadline:%d %b %Y}."
+
+
+def performance_goal_alerts(plan: PerformancePlan, today: date) -> list[str]:
+    if plan.status in {PERFORMANCE_PLAN_STATUS_SUBMITTED, PERFORMANCE_PLAN_STATUS_UNDER_REVIEW}:
+        if (today - local_datetime(plan.updated_at).date()).days >= 7:
+            return ["Plan has been waiting for review activity for at least 7 days."]
+        return []
+    if plan.status not in {PERFORMANCE_PLAN_STATUS_DRAFT, PERFORMANCE_PLAN_STATUS_ACTIVE}:
+        return []
+    alerts = []
+    if plan.status == PERFORMANCE_PLAN_STATUS_DRAFT:
+        if (today - local_datetime(plan.created_at).date()).days >= 7:
+            alerts.append("Plan is still awaiting activation after 7 days.")
+        return alerts
+    if not plan.goals or any(calculate_goal_achievement_percent(goal) < 100 for goal in plan.goals):
+        if plan.cycle_end and plan.cycle_end <= today + timedelta(days=7):
+            label = "ended" if plan.cycle_end < today else "ends"
+            alerts.append(f"Plan cycle {label} {plan.cycle_end:%d %b %Y} with goals still open.")
+    for goal in plan.goals:
+        for kpi in goal.kpis:
+            if kpi.retired_at or calculate_kpi_achievement_percent(kpi) >= 100:
+                continue
+            name = f"{goal.title} / {kpi.title}"
+            if kpi.target_date and kpi.target_date <= today + timedelta(days=7):
+                alerts.append(goal_deadline_message(name, kpi.target_date, today))
+            items = [item for item in kpi.items if not item.retired_at]
+            for item in items:
+                if not item.is_completed and item.target_date and item.target_date <= today + timedelta(days=7):
+                    alerts.append(goal_deadline_message(f"{name} / {item.title}", item.target_date, today))
+            last_activity = max(
+                timestamp for timestamp in (plan.activated_at, kpi.created_at, kpi.updated_at,
+                                            *(item.updated_at for item in kpi.items)) if timestamp is not None
+            )
+            if (today - local_datetime(last_activity).date()).days >= 7:
+                alerts.append(f"{name} has had no KPI or task activity for at least 7 days.")
+    return alerts
+
+
+def dashboard_goal_summary(plan: PerformancePlan, slug: str, today: date) -> dict[str, Any]:
+    return {
+        "id": plan.id,
+        "title": plan.title,
+        "progress": calculate_plan_achievement_percent(plan),
+        "status": PERFORMANCE_PLAN_STATUSES.get(plan.status, plan.status.title()),
+        "cycle": plan.cycle_label or f"FY {plan.year}-{str(plan.year + 1)[-2:]}",
+        "url": f"/{slug}/goals?plan_id={plan.id}",
+        "alerts": performance_goal_alerts(plan, today),
+        "goals": [
+            {"title": goal.title, "progress": calculate_goal_achievement_percent(goal),
+             "url": f"/{slug}/goals?plan_id={plan.id}#goal-{goal.id}"}
+            for goal in sorted(plan.goals, key=lambda entry: (entry.sort_order, entry.id))
+        ],
+    }
+
+
+def performance_plan_query(org_id: int):
+    return performance_progress_query(org_id).options(
+        selectinload(PerformancePlan.goals).selectinload(PerformanceGoal.kpis).selectinload(PerformanceKPI.evidence),
+        selectinload(PerformancePlan.comments),
+        selectinload(PerformancePlan.events),
+    )
+
+
+def plan_access_filter(db: Session, org_id: int, user: User):
+    ids = goal_reporting_ids(db, org_id, user, include_self=True) if user.role == Role.MANAGER else {user.id}
+    return or_(PerformancePlan.user_id.in_(ids), PerformancePlan.reviewer_id == user.id)
+
 
 
 def performance_plan_for_access(
@@ -3851,15 +3984,8 @@ def performance_plan_for_access(
     if not plan_id:
         return None
     query = performance_plan_query(org_id).where(PerformancePlan.id == plan_id)
-    if user.role == Role.MANAGER:
-        query = query.where(
-            or_(
-                PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)),
-                PerformancePlan.reviewer_id == user.id,
-            )
-        )
-    elif user.role != Role.ADMIN:
-        query = query.where(PerformancePlan.user_id == user.id)
+    if user.role != Role.ADMIN:
+        query = query.where(plan_access_filter(db, org_id, user))
     return db.scalar(query)
 
 
@@ -3876,16 +4002,9 @@ def next_performance_kpi_item_sort_order(kpi: PerformanceKPI) -> int:
 
 
 def performance_plan_summaries(db: Session, org_id: int, user: User) -> list[dict[str, Any]]:
-    query = performance_plan_query(org_id)
-    if user.role == Role.MANAGER:
-        query = query.where(
-            or_(
-                PerformancePlan.user_id.in_(managed_user_ids(db, org_id, user, include_self=True)),
-                PerformancePlan.reviewer_id == user.id,
-            )
-        )
-    elif user.role != Role.ADMIN:
-        query = query.where(PerformancePlan.user_id == user.id)
+    query = performance_progress_query(org_id)
+    if user.role != Role.ADMIN:
+        query = query.where(plan_access_filter(db, org_id, user))
     plans = db.scalars(query.order_by(PerformancePlan.year.desc(), PerformancePlan.updated_at.desc(), PerformancePlan.id.desc())).all()
     org_user_map = {person.id: person for person in org_people(db, org_id)}
     summaries: list[dict[str, Any]] = []
@@ -3920,12 +4039,14 @@ def performance_plan_payload(db: Session, plan: PerformancePlan, people_map: dic
         kpis_payload: list[dict[str, Any]] = []
         for kpi in sorted(goal.kpis, key=lambda item: (item.sort_order, item.id)):
             achievement_percent = calculate_kpi_achievement_percent(kpi)
-            total_items = len(kpi.items)
-            completed_items = sum(1 for item in kpi.items if item.is_completed)
+            items = [item for item in kpi.items if not item.retired_at]
+            total_items = len(items)
+            completed_items = sum(1 for item in items if item.is_completed)
             item_weight_percent = round(100 / total_items, 2) if total_items else 0.0
             kpis_payload.append(
                 {
                     "id": kpi.id,
+                    "retired": bool(kpi.retired_at),
                     "title": kpi.title,
                     "description": kpi.description or "",
                     "measurement_type": kpi.measurement_type or "checklist",
@@ -3959,6 +4080,9 @@ def performance_plan_payload(db: Session, plan: PerformancePlan, people_map: dic
                     "items": [
                         {
                             "id": item.id,
+                            "retired": bool(item.retired_at),
+                            "target_date": item.target_date.isoformat() if item.target_date else "",
+                            "target_date_label": item.target_date.strftime("%d %b %Y") if item.target_date else "",
                             "title": item.title,
                             "notes": item.notes or "",
                             "is_completed": item.is_completed,
@@ -4022,6 +4146,7 @@ def performance_plan_payload(db: Session, plan: PerformancePlan, people_map: dic
                 "created_at_label": format_local_datetime(comment.created_at),
             }
             for comment in sorted(plan.comments, key=lambda item: (item.created_at, item.id), reverse=True)
+            if comment.performance_goal_id is None
         ],
         "events": [
             {
@@ -5576,6 +5701,10 @@ def dashboard(
             and day["status"] != "leave"
         )
     employee_dashboard = build_employee_dashboard(db, org, user, groups, week_days, today)
+    financial_year = today.year if today.month >= 4 else today.year - 1
+    goal_plan = db.scalar(performance_progress_query(org.id).where(
+        PerformancePlan.user_id == user.id, PerformancePlan.year == financial_year,
+    ))
     effort_task_candidates = [
         {
             "task_id": task["task_id"],
@@ -5602,6 +5731,7 @@ def dashboard(
             "user": user,
             "groups": groups,
             "work_dashboard": employee_dashboard,
+            "goal_summary": dashboard_goal_summary(goal_plan, org.slug, today) if goal_plan else None,
             "today": today,
             "leave_min_date": (today - timedelta(days=LEAVE_BACKDATE_DAYS)).isoformat(),
             "week_start": week_start,
@@ -6000,7 +6130,7 @@ def goals_page(
     org, user = org_user
     summaries = performance_plan_summaries(db, org.id, user)
     selected_plan = performance_plan_for_access(db, org.id, user, plan_id or (summaries[0]["id"] if summaries else None))
-    people = org_people(db, org.id) if user.role == Role.ADMIN else managed_people(db, org.id, user)
+    people = goal_plan_owners(db, org.id, user)
     all_people = org_people(db, org.id)
     people_map = {person.id: person for person in all_people}
     if selected_plan and selected_plan.user_id not in people_map:
@@ -6012,6 +6142,14 @@ def goals_page(
         selected_plan_payload["can_manage_structure"] = can_manage_plan_structure(db, user, selected_plan)
         selected_plan_payload["can_update_progress"] = can_update_plan_progress(db, user, selected_plan)
         selected_plan_payload["can_review"] = can_review_plan(db, user, selected_plan)
+    shared_goals = db.execute(
+        select(PerformanceGoal.id, PerformanceGoal.title, User.full_name)
+        .join(PerformanceGoalMember, PerformanceGoalMember.goal_id == PerformanceGoal.id)
+        .join(PerformancePlan, PerformancePlan.id == PerformanceGoal.performance_plan_id)
+        .join(User, User.id == PerformancePlan.user_id)
+        .where(PerformancePlan.org_id == org.id, PerformanceGoalMember.user_id == user.id)
+        .order_by(PerformanceGoal.title)
+    ).all()
     cycle_start, cycle_end, cycle_label = financial_cycle_for_year(date.today().year if date.today().month >= 4 else date.today().year - 1)
     return templates.TemplateResponse(
         "goals.html",
@@ -6020,6 +6158,7 @@ def goals_page(
             "org": org,
             "user": user,
             "plans": summaries,
+            "shared_goals": shared_goals,
             "selected_plan": selected_plan_payload,
             "people": people,
             "reviewers": [person for person in all_people if person.role in {Role.ADMIN, Role.MANAGER}],
@@ -6073,7 +6212,7 @@ def quick_create_goals_page(
 ):
     org, user = org_user
     must_be_admin_or_manager(user)
-    people = org_people(db, org.id) if user.role == Role.ADMIN else managed_people(db, org.id, user)
+    people = goal_plan_owners(db, org.id, user)
     reviewers = [person for person in org_people(db, org.id) if person.role in {Role.ADMIN, Role.MANAGER}]
     cycle_start, cycle_end, cycle_label = financial_cycle_for_year(date.today().year if date.today().month >= 4 else date.today().year - 1)
     return templates.TemplateResponse("goal_quick_create.html", {
@@ -6101,7 +6240,7 @@ def rewrite_quick_create_goal_plan(
     owner = db.scalar(select(User).options(selectinload(User.department)).where(
         User.id == employee_id, User.org_id == org.id, User.is_active.is_(True)
     ))
-    if not owner or (user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, owner.id)):
+    if not owner or (user.role == Role.MANAGER and owner.id not in goal_reporting_ids(db, org.id, user, include_self=True)):
         raise HTTPException(status_code=404, detail="Employee not found")
     markdown = str(payload.get("markdown") or "").strip()
     if not markdown:
@@ -6188,7 +6327,7 @@ def quick_create_goals_submit(
     org, user = org_user
     must_be_admin_or_manager(user)
     owner = db.scalar(select(User).where(User.id == user_id, User.org_id == org.id, User.is_active.is_(True)))
-    if not owner or (user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, owner.id)):
+    if not owner or (user.role == Role.MANAGER and owner.id not in goal_reporting_ids(db, org.id, user, include_self=True)):
         raise HTTPException(status_code=404, detail="Employee not found")
     if kra_type not in PERFORMANCE_KRA_TYPES:
         raise HTTPException(status_code=400, detail="Select a valid goal category")
@@ -6200,14 +6339,14 @@ def quick_create_goals_submit(
         raise HTTPException(status_code=400, detail="Cycle end must be after cycle start")
     if db.scalar(select(PerformancePlan.id).where(PerformancePlan.org_id == org.id, PerformancePlan.user_id == owner.id, PerformancePlan.year == year)):
         raise HTTPException(status_code=400, detail="A performance plan already exists for this employee and year")
-    if reviewer_id and not db.scalar(select(User.id).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True), User.role.in_([Role.ADMIN, Role.MANAGER]))):
+    if reviewer_id == owner.id or (reviewer_id and not db.scalar(select(User.id).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True), User.role.in_([Role.ADMIN, Role.MANAGER])))):
         raise HTTPException(status_code=400, detail="Select a valid reviewer")
     goals = parse_performance_goal_outline(markdown)
     if not goals or any(not g["kpis"] or any(not k["title"] for k in g["kpis"]) for g in goals):
         raise HTTPException(status_code=400, detail="Add at least one goal and one KPI under every goal")
     plan = PerformancePlan(org_id=org.id, user_id=owner.id, year=year, cycle_label=cycle_label.strip()[:40] or default_label,
         cycle_start=parsed_start, cycle_end=parsed_end, title=plan_title.strip()[:200] or "Annual Performance Plan",
-        status=PERFORMANCE_PLAN_STATUS_DRAFT, created_by=user.id, reviewer_id=reviewer_id or user.id)
+        status=PERFORMANCE_PLAN_STATUS_DRAFT, created_by=user.id, reviewer_id=reviewer_id or default_performance_reviewer_id(db, owner, user))
     db.add(plan); db.flush()
     def even_weights(count: int) -> list[Decimal]:
         base = (Decimal("100") / count).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
@@ -6274,8 +6413,8 @@ def create_performance_plan_page(
     owner = db.scalar(select(User).where(User.id == user_id, User.org_id == org.id, User.is_active.is_(True)))
     if not owner:
         raise HTTPException(status_code=404, detail="Employee not found")
-    if user.role == Role.MANAGER and not can_manage_user_scope(db, org.id, user, owner.id):
-        raise HTTPException(status_code=403, detail="You can only create plans for direct reports")
+    if user.role == Role.MANAGER and owner.id not in goal_reporting_ids(db, org.id, user, include_self=True):
+        raise HTTPException(status_code=403, detail="You can only create plans within your reporting tree")
     parsed_start = parse_optional_date(cycle_start)
     parsed_end = parse_optional_date(cycle_end)
     default_start, default_end, default_label = financial_cycle_for_year(year)
@@ -6284,7 +6423,7 @@ def create_performance_plan_page(
     if parsed_end < parsed_start:
         raise HTTPException(status_code=400, detail="Cycle end must be after cycle start")
     reviewer = db.scalar(select(User).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True))) if reviewer_id else None
-    if reviewer_id and (not reviewer or reviewer.role not in {Role.ADMIN, Role.MANAGER}):
+    if reviewer_id and (not reviewer or reviewer.id == owner.id or reviewer.role not in {Role.ADMIN, Role.MANAGER}):
         raise HTTPException(status_code=400, detail="Select a valid reviewer")
     existing = db.scalar(
         select(PerformancePlan).where(
@@ -6309,7 +6448,7 @@ def create_performance_plan_page(
         description=description.strip(),
         status=PERFORMANCE_PLAN_STATUS_DRAFT,
         created_by=user.id,
-        reviewer_id=reviewer.id if reviewer else user.id,
+        reviewer_id=reviewer.id if reviewer else default_performance_reviewer_id(db, owner, user),
     )
     db.add(plan)
     db.flush()
@@ -6349,7 +6488,7 @@ def update_performance_plan_page(
     if parsed_start and parsed_end and parsed_end < parsed_start:
         raise HTTPException(status_code=400, detail="Cycle end must be after cycle start")
     reviewer = db.scalar(select(User).where(User.id == reviewer_id, User.org_id == org.id, User.is_active.is_(True))) if reviewer_id else None
-    if reviewer_id and (not reviewer or reviewer.role not in {Role.ADMIN, Role.MANAGER}):
+    if reviewer_id and (not reviewer or reviewer.id == plan.user_id or reviewer.role not in {Role.ADMIN, Role.MANAGER}):
         raise HTTPException(status_code=400, detail="Select a valid reviewer")
     plan.cycle_label = cycle_label.strip()[:40] or plan.cycle_label
     plan.cycle_start = parsed_start
@@ -6394,7 +6533,7 @@ def reopen_performance_plan_page(
     plan = performance_plan_for_access(db, org.id, user, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Performance plan not found")
-    if not can_manage_plan_structure(db, user, plan):
+    if not can_manage_plan_structure(db, user, plan) or (user.role == Role.MANAGER and user.id == plan.user_id):
         raise HTTPException(status_code=403, detail="You cannot reopen this plan")
     if plan.status not in {PERFORMANCE_PLAN_STATUS_ACTIVE, PERFORMANCE_PLAN_STATUS_CLOSED, "finalized"}:
         raise HTTPException(status_code=400, detail="This plan cannot be reopened from its current status")
@@ -6606,6 +6745,10 @@ def delete_performance_goal_page(
         raise HTTPException(status_code=400, detail="Only draft plans can be edited")
     plan_id = goal.performance_plan_id
     record_performance_event(db, goal.plan, user, "goal_deleted", goal.title)
+    if any(kpi.retired_at or any(item.retired_at for item in kpi.items) for kpi in goal.kpis):
+        raise HTTPException(status_code=409, detail="This goal contains retired work and its history must be kept")
+    if goal.members or db.scalar(select(PerformanceComment.id).where(PerformanceComment.performance_goal_id == goal.id).limit(1)):
+        raise HTTPException(status_code=409, detail="A shared goal or goal with discussion cannot be deleted")
     db.delete(goal)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan_id}", status_code=303)
@@ -6692,6 +6835,8 @@ def update_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     if not can_manage_plan_structure(db, user, kpi.goal.plan):
         raise HTTPException(status_code=403, detail="You cannot manage this plan")
     if plan_structure_is_locked(kpi.goal.plan):
@@ -6733,6 +6878,8 @@ def delete_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if kpi.retired_at or any(item.retired_at for item in kpi.items):
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     if not can_manage_plan_structure(db, user, kpi.goal.plan):
         raise HTTPException(status_code=403, detail="You cannot manage this plan")
     if plan_structure_is_locked(kpi.goal.plan):
@@ -6750,6 +6897,7 @@ def create_performance_kpi_item_page(
     kpi_id: int,
     title: str = Form(...),
     notes: str = Form(""),
+    target_date: str | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -6766,6 +6914,8 @@ def create_performance_kpi_item_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     if (kpi.measurement_type or "checklist") != "checklist":
         raise HTTPException(status_code=400, detail="Items are only available for checklist KPIs")
     if not can_update_plan_progress(db, user, kpi.goal.plan):
@@ -6779,6 +6929,7 @@ def create_performance_kpi_item_page(
             notes=notes.strip(),
             created_by=user.id,
             sort_order=next_performance_kpi_item_sort_order(kpi),
+            target_date=parse_optional_date(target_date),
         )
     db.add(item)
     record_performance_event(db, kpi.goal.plan, user, "checklist_item_added", normalized_title)
@@ -6792,6 +6943,7 @@ def update_performance_kpi_item_page(
     item_id: int,
     title: str = Form(...),
     notes: str = Form(""),
+    target_date: str | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -6810,6 +6962,8 @@ def update_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
+    if item.retired_at or item.kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     if not can_manage_performance_item(db, user, item.kpi.goal.plan, item):
         raise HTTPException(status_code=403, detail="You cannot edit this KPI item")
     normalized_title = title.strip()[:300]
@@ -6817,6 +6971,8 @@ def update_performance_kpi_item_page(
         raise HTTPException(status_code=400, detail="KPI item title is required")
     item.title = normalized_title
     item.notes = notes.strip()
+    if target_date is not None:
+        item.target_date = parse_optional_date(target_date)
     record_performance_event(db, item.kpi.goal.plan, user, "checklist_item_updated", normalized_title)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={item.kpi.goal.plan.id}", status_code=303)
@@ -6844,8 +7000,12 @@ def delete_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
+    if item.retired_at or item.kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     if not can_manage_performance_item(db, user, item.kpi.goal.plan, item):
         raise HTTPException(status_code=403, detail="You cannot delete this KPI item")
+    if plan_structure_is_locked(item.kpi.goal.plan):
+        raise HTTPException(status_code=409, detail="Ask your reviewer to retire the task through the goal discussion")
     plan_id = item.kpi.goal.plan.id
     record_performance_event(db, item.kpi.goal.plan, user, "checklist_item_deleted", item.title)
     db.delete(item)
@@ -6875,8 +7035,11 @@ def toggle_performance_kpi_item_page(
     )
     if not item:
         raise HTTPException(status_code=404, detail="KPI item not found")
+    if item.retired_at or item.kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     if not can_update_plan_progress(db, user, item.kpi.goal.plan):
         raise HTTPException(status_code=403, detail="You cannot update this plan")
+    previous_achievement = calculate_goal_achievement_percent(item.kpi.goal)
     item.is_completed = not item.is_completed
     item.completed_at = datetime.utcnow() if item.is_completed else None
     item.completed_by = user.id if item.is_completed else None
@@ -6887,6 +7050,7 @@ def toggle_performance_kpi_item_page(
         "checklist_item_completed" if item.is_completed else "checklist_item_reopened",
         item.title,
     )
+    record_goal_achievement(db, item.kpi.goal, user, previous_achievement)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={item.kpi.goal.plan.id}", status_code=303)
 
@@ -6910,6 +7074,8 @@ def update_performance_kpi_progress_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     plan = kpi.goal.plan
     if not can_update_plan_progress(db, user, plan):
         raise HTTPException(status_code=403, detail="You cannot update this plan")
@@ -6918,9 +7084,11 @@ def update_performance_kpi_progress_page(
     value = optional_decimal(actual_value, "Actual value")
     if value is None:
         raise HTTPException(status_code=400, detail="Actual value is required")
+    previous_achievement = calculate_goal_achievement_percent(kpi.goal)
     kpi.actual_value = value
     kpi.owner_update = owner_update.strip()
     record_performance_event(db, plan, user, "kpi_progress_updated", kpi.title)
+    record_goal_achievement(db, kpi.goal, user, previous_achievement)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -6943,6 +7111,8 @@ def approve_performance_kpi_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     plan = kpi.goal.plan
     if not can_review_plan(db, user, plan) or plan.status != PERFORMANCE_PLAN_STATUS_UNDER_REVIEW:
         raise HTTPException(status_code=403, detail="KPI approval is only available to the active reviewer")
@@ -6951,8 +7121,10 @@ def approve_performance_kpi_page(
     value = optional_decimal(approved_value, "Approved value")
     if value is None:
         raise HTTPException(status_code=400, detail="Approved value is required")
+    previous_achievement = calculate_goal_achievement_percent(kpi.goal)
     kpi.approved_value = value
     record_performance_event(db, plan, user, "kpi_value_approved", kpi.title)
+    record_goal_achievement(db, kpi.goal, user, previous_achievement)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
 
@@ -6978,6 +7150,8 @@ def add_performance_evidence_page(
     )
     if not kpi:
         raise HTTPException(status_code=404, detail="Performance KPI not found")
+    if kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     plan = kpi.goal.plan
     if not can_update_plan_progress(db, user, plan):
         raise HTTPException(status_code=403, detail="You cannot add evidence to this plan")
@@ -7048,6 +7222,8 @@ def delete_performance_evidence_page(
     )
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
+    if evidence.kpi.retired_at:
+        raise HTTPException(status_code=409, detail="Retired work is read-only")
     plan = evidence.kpi.goal.plan
     if not can_update_plan_progress(db, user, plan):
         raise HTTPException(status_code=403, detail="You cannot remove this evidence")
@@ -7057,6 +7233,193 @@ def delete_performance_evidence_page(
     db.delete(evidence)
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/goals?plan_id={plan.id}", status_code=303)
+
+
+def goal_discussion_for_access(db: Session, org_id: int, user: User, goal_id: int) -> PerformanceGoal:
+    goal = db.scalar(
+        select(PerformanceGoal)
+        .join(PerformanceGoal.plan)
+        .options(
+            selectinload(PerformanceGoal.members),
+            selectinload(PerformanceGoal.plan),
+            selectinload(PerformanceGoal.kpis).selectinload(PerformanceKPI.items),
+        )
+        .where(PerformanceGoal.id == goal_id, PerformancePlan.org_id == org_id)
+    )
+    if goal and (
+        user.role == Role.ADMIN
+        or goal.plan.user_id == user.id
+        or goal.plan.reviewer_id == user.id
+        or any(member.user_id == user.id for member in goal.members)
+        or (user.role == Role.MANAGER and goal.plan.user_id in goal_reporting_ids(db, org_id, user))
+    ):
+        return goal
+    raise HTTPException(status_code=404, detail="Goal discussion not found")
+
+
+def can_share_performance_goal(db: Session, user: User, plan: PerformancePlan) -> bool:
+    return plan.user_id == user.id or can_review_plan(db, user, plan)
+
+
+@app.get("/{org_slug}/goals/goals/{goal_id}/discussion", response_class=HTMLResponse)
+def performance_goal_discussion_page(
+    request: Request,
+    goal_id: int,
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    goal = goal_discussion_for_access(db, org.id, user, goal_id)
+    plan = goal.plan
+    comments = db.scalars(
+        select(PerformanceComment)
+        .where(PerformanceComment.performance_goal_id == goal.id, PerformanceComment.performance_plan_id == plan.id)
+        .order_by(PerformanceComment.created_at, PerformanceComment.id)
+    ).all()
+    people = org_people(db, org.id)
+    people_map = {person.id: person.full_name for person in people}
+    return templates.TemplateResponse("goal_discussion.html", {
+        "request": request, "org": org, "user": user, "goal": goal,
+        "owner_name": people_map.get(plan.user_id, "Former employee"),
+        "plan_id": plan.id,
+        "can_view_plan": (
+            user.id in {plan.user_id, plan.reviewer_id}
+            or user.role == Role.ADMIN
+            or (user.role == Role.MANAGER and plan.user_id in goal_reporting_ids(db, org.id, user))
+        ),
+        "can_share": can_share_performance_goal(db, user, plan),
+        "can_amend": can_review_plan(db, user, plan) and not plan_progress_is_locked(plan),
+        "people": people,
+        "people_map": people_map,
+        "member_ids": {member.user_id for member in goal.members},
+        "comments": [(people_map.get(comment.author_id, "Former employee"), comment.body,
+                      format_local_datetime(comment.created_at)) for comment in comments],
+        "achievement": calculate_goal_achievement_percent(goal),
+        "version": plan.revision,
+        "plan_goals": sorted(plan.goals, key=lambda entry: (entry.sort_order, entry.id))
+        if can_review_plan(db, user, plan) and not plan_progress_is_locked(plan) else [],
+    })
+
+
+@app.post("/{org_slug}/goals/goals/{goal_id}/discussion")
+def add_goal_discussion_comment(
+    org_slug: str,
+    goal_id: int,
+    body: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    goal = goal_discussion_for_access(db, org.id, user, goal_id)
+    body = body.strip()
+    if not body or len(body) > 4000:
+        raise HTTPException(status_code=400, detail="Enter a comment of up to 4,000 characters")
+    db.add(PerformanceComment(
+        performance_plan_id=goal.performance_plan_id, performance_goal_id=goal.id,
+        author_id=user.id, body=body,
+    ))
+    record_performance_event(db, goal.plan, user, "goal_discussion_comment", goal.title)
+    db.commit()
+    return RedirectResponse(f"/{org_slug}/goals/goals/{goal.id}/discussion#comments", status_code=303)
+
+
+@app.post("/{org_slug}/goals/goals/{goal_id}/members")
+def change_goal_discussion_member(
+    org_slug: str,
+    goal_id: int,
+    member_id: int = Form(...),
+    action: str = Form(...),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    goal = goal_discussion_for_access(db, org.id, user, goal_id)
+    if not can_share_performance_goal(db, user, goal.plan):
+        raise HTTPException(status_code=403, detail="Only the goal owner or a reviewer can share the discussion")
+    member = next((entry for entry in goal.members if entry.user_id == member_id), None)
+    if action == "remove":
+        if member:
+            goal.members.remove(member)
+            record_performance_event(db, goal.plan, user, "goal_discussion_unshared", goal.title)
+    elif action == "add":
+        person = db.scalar(select(User).where(User.id == member_id, User.org_id == org.id, User.is_active.is_(True)))
+        if not person or person.id in {goal.plan.user_id, goal.plan.reviewer_id}:
+            raise HTTPException(status_code=400, detail="Select an active organization member outside the owner and reviewer")
+        if not member:
+            goal.members.append(PerformanceGoalMember(user_id=person.id))
+            record_performance_event(db, goal.plan, user, "goal_discussion_shared", f"{goal.title} with {person.full_name}")
+    else:
+        raise HTTPException(status_code=400, detail="Choose a valid sharing action")
+    db.commit()
+    return RedirectResponse(f"/{org_slug}/goals/goals/{goal.id}/discussion#members", status_code=303)
+
+
+@app.post("/{org_slug}/goals/goals/{goal_id}/amend")
+def amend_performance_goal(
+    org_slug: str,
+    goal_id: int,
+    version: int = Form(...),
+    scope: str = Form(...),
+    weights: list[Decimal] = Form(...),
+    reason: str = Form(...),
+    retire_kpis: list[int] = Form(default=[]),
+    retire_items: list[int] = Form(default=[]),
+    org_user: tuple[Organization, User] = Depends(get_org_user),
+    db: Session = Depends(get_db),
+):
+    org, user = org_user
+    goal = goal_discussion_for_access(db, org.id, user, goal_id)
+    plan = goal.plan
+    if not can_review_plan(db, user, plan) or plan_progress_is_locked(plan):
+        raise HTTPException(status_code=403, detail="Only a reviewer can amend draft or active goals")
+    reason = reason.strip()
+    if not reason or len(reason) > 2000:
+        raise HTTPException(status_code=400, detail="Enter the agreed reason in up to 2,000 characters")
+    if version != plan.revision or not db.execute(
+        update(PerformancePlan)
+        .where(PerformancePlan.id == plan.id, PerformancePlan.revision == version)
+        .values(revision=PerformancePlan.revision + 1)
+    ).rowcount:
+        raise HTTPException(status_code=409, detail="The plan changed. Reload it before saving an amendment")
+    kpis = sorted((kpi for kpi in goal.kpis if not kpi.retired_at), key=lambda entry: (entry.sort_order, entry.id))
+    items = {item.id: item for kpi in kpis for item in kpi.items if not item.retired_at}
+    if scope == "goals" and not (retire_kpis or retire_items):
+        entries = sorted(plan.goals, key=lambda entry: (entry.sort_order, entry.id))
+    elif scope == "kpis" and set(retire_kpis) <= {kpi.id for kpi in kpis} and set(retire_items) <= items.keys():
+        entries = kpis
+    else:
+        raise HTTPException(status_code=400, detail="Select work belonging to this goal")
+    if len(weights) != len(entries):
+        raise HTTPException(status_code=409, detail="The weights changed. Reload the goal before saving")
+    previous_achievement = calculate_goal_achievement_percent(goal)
+    changes = []
+    retired_at = datetime.utcnow()
+    for entry, raw_weight in zip(entries, weights):
+        if scope == "kpis" and entry.id in retire_kpis:
+            entry.retired_at = retired_at
+            changes.append(f"Retired KPI {entry.title}")
+            continue
+        weight = performance_weight(raw_weight, "Weight")
+        if weight != entry.weightage:
+            changes.append(f"{entry.title} weight {entry.weightage}% → {weight}%")
+            entry.weightage = weight
+    for item_id in sorted(set(retire_items)):
+        item = items[item_id]
+        if item.performance_kpi_id not in retire_kpis:
+            item.retired_at = retired_at
+            changes.append(f"Retired task {item.title}")
+    if scope == "goals" and not weight_total_is_valid(validate_plan_goal_weights(plan)):
+        raise HTTPException(status_code=400, detail="Goal weights must total 100%")
+    if scope == "kpis" and any(not kpi.retired_at for kpi in kpis) and not weight_total_is_valid(validate_goal_kpi_weights(goal)):
+        raise HTTPException(status_code=400, detail="The remaining KPI weights must total 100%")
+    if changes:
+        record_performance_event(
+            db, plan, user, "goal_amended", f"{goal.title} · {'; '.join(changes)}. Agreed reason: {reason}",
+            bump_revision=False,
+        )
+    record_goal_achievement(db, goal, user, previous_achievement)
+    db.commit()
+    return RedirectResponse(f"/{org_slug}/goals?plan_id={plan.id}#goal-{goal.id}", status_code=303)
 
 
 @app.post("/{org_slug}/goals/plans/{plan_id}/comments")
@@ -7795,6 +8158,31 @@ def save_bulk_tasks_preview(payload: dict, org_user: tuple[Organization, User] =
     return {"ok": True, "created": len(created_task_ids), "task_ids": created_task_ids}
 
 
+def task_time_logs(db: Session, task_id: int) -> list[TimeLog]:
+    return list(db.scalars(
+        select(TimeLog).where(TimeLog.task_id == task_id)
+        .order_by(TimeLog.log_date.desc(), TimeLog.created_at.desc(), TimeLog.id.desc())
+    ))
+
+
+def task_work_log_groups(logs: list[TimeLog], today: date) -> dict[str, list[TimeLog]]:
+    groups: dict[str, list[TimeLog]] = {}
+    for log in logs:
+        age = (today - log.log_date).days
+        if age < 0:
+            label = "Upcoming"
+        elif age == 0:
+            label = "Today"
+        elif age == 1:
+            label = "Yesterday"
+        elif age <= 7:
+            label = log.log_date.strftime("Last %A")
+        else:
+            label = "Earlier"
+        groups.setdefault(label, []).append(log)
+    return groups
+
+
 @app.get("/{org_slug}/tasks/{task_code}", response_class=HTMLResponse)
 def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: tuple[Organization, User] = Depends(get_org_user), db: Session = Depends(get_db)):
     org, user = org_user
@@ -7802,14 +8190,20 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
     if not task or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
-    logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc(), TimeLog.created_at.desc())).all()
-    comments = db.scalars(select(TaskComment).where(TaskComment.task_id == task.id).order_by(TaskComment.created_at.desc())).all()
-    people = org_people(db, org.id)
-    people_map = {person.id: person for person in people}
-    projects = task_edit_projects(db, org.id, task.project_id)
-    activity_types = visible_activity_types_for_user(db, org.id, user, {task.activity_type_id})
-    activity_type_option_items = activity_type_options(activity_types)
-    project_activity_map = project_activity_type_ids_map_for_user(db, org.id, user, projects, activity_types)
+    today = local_today()
+    logs = task_time_logs(db, task.id)
+    comments = db.scalars(
+        select(TaskComment).where(TaskComment.task_id == task.id)
+        .order_by(TaskComment.created_at.desc(), TaskComment.id.desc())
+    ).all()
+    participant_ids = {task.created_by, task.assigned_to}
+    participant_ids.update(log.user_id for log in logs)
+    participant_ids.update(comment.user_id for comment in comments)
+    people_map = {person.id: person for person in db.scalars(
+        select(User).where(User.org_id == org.id, User.id.in_(participant_ids))
+    )}
+    activity = db.get(ActivityType, task.activity_type_id)
+    can_control = can_control_task(db, task, user)
     return templates.TemplateResponse(
         "task_detail.html",
         {
@@ -7817,23 +8211,17 @@ def task_detail_page(request: Request, org_slug: str, task_code: str, org_user: 
             "org": org,
             "user": user,
             "task": task,
-            "logs": logs,
+            "log_groups": task_work_log_groups(logs, today),
             "comments": comments,
-            "projects": projects,
-            "activity_types": activity_types,
-            "activity_type_options": activity_type_option_items,
-            "project_activity_map": project_activity_map,
-            "activity_categories": active_activity_categories(db, org.id, user, {task.activity_type_id}),
-            "current_activity_category": db.get(ActivityType, task.activity_type_id).category if db.get(ActivityType, task.activity_type_id) else "others",
-            "statuses": list(TaskStatus),
-            "people": people,
+            "activity_name": activity.name if activity else "",
+            "can_comment": task.assigned_to == user.id or can_control,
             "people_map": people_map,
-            "can_edit_task": can_control_task(db, task, user),
+            "can_edit_task": can_control,
             "can_log_task": can_log_task(db, task, user),
             "is_task_assignee": task.assigned_to == user.id,
             "shared_status_label": shared_status_label(task),
             "settings": settings_obj,
-            "today": date.today(),
+            "today": today,
         },
     )
 
@@ -8058,21 +8446,11 @@ def update_dashboard_today_order(
 def update_task_page(
     org_slug: str,
     task_code: str,
-    project_id: int = Form(...),
-    name: str = Form(...),
-    activity_type_id: int = Form(...),
     description: str = Form(""),
     start_date: str = Form(""),
     end_date: str = Form(""),
     estimated_hours: str = Form(""),
-    complexity_weight: str = Form("1.0"),
     is_high_priority: bool = Form(False),
-    tags: str = Form(""),
-    status_value: TaskStatus = Form(..., alias="status"),
-    stalled_reason: str = Form(""),
-    is_backlog: bool = Form(False),
-    is_private: bool = Form(False),
-    assigned_to: int | None = Form(None),
     org_user: tuple[Organization, User] = Depends(get_org_user),
     db: Session = Depends(get_db),
 ):
@@ -8080,53 +8458,20 @@ def update_task_page(
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
     if not task or not can_control_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
-    project = db.get(Project, project_id)
-    if not project or project.org_id != org.id:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if not project.is_active and project.id != task.project_id:
-        raise HTTPException(status_code=400, detail="Project is inactive")
-    parsed_start_date = None if is_backlog else parse_optional_date(start_date)
-    parsed_end_date = None if is_backlog else parse_optional_date(end_date)
-    parsed_estimated_hours = None if is_backlog else parse_optional_decimal(estimated_hours)
-    activity_type = activity_type_for_user(db, org.id, user, activity_type_id)
-    if not activity_type:
-        raise HTTPException(status_code=400, detail="Invalid activity type")
-    if not project_allows_activity_type(db, project.id, activity_type.id):
-        raise HTTPException(status_code=400, detail="Selected activity type is not available for this project")
-
-    task.project_id = project.id
-    task.name = name
-    task.activity_type_id = activity_type.id
+    start = parse_optional_date(start_date)
+    end = parse_optional_date(end_date)
+    if start and end and end < start:
+        raise HTTPException(status_code=400, detail="End date must be on or after the start date")
+    hours = optional_decimal(estimated_hours, "Estimated hours")
+    if hours is not None and (not hours.is_finite() or not 0 <= hours <= Decimal("999.99")):
+        raise HTTPException(status_code=400, detail="Estimated hours must be between 0 and 999.99")
     task.description = sanitize_html(description)
-    task.tags_text = serialize_task_tags(parse_task_tags(tags))
-    task.start_date = parsed_start_date
-    task.end_date = parsed_end_date
-    task.estimated_hours = parsed_estimated_hours
-    task.complexity_weight = parse_complexity_weight(complexity_weight)
+    task.start_date = start
+    task.end_date = end
+    task.estimated_hours = hours
     task.is_high_priority = is_high_priority
-    previous_status = task.status
-    task.status = status_value
-    if previous_status == TaskStatus.CLOSED and status_value != TaskStatus.CLOSED:
-        task.rework_count = int(task.rework_count or 0) + 1
-    task.stalled_reason = stalled_reason.strip() if status_value == TaskStatus.STALLED else ""
-    task.is_private = is_private
-    if assigned_to:
-        assignee = db.get(User, assigned_to)
-        if assignee and assignee.org_id == org.id and assignee.is_active:
-            old_assignee = task.assigned_to
-            task.assigned_to = assignee.id
-            if old_assignee != assignee.id:
-                task.assigned_by = user.id
-                task.assigned_at = datetime.utcnow()
-                add_task_event(db, task, user, f"Changed assignee from user #{old_assignee} to user #{assignee.id}.")
-    task.closed_at = datetime.utcnow() if status_value == TaskStatus.CLOSED else None
-    if task.is_shared:
-        if status_value == TaskStatus.CLOSED:
-            task.shared_status = SharedTaskStatus.CLOSED.value
-        elif status_value == TaskStatus.STALLED:
-            task.shared_status = SharedTaskStatus.STALLED.value
-        elif task.shared_status in {SharedTaskStatus.STALLED.value, SharedTaskStatus.REWORK_NEEDED.value} and status_value == TaskStatus.STARTED:
-            task.shared_status = SharedTaskStatus.IN_PROGRESS.value
+    if db.is_modified(task):
+        add_task_event(db, task, user, "Updated task details.")
     db.commit()
     return RedirectResponse(url=f"/{org_slug}/tasks/{task_code}", status_code=303)
 
@@ -8254,12 +8599,12 @@ def add_task_comment_page(
 ):
     org, user = org_user
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
-    if not task or not task.is_shared or not can_view_task(db, task, user):
+    if not task or not can_log_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
-    comment = body.strip()
-    if not comment:
+    comment = sanitize_html(body.strip())
+    if not strip_html_text(comment):
         raise HTTPException(status_code=400, detail="Comment is required")
-    add_task_event(db, task, user, sanitize_html(comment), "comment")
+    add_task_event(db, task, user, comment, "comment")
     db.commit()
     return RedirectResponse(url=safe_org_redirect(org_slug, redirect_to, f"/{org_slug}/tasks/{task_code}#discussion"), status_code=303)
 
@@ -8599,7 +8944,7 @@ def api_list_time_logs(task_code: str, org_user: tuple[Organization, User] = Dep
     task = db.scalar(select(Task).where(Task.task_id == task_code, Task.org_id == org.id))
     if not task or not can_view_task(db, task, user):
         raise HTTPException(status_code=404, detail="Task not found")
-    logs = db.scalars(select(TimeLog).where(TimeLog.task_id == task.id).order_by(TimeLog.log_date.desc())).all()
+    logs = task_time_logs(db, task.id)
     return [{"id": item.id, "date": item.log_date.isoformat(), "hours": float(item.hours), "notes": item.notes} for item in logs]
 
 
@@ -8715,7 +9060,10 @@ def team_tasks_page(
         Task.is_archived.is_(False),
     )
     if not can_view_all:
-        query = query.where(Task.is_private.is_(False))
+        query = query.where(or_(
+            Task.created_by == current_user.id,
+            and_(Task.is_private.is_(False), Task.is_shared.is_(False)),
+        ))
     all_tasks = db.scalars(query).all()
     today = local_today()
     week_end = today + timedelta(days=7)
@@ -11317,22 +11665,23 @@ def manager_dashboard_page(request: Request, org_user: tuple[Organization, User]
         team = org_people(db, org.id)
     else:
         team = managed_people(db, org.id, user)
-    departments = sorted({member.department.name if member.department else "No department" for member in team})
+    goal_people = goal_plan_owners(db, org.id, user)
+    departments = sorted({member.department.name if member.department else "No department" for member in goal_people})
     if department:
         if department not in departments:
             raise HTTPException(status_code=400, detail="Select a department in your team")
         team = [member for member in team if (member.department.name if member.department else "No department") == department]
+        goal_people = [person for person in goal_people if (person.department.name if person.department else "No department") == department]
+    goal_names = {person.id: person.full_name for person in goal_people}
     today = local_today()
     year = today.year if today.month >= 4 else today.year - 1
-    plans = db.scalars(performance_plan_query(org.id).where(
-        PerformancePlan.year == year, PerformancePlan.user_id.in_([member.id for member in team]),
-    )).all() if team else []
-    goals = {plan.user_id: {"id": plan.id, "title": plan.title,
-             "progress": calculate_plan_achievement_percent(plan),
-             "status": PERFORMANCE_PLAN_STATUSES.get(plan.status, plan.status.title()),
-             "cycle": plan.cycle_label or f"FY {year}-{str(year + 1)[-2:]}",
-             "url": f"/{org.slug}/goals?plan_id={plan.id}"} for plan in plans}
+    plans = db.scalars(performance_progress_query(org.id).where(
+        PerformancePlan.year == year, PerformancePlan.user_id.in_(goal_names),
+    )).all() if goal_names else []
+    goals = {plan.user_id: dashboard_goal_summary(plan, org.slug, today) for plan in plans}
     payload = build_manager_dashboard(db, org, user, team, goals, today)
+    payload["goals"] = [dict(summary, name=goal_names[person_id]) for person_id, summary in goals.items()]
+    payload["goals"].sort(key=lambda summary: summary["name"].casefold())
     return templates.TemplateResponse(
         "manager_dashboard.html",
         {

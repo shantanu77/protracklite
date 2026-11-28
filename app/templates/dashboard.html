@@ -22,6 +22,15 @@
     <a class="wd-stat" href="#work-week"><span>Week plan <b aria-hidden="true">▦</b></span><strong>{{ '%g'|format(wd.estimated_work) }}<em> / <span data-work-remaining-capacity>{{ '%g'|format(wd.remaining_available_hours) }}</span>h</em></strong><small>Remaining estimate / capacity{% if wd.unknown_estimates %} · {{ wd.unknown_estimates }} {{ 'estimate' if wd.unknown_estimates == 1 else 'estimates' }} missing{% endif %}</small></a>
     <button type="button" class="wd-stat" data-work-view="completed"><span>{{ 'Weekly plan completed' if wd.plan_total is not none else 'Completed this week' }} <b aria-hidden="true">✓</b></span><strong>{{ wd.plan_completed if wd.plan_total is not none else wd.counts.completed }}{% if wd.plan_total is not none %}<em> / {{ wd.plan_total }}</em>{% endif %}</strong><small>{{ 'Saved plan outcomes · see completed work' if wd.plan_total is not none else 'Completed outcomes across your projects' }}</small></button>
   </section>
+  {% if goal_summary %}
+  <section class="wd-panel" aria-label="My goals">
+    <div class="wd-panel-head"><div><h2>My goals</h2><p>{{ goal_summary.cycle }} · {{ goal_summary.status }} · {{ '%g'|format(goal_summary.progress) }}% done</p></div><a class="wd-btn wd-small" href="{{ goal_summary.url }}">Open goal plan ↗</a></div>
+    <div class="wd-queue-foot">
+      <ul>{% for goal in goal_summary.goals %}<li><a href="{{ goal.url }}">{{ goal.title }}</a> · {{ '%g'|format(goal.progress) }}% done</li>{% endfor %}</ul>
+    </div>
+    {% if goal_summary.alerts %}<div class="wd-feedback"><strong>Goal alerts</strong><ul>{% for alert in goal_summary.alerts %}<li>{{ alert }}</li>{% endfor %}</ul></div>{% endif %}
+  </section>
+  {% endif %}
   <div class="wd-workspace">
     <div class="wd-main">
       <section class="wd-panel" id="work-queue">

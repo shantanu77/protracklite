@@ -27,7 +27,7 @@
     >✓ Mark Completed</button>
     {% endif %}
     {% if task.start_date %}
-    <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}/calendar.ics">Add To Calendar</a>
+    <a class="button secondary" href="/{{ org.slug }}/tasks/{{ task.task_id }}/calendar.ics" download><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg> Add to calendar</a>
     {% endif %}
     {% if task.is_archived %}
     <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/unarchive">
@@ -38,150 +38,71 @@
 </section>
 
 <section class="task-detail-layout">
-  <div class="stack">
-    <section class="panel task-detail-summary">
-      <div class="task-detail-summary-head">
-        <h2>Task overview</h2>
-        <div class="dashboard-task-badges">
-          {% if task.is_shared %}
-          <span class="badge muted">Shared</span>
-          <span class="badge {% if task.shared_status == 'work_done' %}warning{% elif task.shared_status == 'closed' %}success{% elif task.shared_status == 'stalled' or task.shared_status == 'rework_needed' %}danger{% else %}muted{% endif %}">{{ shared_status_label }}</span>
-          {% endif %}
-          <span class="badge {% if task.status.value == 'started' %}success{% elif task.status.value == 'stalled' %}danger{% else %}warning{% endif %}">{{ task.status.value|replace('_', ' ') }}</span>
-        </div>
-      </div>
-      <div class="task-detail-stats">
-        <div class="task-detail-stat">
-          <span>Booked</span>
-          <strong>{{ "%.2f"|format(task.logged_hours or 0) }}h</strong>
-        </div>
-        <div class="task-detail-stat">
-          <span>Planned</span>
-          <strong>{% if task.estimated_hours is not none %}{{ "%.2f"|format(task.estimated_hours) }}h{% else %}Not set{% endif %}</strong>
-        </div>
-        <div class="task-detail-stat">
-          <span>Schedule</span>
-          <strong>{% if task.start_date or task.end_date %}{{ task.start_date or "Not set" }} to {{ task.end_date or "Not set" }}{% else %}Backlog{% endif %}</strong>
-        </div>
-        <div class="task-detail-stat">
-          <span>Privacy</span>
-          <strong>{{ "Private" if task.is_private else "Visible to team" }}</strong>
-        </div>
-      </div>
-      <div class="task-detail-meta">
-        <div><span>Project</span><strong>{{ task.project.name }} ({{ task.project.code }})</strong></div>
-        <div><span>Activity</span><strong>{% for item in activity_types %}{% if item.id == task.activity_type_id %}{{ item.name }}{% endif %}{% endfor %}</strong></div>
-        {% set creator_user = people_map.get(task.created_by) %}
-        {% set assignee_user = people_map.get(task.assigned_to) %}
-        <div><span>Creator</span><strong class="avatar-name">{{ user_avatar(creator_user, 24) }} {{ creator_user.full_name if creator_user else "Unknown" }}</strong></div>
-        <div><span>Assigned To</span><strong class="avatar-name">{{ user_avatar(assignee_user, 24) }} {{ assignee_user.full_name if assignee_user else "Unknown" }}</strong></div>
-      </div>
-      {% set task_tag_list = task.tags_text.split(', ') if task.tags_text else [] %}
-      {% if task_tag_list %}
-      <div class="dashboard-task-badges">
-        {% for tag in task_tag_list %}
-        <span class="badge muted">#{{ tag }}</span>
+  <section class="panel task-timeline-panel" aria-labelledby="work-log-heading">
+    <div class="panel-head"><h2 id="work-log-heading">Work log</h2></div>
+    {% for label, entries in log_groups.items() %}
+    <section class="task-log-group">
+      <h3>{{ label }}</h3>
+      <div class="task-timeline">
+        {% for log in entries %}
+        <article class="timeline-item">
+          <div class="timeline-dot" aria-hidden="true"></div>
+          <div class="timeline-card">
+            <div class="timeline-head">
+              {% set author = people_map.get(log.user_id) %}
+              <span><time datetime="{{ log.log_date.isoformat() }}">{{ log.log_date.strftime('%d %b %Y') }}</time>{% if author %} · {{ author.full_name }}{% endif %}</span>
+              <strong>{{ '%g'|format(log.hours) }}h</strong>
+            </div>
+            <p>{{ log.notes or "No description recorded." }}</p>
+          </div>
+        </article>
         {% endfor %}
       </div>
-      {% endif %}
-      {% if task.description %}
-      <div class="task-detail-description">
-        <span>Description</span>
-        <p>{{ task.description|safe }}</p>
-      </div>
-      {% endif %}
     </section>
-
+    {% else %}<p class="empty">No effort logged yet.</p>{% endfor %}
+  </section>
+  <div class="stack">
+    <section class="panel task-detail-summary">
+      <div class="task-detail-summary-head"><h2>Overview</h2>{% if task.is_shared %}<span class="badge muted">{{ shared_status_label or "Shared" }}</span>{% endif %}</div>
+      <dl class="task-overview-facts">
+        <div><dt>Project</dt><dd>{{ task.project.name }} ({{ task.project.code }})</dd></div>
+        {% if activity_name %}<div><dt>Activity</dt><dd>{{ activity_name }}</dd></div>{% endif %}
+        {% set assignee = people_map.get(task.assigned_to) %}
+        {% set creator = people_map.get(task.created_by) %}
+        <div><dt>Assigned to</dt><dd>{{ assignee.full_name if assignee else "Unknown" }}</dd></div>
+        <div><dt>Created by</dt><dd>{{ creator.full_name if creator else "Unknown" }}</dd></div>
+        <div><dt>Start</dt><dd>{{ task.start_date or "Not set" }}</dd></div>
+        <div><dt>Due</dt><dd>{{ task.end_date or "Not set" }}</dd></div>
+        <div><dt>Estimate</dt><dd>{% if task.estimated_hours is not none %}{{ '%g'|format(task.estimated_hours) }}h{% else %}Not set{% endif %}</dd></div>
+        <div><dt>Priority</dt><dd>{{ "High" if task.is_high_priority else "Normal" }}</dd></div>
+        <div><dt>Visibility</dt><dd>{{ "Private" if task.is_private else ("Shared participants" if task.is_shared else "Team") }}</dd></div>
+        {% if task.rework_count %}<div><dt>Rework requests</dt><dd>{{ task.rework_count }}</dd></div>{% endif %}
+      </dl>
+      {% if task.tags_text %}<p class="task-overview-tags">{{ task.tags_text }}</p>{% endif %}
+      {% if task.stalled_reason %}<p><strong>Blocker</strong> · {{ task.stalled_reason }}</p>{% endif %}
+      {% if task.description %}<div class="task-detail-description">{{ task.description|safe }}</div>{% endif %}
+    </section>
     {% if can_edit_task %}
     <details class="panel task-detail-edit" id="edit-task">
-      <summary><span><strong>Edit task details</strong><small>Project, schedule, assignment and description</small></span><span class="task-detail-edit-caret" aria-hidden="true">⌄</span></summary>
+      <summary><span><strong>Edit task</strong><small>Description, schedule, estimate and priority</small></span><span class="task-detail-edit-caret" aria-hidden="true">⌄</span></summary>
       <form method="post" class="form-grid task-detail-form">
-      <label>Project
-        <select name="project_id" data-project-select required>
-          {% for project in projects %}
-          <option value="{{ project.id }}" {% if project.id == task.project_id %}selected{% endif %}>{{ project.name }} ({{ project.code }})</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Name<input name="name" value="{{ task.name }}" required></label>
-      <label>Category
-        <select name="activity_category" data-activity-category required>
-          {% for category_key, category_label in activity_categories %}
-          <option value="{{ category_key }}" {% if category_key == current_activity_category %}selected{% endif %}>{{ category_label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Activity Type
-        <select name="activity_type_id" data-activity-type-select required>
-          {% for item in activity_type_options %}
-          <option value="{{ item.id }}" data-category="{{ item.category }}" {% if item.id == task.activity_type_id %}selected{% endif %}>{{ item.label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Status
-        <select name="status">
-          {% for item in statuses %}
-          <option value="{{ item.value }}" {% if item == task.status %}selected{% endif %}>{{ item.value }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Assign To
-        <select name="assigned_to">
-          {% for person in people %}
-          <option value="{{ person.id }}" {% if person.id == task.assigned_to %}selected{% endif %}>{{ person.full_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="checkbox"><input name="is_backlog" type="checkbox" data-backlog-toggle {% if task.start_date is none and task.end_date is none %}checked{% endif %}>Backlog task</label>
-      <label>Start Date<input name="start_date" type="date" value="{{ task.start_date or '' }}" data-backlog-field></label>
-      <label>End Date<input name="end_date" type="date" value="{{ task.end_date or '' }}" data-backlog-field></label>
-      <label>Estimated Hours<input name="estimated_hours" type="number" step="0.25" min="0" value="{{ task.estimated_hours or '' }}" data-backlog-field></label>
-      <label>Complexity
-        <select name="complexity_weight">
-          {% for value, label in [(1.0, 'Low'), (1.5, 'Medium'), (2.0, 'High'), (2.5, 'Critical')] %}<option value="{{ value }}" {% if task.complexity_weight|float == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label class="checkbox"><input name="is_high_priority" type="checkbox" {% if task.is_high_priority %}checked{% endif %}>High priority</label>
-      <p><strong>{{ task.rework_count }}</strong> recorded rework request{% if task.rework_count != 1 %}s{% endif %}</p>
-      <label class="checkbox"><input name="is_private" type="checkbox" {% if task.is_private %}checked{% endif %}>Private task</label>
-      <label class="full">Tags
-        <div class="tag-editor" data-tag-editor>
-          <input type="hidden" name="tags" value="{{ task.tags_text }}">
-          <div class="tag-editor-list" data-tag-list></div>
-          <input type="text" class="tag-editor-input" placeholder="Add a tag and press Enter" data-tag-input autocomplete="off">
-        </div>
-      </label>
-      <label class="full">Stalled Reason<textarea name="stalled_reason" rows="3" placeholder="Required only if task is stalled">{{ task.stalled_reason or '' }}</textarea></label>
-      <label class="full">Description<textarea name="description" rows="6">{{ task.description|safe }}</textarea></label>
-      <p class="full empty">Backlog tasks do not carry schedule or effort until they are planned.</p>
-      <button type="submit">Update Task</button>
+        <label>Start date<input name="start_date" type="date" value="{{ task.start_date or '' }}"></label>
+        <label>Due date<input name="end_date" type="date" value="{{ task.end_date or '' }}"></label>
+        <label>Estimated hours<input name="estimated_hours" type="number" step="0.01" min="0" max="999.99" value="{{ task.estimated_hours if task.estimated_hours is not none else '' }}"></label>
+        <label class="checkbox"><input name="is_high_priority" type="checkbox" {% if task.is_high_priority %}checked{% endif %}>High priority</label>
+        <label class="full">Description<textarea name="description" rows="4">{{ task.description }}</textarea></label>
+        <button type="submit">Save changes</button>
       </form>
     </details>
-    {% elif task.is_shared %}
-    <section class="panel" id="edit-task">
-      <div class="panel-head">
-        <div>
-          <h2>Shared Task Control</h2>
-          <p>The creator or manager controls task details. You can log hours, comment, and mark work done.</p>
-        </div>
-      </div>
-    </section>
     {% endif %}
-  </div>
-
-  {% if task.is_shared %}
-  <section class="panel task-timeline-panel" id="discussion">
-    <div class="panel-head">
-      <div>
-        <h2>Discussion & Timeline</h2>
-        <p>Comments, status changes, and latest logged time.</p>
-      </div>
-    </div>
-    <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/comments" class="form-grid task-comment-form">
-      <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/{{ task.task_id }}#discussion">
-      <label class="full">Comment<textarea name="body" rows="3" placeholder="Add a clarification, update, or question" required></textarea></label>
-      <button type="submit">Add Comment</button>
-    </form>
+    <section class="panel task-timeline-panel" id="discussion">
+      <div class="panel-head"><h2>Discussion</h2></div>
+      {% if can_comment %}
+      <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/comments" class="form-grid task-comment-form">
+        <label class="full">Comment<textarea name="body" rows="3" required></textarea></label>
+        <button type="submit">Post comment</button>
+      </form>
+      {% endif %}
     {% if task.is_shared and can_edit_task and task.shared_status == "work_done" and task.status.value != "closed" %}
     <form method="post" action="/{{ org.slug }}/tasks/{{ task.task_id }}/rework" class="form-grid task-comment-form">
       <input type="hidden" name="redirect_to" value="/{{ org.slug }}/tasks/{{ task.task_id }}#discussion">
@@ -189,39 +110,18 @@
       <button type="submit" class="secondary">Request Rework</button>
     </form>
     {% endif %}
-    <div class="task-timeline">
       {% for comment in comments %}
-      <article class="timeline-item">
-        <div class="timeline-dot"></div>
-        <div class="timeline-card">
-          <div class="timeline-head">
-            {% set comment_user = people_map.get(comment.user_id) %}
-            <strong class="avatar-name">{{ user_avatar(comment_user, 24) }} {{ comment_user.full_name if comment_user else "Unknown" }}</strong>
-            <span>{{ comment.created_at|local_datetime }}</span>
-          </div>
-          <p>{{ comment.body|safe }}</p>
+      <article class="timeline-card">
+        <div class="timeline-head">
+          {% set author = people_map.get(comment.user_id) %}
+          <strong>{{ author.full_name if author else "Unknown user" }}</strong>
+          <span>{{ comment.created_at|local_datetime }}</span>
         </div>
+        <p>{{ comment.body|safe }}</p>
       </article>
-      {% endfor %}
-      {% for log in logs %}
-      <article class="timeline-item">
-        <div class="timeline-dot"></div>
-        <div class="timeline-card">
-          <div class="timeline-head">
-            <strong>{{ "%.2f"|format(log.hours) }}h</strong>
-            <span>{{ log.log_date }}</span>
-          </div>
-          <p>{{ log.notes or "No comments added." }}</p>
-        </div>
-      </article>
-      {% else %}
-      {% if not comments %}
-      <p class="empty">No comments or time logged yet.</p>
-      {% endif %}
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
+      {% else %}<p class="empty">No discussion or task activity yet.</p>{% endfor %}
+    </section>
+  </div>
 </section>
 
 {% if can_log_task %}
@@ -269,62 +169,9 @@
 {% endif %}
 
 <script>
-  (() => {
-    const editDetails = document.getElementById("edit-task");
-    if (editDetails instanceof HTMLDetailsElement && window.location.hash === "#edit-task") {
-      editDetails.open = true;
-    }
-    const projectActivityMap = {{ project_activity_map|tojson }};
-    const form = document.querySelector(".task-detail-form");
-    const projectSelect = form?.querySelector("[data-project-select]");
-    const categorySelect = form?.querySelector("[data-activity-category]");
-    const activityTypeSelect = form?.querySelector("[data-activity-type-select]");
-    const activityTypeOptions = activityTypeSelect ? Array.from(activityTypeSelect.querySelectorAll("option")) : [];
-    const backlogToggle = form?.querySelector("[data-backlog-toggle]");
-    const fields = form ? Array.from(form.querySelectorAll("[data-backlog-field]")) : [];
-    if (!form || !backlogToggle || !projectSelect || !categorySelect || !activityTypeSelect) {
-      return;
-    }
-
-    function syncActivityTypes() {
-      const selectedProjectId = String(projectSelect.value || "");
-      const selectedCategory = categorySelect.value;
-      const rawAllowedIds = projectActivityMap[selectedProjectId];
-      const allowedIds = Array.isArray(rawAllowedIds) ? new Set(rawAllowedIds.map((item) => String(item))) : null;
-      let firstVisible = null;
-      activityTypeOptions.forEach((option) => {
-        const matchesProject = !selectedProjectId || !allowedIds || allowedIds.has(option.value);
-        const matchesCategory = !selectedCategory || option.dataset.category === selectedCategory;
-        const matches = matchesProject && matchesCategory;
-        option.hidden = !matches;
-        option.disabled = !matches;
-        if (matches && !firstVisible) {
-          firstVisible = option;
-        }
-      });
-      const current = activityTypeSelect.selectedOptions[0];
-      if ((!current || current.hidden || current.disabled) && firstVisible) {
-        activityTypeSelect.value = firstVisible.value;
-      }
-    }
-
-    function syncBacklogState() {
-      fields.forEach((field) => {
-        if (backlogToggle.checked) {
-          field.dataset.previousValue = field.value;
-          field.value = "";
-        } else if (!field.value && field.dataset.previousValue) {
-          field.value = field.dataset.previousValue;
-        }
-        field.disabled = backlogToggle.checked;
-      });
-    }
-
-    projectSelect.addEventListener("change", syncActivityTypes);
-    categorySelect.addEventListener("change", syncActivityTypes);
-    backlogToggle.addEventListener("change", syncBacklogState);
-    syncActivityTypes();
-    syncBacklogState();
-  })();
+  if (window.location.hash === "#edit-task") {
+    const edit = document.getElementById("edit-task");
+    if (edit) edit.open = true;
+  }
 </script>
 {% endblock %}

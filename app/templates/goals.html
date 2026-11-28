@@ -18,6 +18,12 @@
     </div>
   </header>
 
+  {% if shared_goals %}
+  <section class="goals-side-card">
+    <h2>Shared goal discussions</h2>
+    <ul>{% for id, title, owner in shared_goals %}<li><a href="/{{ org.slug }}/goals/goals/{{ id }}/discussion">{{ title }}</a> · {{ owner }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
   {% if plans|length > 1 %}
   <form class="goals-plan-switcher" method="get" action="/{{ org.slug }}/goals">
     <label for="goal-plan-select">Viewing plan</label>
@@ -50,7 +56,7 @@
       <form method="post" action="/{{ org.slug }}/goals/plans/{{ selected_plan.id }}/finalize">
         <button class="goals-primary-action" type="submit" {% if not selected_plan.weights_valid %}disabled title="Goal and KPI weights must total 100% before activation"{% endif %}>Activate plan</button>
       </form>
-      {% elif selected_plan.can_manage_structure and selected_plan.status in ["active", "closed"] %}
+      {% elif selected_plan.can_manage_structure and (user.role.value == "admin" or user.id != selected_plan.user_id) and selected_plan.status in ["active", "closed"] %}
       <form method="post" action="/{{ org.slug }}/goals/plans/{{ selected_plan.id }}/reopen">
         <button class="goals-secondary-action" type="submit">Reopen as draft</button>
       </form>
@@ -118,7 +124,7 @@
     <form method="post" action="/{{ org.slug }}/goals/plans/{{ selected_plan.id }}/update" class="goals-form-grid">
       <label class="goals-field-wide">Plan title<input name="title" value="{{ selected_plan.title }}" required></label>
       <label>Cycle label<input name="cycle_label" value="{{ selected_plan.cycle_label }}" required></label>
-      <label>Reviewer<select name="reviewer_id"><option value="">Assigning manager</option>{% for reviewer in reviewers %}<option value="{{ reviewer.id }}" {% if reviewer.id == selected_plan.reviewer_id %}selected{% endif %}>{{ reviewer.full_name }}</option>{% endfor %}</select></label>
+      <label>Reviewer<select name="reviewer_id"><option value="">Keep current reviewer</option>{% for reviewer in reviewers if reviewer.id != selected_plan.user_id %}<option value="{{ reviewer.id }}" {% if reviewer.id == selected_plan.reviewer_id %}selected{% endif %}>{{ reviewer.full_name }}</option>{% endfor %}</select></label>
       <label>Cycle start<input type="date" name="cycle_start" value="{{ selected_plan.cycle_start }}" required></label>
       <label>Cycle end<input type="date" name="cycle_end" value="{{ selected_plan.cycle_end }}" required></label>
       <label class="goals-field-wide">Description<textarea name="description" rows="2">{{ selected_plan.description }}</textarea></label>
@@ -145,14 +151,15 @@
 
       <div class="goals-goal-list">
         {% for goal in selected_plan.goals %}
-        <article class="goals-goal-card">
+        <article class="goals-goal-card" id="goal-{{ goal.id }}">
           <header class="goals-goal-head">
             <span class="goals-goal-number">{{ loop.index }}</span>
             <div class="goals-goal-title"><p class="goals-section-kicker">{{ goal.kra_label }} · Goal weight {{ "%.2f"|format(goal.weightage) }}%</p><h3>{{ goal.title }}</h3>{% if goal.description %}<p>{{ goal.description }}</p>{% endif %}</div>
             <div class="goals-goal-score"><strong>{{ "%.1f"|format(goal.achievement_percent) }}%</strong><small>achieved</small></div>
           </header>
           <div class="goals-goal-progress"><div class="goals-progress-track"><span style="width: {{ [goal.achievement_percent, 100]|min }}%"></span></div><div class="goals-progress-foot"><span>{{ goal.kpis|length }} KPIs</span><span>Contribution {{ "%.2f"|format(goal.achievement_percent * goal.weightage / 100) }}%</span></div></div>
-          {% if not goal.weights_valid %}<p class="goals-inline-warning">KPI weights for this goal must total 100% before plan activation.</p>{% endif %}
+          <p><a class="goals-secondary-action" href="/{{ org.slug }}/goals/goals/{{ goal.id }}/discussion">Goal discussion{% if selected_plan.can_review and not selected_plan.progress_locked %} and amendments{% endif %}</a></p>
+          {% if not goal.weights_valid and goal.kpis|rejectattr("retired")|list %}<p class="goals-inline-warning">KPI weights for this goal must total 100% before plan activation.</p>{% endif %}
 
           {% if selected_plan.can_manage_structure and not selected_plan.structure_locked %}
           <details class="goals-inline-edit"><summary>Edit goal details</summary>
@@ -182,6 +189,9 @@
             {% for kpi in goal.kpis %}
             <section class="goals-kpi-card">
               <header class="goals-kpi-head"><div><p class="goals-section-kicker">{{ kpi.measurement_label }} · KPI weight {{ "%.2f"|format(kpi.weightage) }}%</p><h4>{{ kpi.title }}</h4>{% if kpi.description %}<p>{{ kpi.description }}</p>{% endif %}</div><div class="goals-kpi-score"><strong>{{ "%.1f"|format(kpi.achievement_percent) }}%</strong><small>{% if kpi.measurement_type == "checklist" %}{{ kpi.completed_items }} of {{ kpi.total_items }} tasks{% else %}{{ kpi.actual_value if kpi.actual_value is not none else "—" }} / {{ kpi.target_value if kpi.target_value is not none else "—" }} {{ kpi.unit }}{% endif %}</small></div></header>
+              {% if kpi.retired %}<details><summary>Retired KPI</summary>
+                <ul>{% for item in kpi["items"] %}<li>{{ item.title }} · {{ 'Completed before retirement' if item.is_completed else 'Retired' }}</li>{% endfor %}</ul>
+                </details>{% else %}
               <div class="goals-progress-track goals-kpi-progress"><span style="width: {{ [kpi.achievement_percent, 100]|min }}%"></span></div>
               {% if kpi.measurement_type == "checklist" %}<p class="goals-kpi-footnote">Each task contributes {{ "%.2f"|format(kpi.item_weight_percent) }}% to this KPI.</p>{% elif kpi.target_date_label %}<p class="goals-kpi-footnote">Target {{ kpi.target_date_label }} · {{ kpi.measurement_frequency|title }}</p>{% endif %}
 
@@ -216,11 +226,11 @@
               <div class="goals-task-list">
                 {% for item in kpi["items"] %}
                 <article class="goals-task-row{% if item.is_completed %} is-completed{% endif %}">
-                  {% if selected_plan.can_update_progress %}<form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/toggle" class="goals-task-toggle"><input type="checkbox" {% if item.is_completed %}checked{% endif %} aria-label="Mark {{ item.title }} {% if item.is_completed %}incomplete{% else %}complete{% endif %}" onchange="this.form.submit()"></form>{% else %}<span class="goals-task-check{% if item.is_completed %} is-checked{% endif %}" aria-hidden="true">{% if item.is_completed %}✓{% endif %}</span>{% endif %}
-                  <div class="goals-task-copy"><strong>{{ item.title }}</strong>{% if item.notes %}<small>{{ item.notes }}</small>{% endif %}<small class="goals-task-meta">Added by {{ item.created_by_name }}{% if item.is_completed and item.completed_at_label %} · Completed {{ item.completed_at_label }}{% if item.completed_by_name %} by {{ item.completed_by_name }}{% endif %}{% endif %}</small>
-                    {% if selected_plan.can_update_progress and (user.role.value in ["admin", "manager"] or (user.id == selected_plan.user_id and user.id == item.created_by and not item.is_completed)) %}<details class="goals-item-edit"><summary>Edit task</summary><form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/update" class="goals-form-grid"><label class="goals-field-wide">Task title<input name="title" value="{{ item.title }}" required></label><label class="goals-field-wide">Notes<textarea name="notes" rows="2">{{ item.notes }}</textarea></label><div class="goals-form-actions goals-field-wide"><button type="submit" class="goals-secondary-action">Save task</button><button type="submit" class="goals-danger-action" formaction="/{{ org.slug }}/goals/items/{{ item.id }}/delete" formnovalidate onclick="return confirm('Delete this KPI task?');">Delete task</button></div></form></details>{% endif %}
+                  {% if selected_plan.can_update_progress and not item.retired %}<form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/toggle" class="goals-task-toggle"><input type="checkbox" {% if item.is_completed %}checked{% endif %} aria-label="Mark {{ item.title }} {% if item.is_completed %}incomplete{% else %}complete{% endif %}" onchange="this.form.submit()"></form>{% else %}<span class="goals-task-check{% if item.is_completed %} is-checked{% endif %}" aria-hidden="true">{% if item.is_completed %}✓{% endif %}</span>{% endif %}
+                  <div class="goals-task-copy"><strong>{{ item.title }}</strong>{% if item.notes %}<small>{{ item.notes }}</small>{% endif %}<small class="goals-task-meta">{% if item.target_date_label %}Due {{ item.target_date_label }} · {% endif %}Added by {{ item.created_by_name }}{% if item.is_completed and item.completed_at_label %} · Completed {{ item.completed_at_label }}{% if item.completed_by_name %} by {{ item.completed_by_name }}{% endif %}{% endif %}</small>
+                    {% if selected_plan.can_update_progress and not item.retired and (user.role.value in ["admin", "manager"] or (user.id == selected_plan.user_id and user.id == item.created_by and not item.is_completed)) %}<details class="goals-item-edit"><summary>Edit task</summary><form method="post" action="/{{ org.slug }}/goals/items/{{ item.id }}/update" class="goals-form-grid"><label class="goals-field-wide">Task title<input name="title" value="{{ item.title }}" required></label><label class="goals-field-wide">Notes<textarea name="notes" rows="2">{{ item.notes }}</textarea></label><label>Due date<input type="date" name="target_date"></label><label>Due date<input type="date" name="target_date" value="{{ item.target_date }}"></label><div class="goals-form-actions goals-field-wide"><button type="submit" class="goals-secondary-action">Save task</button><button {% if selected_plan.structure_locked %}hidden{% endif %} type="submit" class="goals-danger-action" formaction="/{{ org.slug }}/goals/items/{{ item.id }}/delete" formnovalidate onclick="return confirm('Delete this KPI task?');">Delete task</button></div></form></details>{% endif %}
                   </div>
-                  <span class="goals-task-weight">{{ "%.2f"|format(kpi.item_weight_percent * kpi.weightage / 100 * goal.weightage / 100) }}%</span>
+                  <span class="goals-task-weight">{% if item.retired %}Retired{% else %}{{ "%.2f"|format(kpi.item_weight_percent * kpi.weightage / 100 * goal.weightage / 100) }}%{% endif %}</span>
                 </article>
                 {% else %}<p class="goals-empty-note">No tasks added under this KPI yet.</p>{% endfor %}
               </div>
@@ -229,6 +239,7 @@
               <details class="goals-add-evidence"><summary>Add evidence</summary><form method="post" action="/{{ org.slug }}/goals/kpis/{{ kpi.id }}/evidence" class="goals-form-grid"><label>Task code<input name="task_code" placeholder="Optional task ID"></label><label>Work-list item ID<input type="number" min="1" name="work_list_item_id" placeholder="Optional item ID"></label><label class="goals-field-wide">Evidence URL<input type="url" name="external_url" placeholder="https://..."></label><label class="goals-field-wide">Evidence note<textarea name="notes" rows="2" placeholder="Result, document, feedback, or other proof"></textarea></label><button type="submit" class="goals-secondary-action">Save evidence</button></form></details>
               {% endif %}
               {% if kpi.evidence %}<div class="goals-evidence-list">{% for evidence in kpi.evidence %}<article class="goals-evidence-row"><div><strong>{% if evidence.task_id %}Linked task{% elif evidence.external_url %}Linked evidence{% else %}Evidence note{% endif %}</strong>{% if evidence.notes %}<p>{{ evidence.notes }}</p>{% endif %}{% if evidence.external_url %}<a href="{{ evidence.external_url }}" target="_blank" rel="noopener">Open evidence</a>{% endif %}</div><small>{{ evidence.created_by_name }} · {{ evidence.created_at_label }}</small>{% if selected_plan.can_update_progress %}<form method="post" action="/{{ org.slug }}/goals/evidence/{{ evidence.id }}/delete"><button class="goals-danger-action" type="submit" onclick="return confirm('Remove this evidence?');">Remove</button></form>{% endif %}</article>{% endfor %}</div>{% endif %}
+              {% endif %}
             </section>
             {% else %}<p class="goals-empty-panel">No KPIs under this goal yet.</p>{% endfor %}
           </div>

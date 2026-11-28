@@ -87,9 +87,12 @@
             <td><a class="team-work-task-name" href="/{{ org.slug }}/tasks/{{ task.task_id }}">{{ task.name }}</a><span class="team-work-task-id">{{ task.task_id }}</span></td>
             <td><span class="team-work-status {% if task.task_id in completed_task_ids %}is-complete{% elif task.status.value == 'stalled' %}is-blocked{% elif task.status.value == 'started' %}is-progress{% else %}is-open{% endif %}">{% if task.task_id in completed_task_ids %}Complete{% elif task.status.value == 'not_started' %}Not started{% elif task.status.value == 'started' %}In progress{% else %}Blocked{% endif %}</span>{% if task.task_id not in completed_task_ids and task.end_date and task.end_date < today %}<span class="team-work-overdue-note">Overdue</span>{% endif %}</td>
             <td>{% if task.end_date %}<span class="{% if task.task_id not in completed_task_ids and task.end_date < today %}is-date-overdue{% endif %}">{{ task.end_date.strftime('%b %-d, %Y') }}</span>{% else %}<span class="team-work-muted">No due date</span>{% endif %}</td>
-            <td>{% if task.estimated_hours is not none %}{{ task.logged_hours or 0 }}h / {{ task.estimated_hours }}h{% else %}{{ task.logged_hours or 0 }}h logged{% endif %}</td>
+            <td>{% if task.estimated_hours is not none %}{{ task.logged_hours or 0 }}h / {{ task.estimated_hours }}h{% else %}{{ task.logged_hours or 0 }}h logged{% endif %}<button type="button" class="team-effort-toggle" data-effort-url="/api/v1/tasks/{{ task.task_id|urlencode }}/time-logs" aria-expanded="false" aria-controls="effort-{{ task.id }}" aria-label="Effort logs for {{ task.task_id }}">View logs</button></td>
             <td>{% if task.is_high_priority %}<span class="team-work-priority is-high">High</span>{% else %}<span class="team-work-muted">Normal</span>{% endif %}</td>
             <td>{% if task.assigned_by_user %}{{ task.assigned_by_user.full_name }}{% else %}<span class="team-work-muted">Unknown</span>{% endif %}</td>
+          </tr>
+          <tr class="team-effort-row" id="effort-{{ task.id }}" hidden>
+            <td colspan="6"><div class="team-effort-content" aria-live="polite"></div></td>
           </tr>
           {% else %}
           <tr><td colspan="6" class="team-work-empty">{% if q %}No tasks match “{{ q }}”. Try another search or clear the filter.{% elif view != 'all' %}No tasks match this filter.{% else %}No visible tasks yet. {% if can_assign_team_tasks %}<a href="/{{ org.slug }}/manager/create-team-tasks">Assign the first task</a>.{% endif %}{% endif %}</td></tr>
@@ -99,4 +102,51 @@
     </div>
   </section>
 </section>
+<script>
+  document.querySelectorAll("[data-effort-url]").forEach((button) => {
+    const row = document.getElementById(button.getAttribute("aria-controls"));
+    const content = row.querySelector(".team-effort-content");
+
+    button.addEventListener("click", async () => {
+      row.hidden = !row.hidden;
+      button.setAttribute("aria-expanded", String(!row.hidden));
+      button.textContent = row.hidden ? "View logs" : "Hide logs";
+      if (row.hidden || row.dataset.loaded || row.dataset.loading) return;
+      row.dataset.loading = "true";
+      content.textContent = "Loading effort logs…";
+      try {
+        const response = await fetch(button.dataset.effortUrl, {headers: {Accept: "application/json"}});
+        if (!response.ok) throw new Error("Request failed");
+        const logs = await response.json();
+        if (!logs.length) {
+          content.textContent = "No effort logged yet.";
+        } else {
+          const table = document.createElement("table");
+          table.className = "team-effort-table";
+          table.setAttribute("aria-label", button.getAttribute("aria-label"));
+          const heading = table.createTHead().insertRow();
+          for (const label of ["Date", "Description", "Hours"]) {
+            const cell = document.createElement("th");
+            cell.scope = "col";
+            cell.textContent = label;
+            heading.append(cell);
+          }
+          const body = table.createTBody();
+          for (const log of logs) {
+            const entry = body.insertRow();
+            entry.insertCell().textContent = log.date;
+            entry.insertCell().textContent = log.notes || "No description recorded.";
+            entry.insertCell().textContent = `${log.hours}h`;
+          }
+          content.replaceChildren(table);
+        }
+        row.dataset.loaded = "true";
+      } catch {
+        content.textContent = "Could not load effort logs. Close and reopen this row to retry.";
+      } finally {
+        delete row.dataset.loading;
+      }
+    });
+  });
+</script>
 {% endblock %}

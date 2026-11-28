@@ -396,6 +396,7 @@ class PerformancePlan(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    revision: Mapped[int] = mapped_column(default=0, server_default="0")
     year: Mapped[int] = mapped_column(index=True)
     cycle_label: Mapped[str] = mapped_column(String(40), default="")
     cycle_start: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -434,7 +435,24 @@ class PerformanceGoal(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     plan: Mapped[PerformancePlan] = relationship(back_populates="goals")
+    members: Mapped[list["PerformanceGoalMember"]] = relationship(cascade="all, delete-orphan")
     kpis: Mapped[list["PerformanceKPI"]] = relationship(back_populates="goal", cascade="all, delete-orphan")
+
+
+class PerformanceGoalMember(Base):
+    __tablename__ = "performance_goal_members"
+
+    goal_id: Mapped[int] = mapped_column(ForeignKey("performance_goals.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True, index=True)
+    invited_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PerformanceDigestDelivery(Base):
+    __tablename__ = "performance_digest_deliveries"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    digest_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class PerformanceKPI(Base):
@@ -454,6 +472,7 @@ class PerformanceKPI(Base):
     measurement_frequency: Mapped[str] = mapped_column(String(30), default="annual")
     owner_update: Mapped[str] = mapped_column(Text, default="")
     weightage: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -474,6 +493,8 @@ class PerformanceKPIItem(Base):
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

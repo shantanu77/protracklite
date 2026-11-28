@@ -31,7 +31,7 @@
   {% for kpi in goal.kpis %}
   <article class="card">
     <div class="goal-kpi-head">
-      <div><p class="eyebrow">{{ kpi.measurement_label }} · {{ "%.2f"|format(kpi.weightage) }}% weight</p><h3>{{ kpi.title }}</h3><p>{{ kpi.description }}</p></div>
+      <div><p class="eyebrow">{{ kpi.measurement_label }} · {% if kpi.retired %}Retired{% else %}{{ "%.2f"|format(kpi.weightage) }}% weight{% endif %}</p><h3>{{ kpi.title }}</h3><p>{{ kpi.description }}</p></div>
       <div class="goal-score"><strong>{{ "%.2f"|format(kpi.achievement_percent) }}%</strong><small>achievement</small></div>
     </div>
     {% if kpi.measurement_type == "checklist" %}

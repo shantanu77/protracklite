@@ -58,7 +58,9 @@ deploy_remote() {
     install -m 644 deploy/protracklite-list-target-reminder.service /etc/systemd/system/protracklite-list-target-reminder.service
     install -m 644 deploy/protracklite-list-target-reminder.timer /etc/systemd/system/protracklite-list-target-reminder.timer
     install -m 644 deploy/protracklite-list-activity-digest.service /etc/systemd/system/protracklite-list-activity-digest.service
+    install -m 644 deploy/protracklite-performance-digest.service /etc/systemd/system/protracklite-performance-digest.service
     install -m 644 deploy/protracklite-list-activity-digest.timer /etc/systemd/system/protracklite-list-activity-digest.timer
+    install -m 644 deploy/protracklite-performance-digest.timer /etc/systemd/system/protracklite-performance-digest.timer
     install -m 644 deploy/protracklite-capacity-digest.service /etc/systemd/system/protracklite-capacity-digest.service
     install -m 644 deploy/protracklite-capacity-digest.timer /etc/systemd/system/protracklite-capacity-digest.timer
     install -m 644 deploy/protracklite-manager-effort-digest.service /etc/systemd/system/protracklite-manager-effort-digest.service
@@ -73,6 +75,7 @@ deploy_remote() {
     systemctl enable --now protracklite-manager-effort-digest.timer
     systemctl enable --now protracklite-monthly-attendance-effort.timer
     systemctl restart protracklite
+    systemctl enable --now protracklite-performance-digest.timer
     systemctl --no-pager --full status protracklite
     systemctl --no-pager --full status protracklite-effort-reminder.timer
     systemctl --no-pager --full status protracklite-list-activity-digest.timer
